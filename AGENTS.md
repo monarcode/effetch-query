@@ -11,6 +11,8 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   work.
 - `.docs/PLAN.md` is the phased plan. Tick its boxes as items land, and keep
   its **Status** line current.
+- `.docs/future-plans.md` holds work after 0.1 (Solid, devtools, …). Add
+  findings there as they come up.
 - `.docs/` is gitignored and lives on the maintainer's machine. If it's
   missing, ask for it.
 
@@ -34,15 +36,23 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
 4. **Runtime targets: browsers, React Native (Hermes/Metro), Node ≥ 20, Bun
    and Deno.** No `node:` imports, no Node globals, no `new URL()`, no
    `#private` fields. No DOM globals without a guard. The core entry point
-   never imports `react` or `react-native`. The React Native entry point takes
-   `AppState` and `NetInfo` as arguments instead of importing them.
-5. **Never run `git commit`, `git push`, `git tag`**, or anything else that
+   never imports `react` or `react-native`, and must import cleanly in React
+   Server Components. The React Native entry point takes `AppState` and
+   `NetInfo` as arguments instead of importing them.
+5. **Server-safe and framework-agnostic** (DESIGN.md §5.8). One server process
+   serves many requests, so there's no module-level mutable state: everything
+   lives in a client's registry, and `dispose()` releases it. Behaviour
+   belongs in the core; framework entries (`./react`, later `./solid`) only
+   subscribe and wire up lifecycle. Frameworks and integrations are subpaths
+   of this one package (`./<framework>`, `./<framework>/<integration>`) with
+   optional peers.
+6. **Never run `git commit`, `git push`, `git tag`**, or anything else that
    writes git history, unless the maintainer explicitly asks. Never commit
    `dist/`.
-6. Never run `npm publish` (except `--dry-run`), `npm login`, `npm trust`,
+7. Never run `npm publish` (except `--dry-run`), `npm login`, `npm trust`,
    `gh secret`, `gh workflow run` or `gh release`, and never change repo
    settings.
-7. **Ask before changing a settled decision** (DESIGN.md §2, PLAN.md
+8. **Ask before changing a settled decision** (DESIGN.md §2, PLAN.md
    "Settled decisions"). If the code shows a decision can't work, stop and
    explain why rather than working around it.
 
