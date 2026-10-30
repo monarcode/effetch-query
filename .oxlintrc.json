@@ -1,0 +1,148 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": ["import", "promise", "typescript", "unicorn"],
+	"env": {
+		"browser": true,
+		"es2025": true
+	},
+	"ignorePatterns": [
+		"**/node_modules/**",
+		"**/dist/**",
+		"**/coverage/**",
+		"**/.smoke/**"
+	],
+	"rules": {
+		"no-unused-vars": "off",
+		"typescript/no-unused-vars": [
+			"warn",
+			{
+				"fix": {
+					"imports": "safe-fix"
+				}
+			}
+		],
+		"import/no-cycle": "error",
+		"no-restricted-imports": [
+			"error",
+			{
+				"paths": [
+					{
+						"name": "effect",
+						"message": "Import a subpath, e.g. effect/Effect"
+					},
+					{
+						"name": "effect/reactivity",
+						"message": "Import a subpath, e.g. effect/reactivity/Atom"
+					},
+					{
+						"name": "react",
+						"message": "Only src/react may import React"
+					},
+					{
+						"name": "@effect/atom-react",
+						"message": "Only src/react may import @effect/atom-react"
+					},
+					{
+						"name": "react-native",
+						"message": "Take React Native APIs as arguments instead"
+					},
+					{
+						"name": "@react-native-community/netinfo",
+						"message": "Take NetInfo as an argument instead"
+					}
+				],
+				"patterns": [
+					{
+						"group": ["node:*"],
+						"message": "No Node built-ins in library code"
+					}
+				]
+			}
+		],
+		"no-restricted-globals": [
+			"error",
+			{
+				"name": "window",
+				"message": "No DOM globals in library code: React Native has none"
+			},
+			{
+				"name": "document",
+				"message": "No DOM globals in library code: React Native has none"
+			},
+			{
+				"name": "navigator",
+				"message": "No DOM globals in library code: React Native has none"
+			},
+			{
+				"name": "URL",
+				"message": "React Native's URL support is incomplete"
+			},
+			{
+				"name": "process",
+				"message": "No Node globals in library code"
+			},
+			{
+				"name": "Buffer",
+				"message": "No Node globals in library code"
+			}
+		]
+	},
+	"overrides": [
+		{
+			"files": ["src/react/**"],
+			"rules": {
+				"no-restricted-imports": [
+					"error",
+					{
+						"paths": [
+							{
+								"name": "effect",
+								"message": "Import a subpath, e.g. effect/Effect"
+							},
+							{
+								"name": "effect/reactivity",
+								"message": "Import a subpath, e.g. effect/reactivity/Atom"
+							},
+							{
+								"name": "react-native",
+								"message": "Take React Native APIs as arguments instead"
+							},
+							{
+								"name": "@react-native-community/netinfo",
+								"message": "Take NetInfo as an argument instead"
+							}
+						],
+						"patterns": [
+							{
+								"group": ["node:*"],
+								"message": "No Node built-ins in library code"
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"files": ["scripts/**", "test/**", "examples/**", "*.config.ts"],
+			"env": { "node": true },
+			"rules": {
+				"no-restricted-globals": "off",
+				"no-restricted-imports": [
+					"error",
+					{
+						"paths": [
+							{
+								"name": "effect",
+								"message": "Import a subpath, e.g. effect/Effect"
+							},
+							{
+								"name": "effect/reactivity",
+								"message": "Import a subpath, e.g. effect/reactivity/Atom"
+							}
+						]
+					}
+				]
+			}
+		}
+	]
+}

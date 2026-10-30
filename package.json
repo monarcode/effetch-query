@@ -1,0 +1,114 @@
+{
+	"name": "@monarcode/effetch-query",
+	"version": "0.0.0",
+	"description": "TanStack-Query-style server state for Effect: cached queries, mutations and invalidation on effect/reactivity",
+	"keywords": [
+		"cache",
+		"effect",
+		"effect-ts",
+		"mutation",
+		"query",
+		"react",
+		"react-native",
+		"server-state"
+	],
+	"homepage": "https://github.com/monarcode/effetch-query#readme",
+	"bugs": {
+		"url": "https://github.com/monarcode/effetch-query/issues"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/monarcode/effetch-query.git"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE",
+		"CHANGELOG.md"
+	],
+	"type": "module",
+	"sideEffects": false,
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./react": {
+			"types": "./dist/react/index.d.ts",
+			"default": "./dist/react/index.js"
+		},
+		"./react-native": {
+			"types": "./dist/react-native/index.d.ts",
+			"default": "./dist/react-native/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"scripts": {
+		"prepare": "husky",
+		"lint": "oxlint .",
+		"lint:fix": "oxlint --fix .",
+		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --format text",
+		"format": "oxfmt --write .",
+		"format:check": "oxfmt --check .",
+		"build": "node scripts/build.mjs",
+		"dev": "tsc -p tsconfig.build.json --watch",
+		"typecheck": "tsc --noEmit",
+		"check:docs": "node scripts/check-docs.mjs",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"check:package": "publint --strict && attw --pack . --profile esm-only",
+		"smoke": "bash scripts/smoke.sh",
+		"check": "pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run check:docs && pnpm run lint:effect && pnpm test && pnpm run build && pnpm run check:package && pnpm run smoke",
+		"prepublishOnly": "pnpm run check"
+	},
+	"devDependencies": {
+		"@arethetypeswrong/cli": "0.18.5",
+		"@effect/atom-react": "4.1.0",
+		"@effect/language-service": "0.87.5",
+		"@effect/vitest": "4.1.0",
+		"@testing-library/dom": "10.4.2",
+		"@testing-library/react": "16.3.3",
+		"@types/node": "26.6.6",
+		"@types/react": "19.3.0",
+		"@types/react-dom": "19.3.0",
+		"effect": "4.1.0",
+		"happy-dom": "21.0.4",
+		"husky": "9.1.7",
+		"oxfmt": "0.75.0",
+		"oxlint": "1.90.0",
+		"publint": "0.3.25",
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
+		"scheduler": "0.28.0",
+		"typescript": "6.0.3",
+		"vitest": "5.0.5"
+	},
+	"peerDependencies": {
+		"@effect/atom-react": "^4.1.0",
+		"effect": "^4.1.0",
+		"react": ">=19.0.0 <20.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@effect/atom-react": {
+			"optional": true
+		},
+		"react": {
+			"optional": true
+		}
+	},
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": ">=24",
+			"onFail": "error"
+		}
+	},
+	"packageManager": "pnpm@10.12.1"
+}

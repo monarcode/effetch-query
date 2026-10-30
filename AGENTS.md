@@ -23,9 +23,9 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
    `@stability unstable`. For the React bindings, read
    `node_modules/@effect/atom-react`. Use deep namespace imports:
    `import * as Atom from "effect/reactivity/Atom"`.
-2. **Verify tool flags against current docs** (tsdown, vitest, attw, publint,
-   GitHub Actions, npm). If a flag doesn't exist, find its current equivalent
-   rather than guessing.
+2. **Verify tool flags against current docs** (tsc, vitest, oxlint, oxfmt,
+   attw, publint, GitHub Actions, npm). If a flag doesn't exist, find its
+   current equivalent rather than guessing.
 3. **The `.d.ts` files are the documentation.** Consumers' "Go to Definition"
    lands on `.d.ts` files (no source or declaration maps are shipped). Every
    public export needs JSDoc with a description, an `@example` and
@@ -59,6 +59,11 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
 - Source imports use explicit `.js` extensions. Because
   `exactOptionalPropertyTypes` is on, write optional props as
   `readonly foo?: T | undefined`.
+- The build is plain `tsc` (`scripts/build.mjs`), not a bundler. Bundlers
+  rewrite `export * as Query` into a synthetic namespace whose name shows up
+  in consumers' hovers. Stay on TypeScript 6: TypeScript 7 ships no compiler
+  API, which `check-docs.mjs`, `editor-check.mjs` and the Effect language
+  service need.
 
 ## Working with the maintainer
 
