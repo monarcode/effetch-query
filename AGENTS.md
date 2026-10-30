@@ -66,6 +66,11 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   so readers can navigate. Non-obvious behaviour, such as rollback order or
   when a hook doesn't run, belongs there too.
 - `src/internal/` isn't public: document only what's non-obvious.
+- Pass `useEffect` (and `useLayoutEffect`) a named function, not an arrow,
+  and name its cleanup too:
+  `useEffect(function subscribeToFocus() { … return function unsubscribe() { … } }, [deps])`.
+  The names show in stack traces and React DevTools, and say what the effect
+  is for.
 - Source imports use explicit `.js` extensions. Because
   `exactOptionalPropertyTypes` is on, write optional props as
   `readonly foo?: T | undefined`.
