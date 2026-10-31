@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 
+import type { Todo } from "./api.js";
 import { App } from "./App.js";
 import { makeQueryClient } from "./client.js";
 import { type FakeApi, makeFakeApi } from "./fake-api.js";
@@ -20,11 +21,13 @@ afterEach(async () => {
 	await Promise.all(clients.splice(0).map((client) => client.dispose()));
 });
 
-const start = async () => {
-	const api = makeFakeApi([
+const start = async (
+	initial: ReadonlyArray<Todo> = [
 		{ id: 1, title: "Write the README", done: false },
 		{ id: 2, title: "Ship the alpha", done: false },
-	]);
+	],
+) => {
+	const api = makeFakeApi(initial);
 	const client = makeQueryClient(api.layer);
 	clients.push(client);
 	render(<App client={client} />);
@@ -88,13 +91,47 @@ it("shows a missing todo, and loads it again on retry", async () => {
 
 it("refreshes the list on demand", async () => {
 	const api = await start();
-	api.todos.set(3, { id: 3, title: "Plan the beta", done: false });
+	api.todos.set(1, { id: 1, title: "Rewrite the README", done: false });
 
 	const release = api.hold();
 	fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
 	await screen.findByRole("button", { name: "Refreshing…" });
 	release();
-	await screen.findByText("Plan the beta");
+	await screen.findByText("Rewrite the README");
 	expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+});
+
+const three: ReadonlyArray<Todo> = [
+	{ id: 1, title: "Write the README", done: false },
+	{ id: 2, title: "Ship the alpha", done: false },
+	{ id: 3, title: "Plan the beta", done: false },
+];
+
+it("loads more todos a page at a time", async () => {
+	const api = await start(three);
+	expect(screen.queryByText("Plan the beta")).toBeNull();
+
+	const release = api.hold();
+	fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+	await screen.findByRole("button", { name: "Loading more…" });
+	expect(screen.getByText("Write the README")).toBeTruthy();
+	release();
+	await screen.findByText("Plan the beta");
+	expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+});
+
+it("toggles a todo on a later page at once", async () => {
+	const api = await start(three);
+	fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+	await screen.findByText("Plan the beta");
+
+	const release = toggle(api, "Plan the beta");
+
+	await waitFor(() => expect(checkbox("Plan the beta").checked).toBe(true));
+	expect(api.todos.get(3)?.done).toBe(false);
+	release();
+	await waitFor(() => expect(api.todos.get(3)?.done).toBe(true));
+	expect(checkbox("Plan the beta").checked).toBe(true);
 });

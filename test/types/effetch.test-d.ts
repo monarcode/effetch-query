@@ -7,7 +7,7 @@ import * as Fetch from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
 import { endpoints } from "../../src/effetch/index.js";
-import type { Mutation, Query } from "../../src/index.js";
+import type { InfiniteQuery, Mutation, Query } from "../../src/index.js";
 import { useMutation } from "../../src/react/index.js";
 import { ApiError, type Denied, TestApi } from "../services.js";
 
@@ -90,6 +90,59 @@ describe("Endpoints.query", () => {
 		);
 
 		expectTypeOf(todo).toExtend<Query.QueryTarget>();
+	});
+});
+
+describe("Endpoints.infiniteQuery", () => {
+	const Page = Schema.Struct({
+		items: Schema.Array(Todo),
+		next: Schema.NullOr(Schema.String),
+	});
+	type Page = typeof Page.Type;
+	const listTodos = Fetch.endpoint("GET /todos", { output: Page });
+
+	it("takes A from the output, E as Endpoints.query, and P from initialPageParam", () => {
+		const todoPages = api.infiniteQuery(listTodos, {
+			pageParam: "cursor",
+			initialPageParam: null as string | null,
+			nextPageParam: (last) => last.next,
+		});
+
+		expectTypeOf(todoPages({ query: { limit: 20 } })).toEqualTypeOf<
+			InfiniteQuery.InfiniteQuery<
+				Page,
+				CallErrors<typeof ApiError.Type>,
+				string | null
+			>
+		>();
+		expectTypeOf(todoPages).toExtend<Query.QueryTarget>();
+	});
+
+	it("needs a page param a query field takes", () => {
+		api.infiniteQuery(listTodos, {
+			// @ts-expect-error: an object can't be sent in a query field
+			pageParam: "cursor",
+			initialPageParam: { after: "a" },
+			nextPageParam: () => undefined,
+		});
+		api.infiniteQuery(listTodos, {
+			// @ts-expect-error: a Date, one of the param's types, can't be sent either
+			pageParam: "cursor",
+			initialPageParam: 0 as number | Date,
+			nextPageParam: () => undefined,
+		});
+	});
+
+	it("only takes endpoints without a body", () => {
+		api.infiniteQuery(
+			// @ts-expect-error: POST has a body
+			Fetch.endpoint("POST /todos/search", { output: Page }),
+			{
+				pageParam: "cursor",
+				initialPageParam: null,
+				nextPageParam: () => undefined,
+			},
+		);
 	});
 });
 

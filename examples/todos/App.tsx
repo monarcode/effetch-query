@@ -5,8 +5,8 @@ import type { QueryClient } from "@monarcode/effetch-query";
 import {
 	QueryFailure,
 	QueryProvider,
+	useInfiniteQuery,
 	useMutation,
-	useQuery,
 	useRefetch,
 	useResetQueryFailure,
 	useSuspenseQuery,
@@ -31,8 +31,12 @@ export function App({ client }: { readonly client: QueryClient.QueryClient }) {
 	);
 }
 
+/** How many todos a page holds. */
+const pageSize = 2;
+
 function TodoList({ onOpen }: { readonly onOpen: (id: number) => void }) {
-	const result = useQuery(todos());
+	const { result, fetchNextPage, hasNextPage, isFetchingNextPage } =
+		useInfiniteQuery(todos({ query: { limit: pageSize } }));
 	// A refresh button on the web; a RefreshControl in React Native.
 	const { refetch, isRefetching } = useRefetch(todos);
 
@@ -46,12 +50,23 @@ function TodoList({ onOpen }: { readonly onOpen: (id: number) => void }) {
 				onFailure: () => <p role="alert">Couldn't load your todos.</p>,
 				onSuccess: ({ value }) => (
 					<ul>
-						{value.map((item) => (
-							<TodoItem key={item.id} todo={item} onOpen={onOpen} />
-						))}
+						{value.pages
+							.flatMap((page) => page.todos)
+							.map((item) => (
+								<TodoItem key={item.id} todo={item} onOpen={onOpen} />
+							))}
 					</ul>
 				),
 			})}
+			{/* onEndReached on a FlatList in React Native. */}
+			{hasNextPage ? (
+				<button
+					disabled={isFetchingNextPage}
+					onClick={() => void fetchNextPage()}
+				>
+					{isFetchingNextPage ? "Loading more…" : "Load more"}
+				</button>
+			) : null}
 		</section>
 	);
 }

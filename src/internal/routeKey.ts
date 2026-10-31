@@ -87,6 +87,23 @@ export const canonicalArgs = (
 	};
 };
 
+/** Arguments without one query field, the page field of an infinite query. */
+export const withoutQueryField = (
+	args: RouteArgs,
+	field: string,
+): RouteArgs => {
+	if (args.query === undefined || !(field in args.query)) {
+		return args;
+	}
+	const query = Object.fromEntries(
+		Object.entries(args.query).filter(([name]) => name !== field),
+	);
+	return {
+		...(args.params === undefined ? {} : { params: args.params }),
+		...(Object.keys(query).length === 0 ? {} : { query }),
+	};
+};
+
 /** The key of one call: the prefix, the path with params filled in, then the query. */
 export const routeKey = (
 	prefix: QueryKey,

@@ -5,10 +5,10 @@ Complete programs using effetch-query. Each one is typechecked
 always match the current API. Each folder has its own `tsconfig.json`,
 because each registers its own services (`Register`).
 
-| Example                       | What it shows                                                                                                    |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| [`effect-only/`](effect-only) | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched, what's written. |
-| [`todos/`](todos)             | A React app over effetch endpoints: a list, a detail, an optimistic toggle, a missing todo and a refresh button. |
+| Example                       | What it shows                                                                                                          |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [`effect-only/`](effect-only) | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched, what's written.       |
+| [`todos/`](todos)             | A React app over effetch endpoints: a paged list, a detail, an optimistic toggle, a missing todo and a refresh button. |
 
 ## `effect-only/`
 
@@ -42,11 +42,15 @@ todos/
 
 - **[`api.ts`](todos/api.ts)** defines the effetch client and registers it
   (`Register["services"]`). `endpoints` turns three `Fetch.endpoint`
-  definitions into `todos`, `todo` and `toggleTodo`. The toggle updates the
-  list and the detail optimistically, writes the server's todo when it
-  succeeds, and invalidates the list.
+  definitions into `todos` (an infinite query, a page at a time through the
+  `skip` query field), `todo` and `toggleTodo`. The toggle updates every
+  cached page of every list (`Query.update` on the family) and the detail
+  optimistically, writes the server's todo when it succeeds, and
+  invalidates the list.
 - **[`App.tsx`](todos/App.tsx)**:
-  - the list reads `todos()` with `useQuery`, and refreshes it with
+  - the list reads `todos({ query: { limit: 2 } })` with
+    `useInfiniteQuery`, loads more with its `fetchNextPage` (a `FlatList`'s
+    `onEndReached` in React Native), and refreshes every loaded page with
     `useRefetch` (a `RefreshControl` in React Native);
   - each item toggles with its own `useMutation`, and shows when its save
     failed;
@@ -54,10 +58,12 @@ todos/
     missing todo reaches an error boundary as a `QueryFailure`, whose
     "Try again" button refetches it with `useResetQueryFailure`.
 - **[`App.test.tsx`](todos/App.test.tsx)** renders the app over
-  [`fake-api.ts`](todos/fake-api.ts), which can hold responses and fail the
-  next request. It checks the toggle shows before the server answers, that a
-  rejected toggle is undone, that a missing todo can be retried once it
-  exists, and that a refresh shows the server's latest list.
+  [`fake-api.ts`](todos/fake-api.ts), which serves pages, and can hold
+  responses and fail the next request. It checks the toggle shows before
+  the server answers, on the first page and a later one, that a rejected
+  toggle is undone, that a missing todo can be retried once it exists, that
+  "load more" keeps the list shown while the next page loads, and that a
+  refresh shows the server's latest list.
 
 To run it against a real server, serve `main.tsx` with any bundler (Vite,
 for example) and an API at `https://todos.example`, or change `baseUrl` in

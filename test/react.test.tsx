@@ -8,8 +8,14 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Mutation, Query, type QueryClient } from "../src/index.js";
 import {
+	InfiniteQuery,
+	Mutation,
+	Query,
+	type QueryClient,
+} from "../src/index.js";
+import {
+	type InfinitePageControls,
 	MissingQueryProvider,
 	QueryFailure,
 	QueryProvider,
@@ -17,7 +23,9 @@ import {
 	useQuery,
 	useQueryClient,
 	useRefetch,
+	useInfiniteQuery,
 	useResetQueryFailure,
+	useSuspenseInfiniteQuery,
 	useSuspenseQuery,
 } from "../src/react/index.js";
 import {
@@ -580,5 +588,175 @@ describe("useRefetch", () => {
 
 		await expect(controls?.refetch()).resolves.toBeUndefined();
 		expect(controls?.isRefetching).toBe(false);
+	});
+});
+
+describe("useInfiniteQuery and useSuspenseInfiniteQuery", () => {
+	class PageFailed {
+		readonly _tag = "PageFailed";
+	}
+
+	/** Pages of two numbers, up to `last`; `hold` makes the next page wait, `fail` fails it. */
+	const numbers = (last = 3) => {
+		const state = {
+			fetched: [] as Array<number>,
+			hold: undefined as Effect.Effect<void> | undefined,
+			fail: false,
+		};
+		const query = InfiniteQuery.make({
+			key: ["numbers"],
+			initialPageParam: 0,
+			run: (page: number) =>
+				Effect.suspend(() => {
+					state.fetched.push(page);
+					const hold = state.hold ?? Effect.void;
+					state.hold = undefined;
+					if (state.fail) {
+						state.fail = false;
+						return Effect.andThen(hold, Effect.fail(new PageFailed()));
+					}
+					return Effect.as(hold, [page * 2, page * 2 + 1]);
+				}),
+			nextPageParam: (_, __, page) => (page < last ? page + 1 : undefined),
+		});
+		return { state, query };
+	};
+
+	type Numbers = ReturnType<typeof numbers>["query"];
+
+	let more: () => Promise<void> = () => Promise.resolve();
+
+	const describeControls = (
+		items: ReadonlyArray<number>,
+		controls: InfinitePageControls,
+	) =>
+		`${items.join(",")}${controls.hasNextPage ? " +more" : ""}${
+			controls.isFetchingNextPage ? " loading-next" : ""
+		}`;
+
+	const List = ({ query }: { readonly query: Numbers | null }) => {
+		const { result, ...controls } = useInfiniteQuery(query);
+		more = controls.fetchNextPage;
+		const items = AsyncResult.getOrElse(result, () => ({
+			pages: [] as ReadonlyArray<ReadonlyArray<number>>,
+		})).pages.flat();
+		return (
+			<p data-testid="result">
+				{result._tag} {describeControls(items, controls)}
+			</p>
+		);
+	};
+
+	const SuspenseList = ({ query }: { readonly query: Numbers }) => {
+		const { result, ...controls } = useSuspenseInfiniteQuery(query);
+		more = controls.fetchNextPage;
+		return (
+			<p data-testid="result">
+				{describeControls(result.value.pages.flat(), controls)}
+			</p>
+		);
+	};
+
+	it("loads more pages, showing the loaded ones meanwhile", async () => {
+		const client = await makeClient();
+		const { state, query } = numbers(1);
+		render(withClient(client, <List query={query} />));
+		expect(await screen.findByText("Success 0,1 +more")).toBeDefined();
+
+		const slow = gate();
+		state.hold = slow.wait;
+		let done: Promise<void> = Promise.resolve();
+		act(() => {
+			done = more();
+		});
+		expect(
+			await screen.findByText("Success 0,1 +more loading-next"),
+		).toBeDefined();
+		await act(async () => {
+			slow.open();
+			await done;
+		});
+
+		expect(text()).toBe("Success 0,1,2,3");
+		expect(state.fetched).toEqual([0, 1]);
+	});
+
+	it("fetches once, under StrictMode's double render and effects", async () => {
+		const client = await makeClient();
+		const { state, query } = numbers();
+
+		render(
+			<React.StrictMode>
+				{withClient(client, <List query={query} />)}
+			</React.StrictMode>,
+		);
+
+		expect(await screen.findByText("Success 0,1 +more")).toBeDefined();
+		expect(state.fetched).toEqual([0]);
+	});
+
+	it("gives Initial and inert controls for null", async () => {
+		const client = await makeClient();
+		render(withClient(client, <List query={null} />));
+
+		expect(text()).toBe("Initial ");
+		await expect(more()).resolves.toBeUndefined();
+	});
+
+	it("suspends only until the first page", async () => {
+		const client = await makeClient();
+		const { state, query } = numbers();
+		const slow = gate();
+		state.hold = slow.wait;
+		render(
+			withClient(
+				client,
+				<React.Suspense fallback={<p>loading</p>}>
+					<SuspenseList query={query} />
+				</React.Suspense>,
+			),
+		);
+		expect(await screen.findByText("loading")).toBeDefined();
+		await act(async () => slow.open());
+		expect(await screen.findByText("0,1 +more")).toBeDefined();
+
+		const next = gate();
+		state.hold = next.wait;
+		let done: Promise<void> = Promise.resolve();
+		act(() => {
+			done = more();
+		});
+		expect(await screen.findByText("0,1 +more loading-next")).toBeDefined();
+		expect(screen.queryByText("loading")).toBeNull();
+		await act(async () => {
+			next.open();
+			await done;
+		});
+
+		expect(text()).toBe("0,1,2,3 +more");
+	});
+
+	it("keeps showing the pages when a page fails, without throwing", async () => {
+		const client = await makeClient();
+		const { state, query } = numbers();
+		render(
+			withClient(
+				client,
+				<Boundary fallback={() => <p>failed</p>}>
+					<React.Suspense fallback={<p>loading</p>}>
+						<SuspenseList query={query} />
+					</React.Suspense>
+				</Boundary>,
+			),
+		);
+		expect(await screen.findByText("0,1 +more")).toBeDefined();
+
+		state.fail = true;
+		await act(() => more());
+
+		expect(text()).toBe("0,1 +more");
+		expect(screen.queryByText("failed")).toBeNull();
+		await act(() => more());
+		expect(text()).toBe("0,1,2,3 +more");
 	});
 });

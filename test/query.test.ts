@@ -366,6 +366,19 @@ describe("Query.fetch and Query.prefetch", () => {
 		expect(fetches.count).toBe(1);
 	});
 
+	it("fetches once a query invalidated while unused whose run settles at once", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(["sync"], (fetch) =>
+			Effect.succeed(fetch),
+		);
+		await valueOf(client.registry, query);
+
+		await client.runPromise(Query.invalidate(query));
+
+		expect(await client.runPromise(Query.fetch(query))).toBe(2);
+		expect(fetches.count).toBe(2);
+	});
+
 	it("returns a fresh value from the cache and refetches a stale one", async () => {
 		useFakeTimers();
 		const client = await makeClient();

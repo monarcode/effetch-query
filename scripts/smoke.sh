@@ -116,7 +116,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { InfiniteQuery, Query, QueryClient } from "@monarcode/effetch-query";
 import * as ReactNative from "@monarcode/effetch-query/react-native";
 
 class Greeter extends Context.Service<
@@ -160,6 +160,14 @@ const listened = listening;
 const greeting = await client.runPromise(
 	Greeter.useSync((greeter) => greeter.greet("smoke")),
 );
+const numbers = InfiniteQuery.make({
+	key: ["numbers"],
+	initialPageParam: 0,
+	run: (page: number) => Effect.succeed([page]),
+	nextPageParam: (_, __, page) => (page < 1 ? page + 1 : undefined),
+});
+await client.runPromise(Query.fetch(numbers));
+const paged = await client.runPromise(InfiniteQuery.fetchNextPage(numbers));
 await client.dispose();
 
 if (key.length !== 3) {
@@ -167,6 +175,9 @@ if (key.length !== 3) {
 }
 if (greeting !== "Hello, smoke") {
 	throw new Error(`Unexpected runPromise result: ${greeting}`);
+}
+if (paged.pages.flat().join() !== "0,1") {
+	throw new Error(`Unexpected pages: ${JSON.stringify(paged)}`);
 }
 if (Object.keys(ReactNative).join() !== "reactNativeSignals") {
 	throw new Error("Unexpected react-native exports");
@@ -261,11 +272,13 @@ const expected = [
 	"MissingQueryProvider",
 	"QueryFailure",
 	"QueryProvider",
+	"useInfiniteQuery",
 	"useMutation",
 	"useQuery",
 	"useQueryClient",
 	"useRefetch",
 	"useResetQueryFailure",
+	"useSuspenseInfiniteQuery",
 	"useSuspenseQuery",
 ];
 if (Object.keys(React).sort().join() !== expected.join()) {

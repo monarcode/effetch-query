@@ -17,7 +17,7 @@ import {
 	peek,
 	written,
 } from "./queryAtom.js";
-import { ConfigAtom, type ClientState } from "./runtime.js";
+import { type ClientState, ConfigAtom, StateAtom } from "./runtime.js";
 
 /**
  * Indexes queries by node existence and reports them on the event channel.
@@ -133,6 +133,35 @@ export const updateValue = <A, E>(
 };
 
 /**
+ * Writes a value computed from each cached member's, with its argument, as
+ * `updateValue` does one query. Returns one undo for them all, newest first.
+ */
+export const updateMembers = <Args, A>(
+	registry: AtomRegistry.AtomRegistry,
+	family: object,
+	f: (value: A, args: Args) => A,
+): Undo | undefined => {
+	const undos = Array.from(registry.get(StateAtom).index).flatMap((query) => {
+		const member = internals(query).member;
+		if (member?.family !== family) {
+			return [];
+		}
+		const undo = updateValue(registry, query, (value: A) =>
+			f(value, member.args as Args),
+		);
+		return undo === undefined ? [] : [undo];
+	});
+	if (undos.length === 0) {
+		return undefined;
+	}
+	return () => {
+		for (const undo of undos.reverse()) {
+			undo();
+		}
+	};
+};
+
+/**
  * Drops the query's value and written value in one write, which moves it to
  * a new fetch atom: in use, it fetches straight away; otherwise on its next
  * read. The old fetch atom, and any fetch it runs, goes with its last user.
@@ -156,11 +185,15 @@ export const fetchValue = <A, E>(
 ): Effect.Effect<A, E> =>
 	Effect.suspend(() => {
 		if (Option.isSome(peek(registry, query))) {
+			const { fetchedAt } = registry.get(StateAtom);
+			const before = fetchedAt.get(query);
+			// Reading a query invalidated while unused refetches it, and a fetch
+			// that settles at once leaves nothing waiting to tell it by.
 			const current = registry.get(query);
 			if (isFresh(current, settings(registry, query).staleTime)) {
 				return Effect.succeed(current.value);
 			}
-			if (!current.waiting) {
+			if (!current.waiting && fetchedAt.get(query) === before) {
 				registry.refresh(query);
 			}
 		}

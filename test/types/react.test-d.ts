@@ -4,14 +4,22 @@ import type * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { describe, expectTypeOf, it } from "vitest";
 
-import { Mutation, Query, type QueryClient } from "../../src/index.js";
+import {
+	InfiniteQuery,
+	Mutation,
+	Query,
+	type QueryClient,
+} from "../../src/index.js";
 import {
 	type QueryFailure,
+	useInfiniteQuery,
+	type UseInfiniteQueryResult,
 	useMutation,
 	useQuery,
 	useQueryClient,
 	useRefetch,
 	useResetQueryFailure,
+	useSuspenseInfiniteQuery,
 	useSuspenseQuery,
 } from "../../src/react/index.js";
 
@@ -86,5 +94,47 @@ describe("other hooks", () => {
 		expectTypeOf<QueryFailure["query"]>().toEqualTypeOf<
 			Query.Query<any, any>
 		>();
+	});
+});
+
+describe("useInfiniteQuery and useSuspenseInfiniteQuery", () => {
+	const pages = InfiniteQuery.make({
+		key: ["pages"],
+		initialPageParam: 0,
+		run: (page: number) =>
+			page < 0 ? Effect.fail(new Missing()) : Effect.succeed([page]),
+		nextPageParam: (_, __, page) => page + 1,
+	});
+
+	it("returns the pages' AsyncResult with the page controls, also for null", () => {
+		expectTypeOf(useInfiniteQuery(pages)).toEqualTypeOf<
+			UseInfiniteQueryResult<Array<number>, Missing, number>
+		>();
+		expectTypeOf(useInfiniteQuery(pages).result).toEqualTypeOf<
+			AsyncResult.AsyncResult<
+				InfiniteQuery.InfiniteData<Array<number>, number>,
+				Missing
+			>
+		>();
+		expectTypeOf(
+			useInfiniteQuery(Math.random() > 0.5 ? pages : null),
+		).toEqualTypeOf<UseInfiniteQueryResult<Array<number>, Missing, number>>();
+		expectTypeOf(useInfiniteQuery(pages).fetchNextPage).toEqualTypeOf<
+			() => Promise<void>
+		>();
+	});
+
+	it("useSuspenseInfiniteQuery returns a Success", () => {
+		expectTypeOf(useSuspenseInfiniteQuery(pages).result).toEqualTypeOf<
+			AsyncResult.Success<
+				InfiniteQuery.InfiniteData<Array<number>, number>,
+				Missing
+			>
+		>();
+	});
+
+	it("takes only infinite queries", () => {
+		// @ts-expect-error a plain query has no pages
+		useInfiniteQuery(todo(1));
 	});
 });

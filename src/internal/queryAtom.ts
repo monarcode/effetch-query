@@ -31,6 +31,31 @@ type Run<A, E> = (
 	context: Query.RunContext,
 ) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
 
+/** What a query's fetch gets from the fetch atom building it. */
+export interface FetchContext<A, E> {
+	readonly get: Atom.AtomContext;
+	/**
+	 * What the query showed before this fetch: its value, a value written
+	 * over it, or the last success before a failure. None after a reset.
+	 */
+	readonly previous: () => Option.Option<A>;
+	/** Runs one attempt of the query's work: in its own scope, with its `retry`. */
+	readonly attempt: <X>(
+		run: Run<X, E>,
+	) => Effect.Effect<X, E, QueryClient.Requirements>;
+}
+
+/** One fetch of a query, built from its {@link FetchContext}. */
+export type Fetch<A, E> = (
+	context: FetchContext<A, E>,
+) => Effect.Effect<A, E, QueryClient.Requirements>;
+
+/** The family a query belongs to, and its argument, for `Query.update` on a family. */
+export interface Member {
+	readonly family: object;
+	readonly args: unknown;
+}
+
 /**
  * A value written with `Query.set`. It's shown until a fetch settles after
  * it: the fetch marks it in its `onExit`, before its result is committed, so
@@ -54,6 +79,7 @@ export interface Local<A, E> {
 
 export interface Internals<A, E> {
 	readonly options: Query.Options<E>;
+	readonly member: Member | undefined;
 	readonly local: Atom.Writable<Local<A, E>>;
 	readonly fetchAtom: (
 		generation: number,
@@ -75,6 +101,18 @@ export const internals = <A, E>(query: Query.Query<A, E>): Internals<A, E> =>
 
 export const toRun = <A, E>(run: Query.MakeOptions<A, E>["run"]): Run<A, E> =>
 	Effect.isEffect(run) ? () => run : (run as Run<A, E>);
+
+/** Whether a query is one of the family's members. */
+export const isMember = (
+	query: Query.Query<any, any>,
+	family: object,
+): boolean => internals(query).member?.family === family;
+
+/** A query's fetch: one attempt of `run`. */
+export const runOnce =
+	<A, E>(run: Run<A, E>): Fetch<A, E> =>
+	({ attempt }) =>
+		attempt(run);
 
 /** What a query shows: its fetch's result, or a value written over it. */
 export const combine = <A, E>(
@@ -160,10 +198,13 @@ export const peek = <A, E>(
 /** Builds a query atom (DESIGN.md §5.2). */
 export const makeQuery = <A, E>(definition: {
 	readonly key: Query.QueryKey;
-	readonly run: Run<A, E>;
+	readonly fetch: Fetch<A, E>;
 	readonly options: Query.Options<E>;
+	readonly member?: Member | undefined;
+	/** Atoms that live as long as the query, without refetching it when they change. */
+	readonly mounts?: ReadonlyArray<Atom.Atom<unknown>> | undefined;
 }): Query.Query<A, E> => {
-	const { key, run, options } = definition;
+	const { key, fetch: makeFetch, options, member, mounts = [] } = definition;
 	const { reactivityKeys } = options;
 	// The client's defaults are read at run time, so one definition serves
 	// every client; the watcher resolves them once per query node.
@@ -204,13 +245,30 @@ export const makeQuery = <A, E>(definition: {
 			}
 			const { retry } = get(watcher).settings;
 			const { queries } = get.once(ConfigAtom);
-			// Each attempt gets its own scope, closed in its fiber, and the
-			// client tracks the fiber: `dispose()` waits for both.
-			const attempt = Effect.scoped(
-				run({ result: (query) => get.result(query) }),
-			);
-			const fetch =
-				retry === undefined ? attempt : Effect.retry(attempt, retry);
+			const runContext: Query.RunContext = {
+				result: (query) => get.result(query),
+			};
+			const fetch = makeFetch({
+				get,
+				previous: () => {
+					const { written: value } = get.once(local);
+					const shown = Option.match(
+						get.self<AsyncResult.AsyncResult<A, E>>(),
+						{
+							onNone: () =>
+								Option.map(value, (written) => written.value),
+							onSome: (result) => Option.some(combine(result, value)),
+						},
+					);
+					return Option.flatMap(shown, AsyncResult.value);
+				},
+				// Each attempt gets its own scope, closed in its fiber, and the
+				// client tracks the fiber: `dispose()` waits for both.
+				attempt: (run) => {
+					const once = Effect.scoped(run(runContext));
+					return retry === undefined ? once : Effect.retry(once, retry);
+				},
+			});
 			return Effect.withFiber((fiber) => {
 				const state = get.once(StateAtom);
 				track(state, fiber);
@@ -244,6 +302,9 @@ export const makeQuery = <A, E>(definition: {
 			Atom.writable(
 				(get): AsyncResult.AsyncResult<A, E> => {
 					const { generation, written } = get(local);
+					for (const atom of mounts) {
+						get.mount(atom);
+					}
 					const result = combine(get(fetchAtom(generation)), written);
 					get(watcher).resume();
 					return result;
@@ -269,7 +330,7 @@ export const makeQuery = <A, E>(definition: {
 				Option.getOrElse(peek(get(RegistryAtom), query), () =>
 					AsyncResult.initial<A, E>(true),
 				),
-			[InternalsId]: { options, local, fetchAtom, watcher },
+			[InternalsId]: { options, member, local, fetchAtom, watcher },
 		},
 	);
 	return query;
