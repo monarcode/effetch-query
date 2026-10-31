@@ -10,6 +10,7 @@ import type * as Scope from "effect/Scope";
 import * as cache from "./internal/cache.js";
 import { matching } from "./internal/keyIndex.js";
 import * as internal from "./internal/queryAtom.js";
+import { isInUse } from "./internal/usage.js";
 import * as QueryClient from "./QueryClient.js";
 
 /**
@@ -171,8 +172,12 @@ export interface QueryFamily<Args, A, E> {
  * @since 0.1.0
  */
 export type QueryTarget =
+	// A query is written with its value, so `Query<never, E>` (one that never
+	// succeeds) isn't a `Query<any, any>`: `any` doesn't extend `never`.
 	| Query<any, any>
+	| Query<never, any>
 	| QueryFamily<any, any, any>
+	| QueryFamily<any, never, any>
 	| QueryKey;
 
 /**
@@ -447,7 +452,9 @@ export const get = <A, E>(
  * Writes a query's value. It's shown until a fetch settles after the write,
  * including while that fetch is in progress; if the fetch fails, it stays as
  * the query's last value. A query that isn't cached yet is cached with the
- * value, without fetching.
+ * value, without fetching. The value counts as fresh data: a query
+ * invalidated while nothing used it isn't refetched for it until it's older
+ * than `staleTime`. The client's `queries` hooks don't run for it.
  *
  * @example
  * ```ts
@@ -565,7 +572,7 @@ export const refetch = (
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
 	QueryClient.QueryClient.use(({ registry }) => {
 		const used = matching(registry, target).filter((query) =>
-			cache.isInUse(registry, query),
+			isInUse(registry, query),
 		);
 		for (const query of used) {
 			registry.refresh(query);

@@ -95,7 +95,9 @@ export type Requirements = Services | QueryClient;
 /**
  * An app-wide hook in {@link QueriesOptions} or {@link MutationsOptions}: it
  * receives an event and runs with your services and the client. It can't
- * fail; handle errors inside it.
+ * fail; handle errors inside it. A hook that dies is logged, and the others
+ * still run. Query hooks run in a fiber of their own, after the query shows
+ * its result, so a slow hook doesn't hold the query up.
  *
  * @example
  * ```ts
@@ -279,9 +281,13 @@ export interface QueriesOptions {
 	readonly defaults?: QueryDefaults | undefined;
 	/** Runs once per successful fetch, not for `Query.set`. */
 	readonly onSuccess?: Hook<QuerySucceeded> | undefined;
-	/** Runs once per failed fetch. */
+	/** Runs once per failed fetch, after `retry`. */
 	readonly onFailure?: Hook<QueryFailed> | undefined;
-	/** Runs once per fetch that succeeds or fails. */
+	/**
+	 * Runs once per fetch that succeeds or fails, after `onSuccess` or
+	 * `onFailure`. None of the hooks run for a fetch that was interrupted
+	 * (replaced by a refetch, reset, collected or disposed).
+	 */
 	readonly onSettled?: Hook<QuerySettled> | undefined;
 }
 
@@ -305,7 +311,10 @@ export interface QueriesOptions {
 export interface QueryDefaults<E = unknown> {
 	/** How long a success counts as fresh. Default: 0, stale at once. */
 	readonly staleTime?: Duration.Input | undefined;
-	/** Retries a failed fetch on this schedule. Default: no retries. */
+	/**
+	 * Retries a failed fetch on this schedule, which gets each failure.
+	 * Defects aren't retried. Default: no retries.
+	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/** Refetch a stale query when a component starts using it. Default: `true`. */
 	readonly refetchOnMount?: boolean | undefined;
@@ -315,7 +324,10 @@ export interface QueryDefaults<E = unknown> {
 	readonly refetchOnFocus?: boolean | undefined;
 	/** Refetch a stale query in use when the device reconnects. Default: `true`. */
 	readonly refetchOnReconnect?: boolean | undefined;
-	/** Refetch a query in use this often. Default: never. */
+	/**
+	 * Refetch a query in use this often. Polling pauses while nothing uses
+	 * the query and resumes when something starts using it. Default: never.
+	 */
 	readonly refetchInterval?: Duration.Input | undefined;
 }
 
@@ -608,7 +620,7 @@ export const make = (options: Options): QueryClient => {
 			Effect.runPromise(
 				Effect.sync(() => registry.dispose()).pipe(
 					Effect.ensuring(
-						Effect.suspend(() => Fiber.interruptAll([...state.fetches])),
+						Effect.suspend(() => Fiber.interruptAll([...state.fibers])),
 					),
 					Effect.ensuring(runtime.disposeEffect),
 				),

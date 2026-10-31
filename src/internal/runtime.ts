@@ -30,14 +30,14 @@ export interface ClientState {
 	readonly index: Set<Query<any, any>>;
 	/** Listeners on the cache event channel (see `events.ts`). */
 	readonly listeners: Set<(event: CacheEvent) => void>;
-	/** Fetches in flight, which `dispose()` interrupts and waits for. */
-	readonly fetches: Set<Fiber.Fiber<unknown, unknown>>;
+	/** Fetches in flight and their hooks, which `dispose()` interrupts and waits for. */
+	readonly fibers: Set<Fiber.Fiber<unknown, unknown>>;
 }
 
 export const makeClientState = (): ClientState => ({
 	index: new Set(),
 	listeners: new Set(),
-	fetches: new Set(),
+	fibers: new Set(),
 });
 
 /** The defect an atom dies with when it's read in a registry no client made. */

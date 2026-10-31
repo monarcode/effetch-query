@@ -5,7 +5,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
-import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Reactivity from "effect/reactivity/Reactivity";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,96 +12,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Query, QueryClient } from "../src/index.js";
 import { type CacheEvent, subscribe } from "../src/internal/events.js";
 import { StateAtom } from "../src/internal/runtime.js";
-import { Greeting, greetingLayer } from "./services.js";
+import {
+	disposeClients,
+	isStale,
+	makeClient,
+	record,
+	show,
+	tracked,
+	trackedFamily,
+	useFakeTimers,
+	valueOf,
+} from "./helpers.js";
+import { Greeting } from "./services.js";
 
-const clients: Array<QueryClient.QueryClient> = [];
-
-/**
- * A client whose atom runtime is built, so a fetch starts as soon as a query
- * is read: a check that nothing fetched can then run straight away.
- */
-const makeClient = async (options?: Partial<QueryClient.Options>) => {
-	const client = QueryClient.make({
-		layer: greetingLayer("hello"),
-		...options,
-	});
-	clients.push(client);
-	await client.runPromise(
-		Query.fetch(Query.make({ key: ["warm-up"], run: Effect.void })),
-	);
-	return client;
-};
-
-afterEach(async () => {
-	// Real timers first: a finalizer that sleeps would hang on fake ones.
-	vi.useRealTimers();
-	vi.restoreAllMocks();
-	await Promise.all(clients.splice(0).map((client) => client.dispose()));
-});
-
-const useFakeTimers = () =>
-	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-
-const valueOf = <A, E>(
-	registry: AtomRegistry.AtomRegistry,
-	atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,
-): Promise<A> => Effect.runPromise(AtomRegistry.getResult(registry, atom));
-
-const show = (result: AsyncResult.AsyncResult<unknown, unknown>): string => {
-	const value = AsyncResult.value(result);
-	return `${result._tag}${result.waiting ? "(waiting)" : ""}${
-		Option.isSome(value) ? ` ${JSON.stringify(value.value)}` : ""
-	}`;
-};
-
-/** Subscribes to an atom and records every value it shows. */
-const record = (
-	registry: AtomRegistry.AtomRegistry,
-	atom: Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>>,
-): Array<string> => {
-	const seen: Array<string> = [];
-	registry.subscribe(atom, (result) => seen.push(show(result)), {
-		immediate: true,
-	});
-	return seen;
-};
-
-/** A query whose run gets the number of the fetch it is. */
-const tracked = <A, E = never>(
-	key: Query.QueryKey,
-	run: (fetch: number) => Effect.Effect<A, E>,
-	options?: Query.Options<E>,
-) => {
-	const fetches = { count: 0 };
-	const query = Query.make({
-		...options,
-		key,
-		run: Effect.suspend(() => run(++fetches.count)),
-	});
-	return { fetches, query };
-};
-
-/** A family whose members count their fetches, by argument. */
-const trackedFamily = <Args>(key: Query.QueryKey) => {
-	const counts = new Map<string, number>();
-	const family = Query.family({
-		key,
-		run: (args: Args) =>
-			Effect.sync(() => {
-				const label = JSON.stringify(args);
-				const count = (counts.get(label) ?? 0) + 1;
-				counts.set(label, count);
-				return count;
-			}),
-	});
-	const fetches = (args: Args) => counts.get(JSON.stringify(args)) ?? 0;
-	return { family, fetches };
-};
-
-const isStale = (
-	registry: AtomRegistry.AtomRegistry,
-	atom: Atom.Atom<unknown>,
-): boolean => registry.getNodes().get(atom)?.currentState() === "stale";
+afterEach(disposeClients);
 
 describe("Query.make and Query.family", () => {
 	it("returns the same query for structurally equal arguments", () => {
@@ -277,7 +200,7 @@ describe("writing to the cache", () => {
 		expect(fetches.count).toBe(1);
 	});
 
-	it("a query written while idle and invalidated still refetches once used", async () => {
+	it("a write makes a query invalidated while idle fresh again, and later invalidations still refetch", async () => {
 		const client = await makeClient();
 		const { fetches, query } = tracked(["c"], (fetch) =>
 			Effect.succeed(fetch),
@@ -289,13 +212,15 @@ describe("writing to the cache", () => {
 		await client.runPromise(Query.set(query, 100));
 
 		const seen = record(client.registry, query);
-		await valueOf(client.registry, query);
+		expect(seen).toEqual(["Success 100"]);
+		expect(fetches.count).toBe(1);
+
 		await client.runPromise(Query.invalidate(["c"]));
 		await valueOf(client.registry, query);
 		await client.runPromise(Query.refetch(["c"]));
 
-		expect(fetches.count).toBe(4);
-		expect(seen.at(-1)).toBe("Success 4");
+		expect(fetches.count).toBe(3);
+		expect(seen.at(-1)).toBe("Success 3");
 	});
 });
 

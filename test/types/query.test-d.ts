@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
+import * as Schedule from "effect/Schedule";
 
 import { describe, expectTypeOf, it } from "vitest";
 
@@ -57,6 +58,31 @@ describe("Query.make", () => {
 		});
 
 		expectTypeOf(mine).toEqualTypeOf<Query.Query<Array<number>, never>>();
+	});
+});
+
+describe("retry", () => {
+	it("takes a schedule for the query's error", () => {
+		const onNotFound = Schedule.recurs(2) as Schedule.Schedule<
+			number,
+			NotFound
+		>;
+		Query.make({
+			key: ["retried"],
+			run: Effect.fail(new NotFound()),
+			retry: onNotFound,
+		});
+		Query.make({
+			key: ["retried"],
+			run: Effect.fail(new NotFound()),
+			retry: Schedule.recurs(2),
+		});
+		Query.make({
+			key: ["retried"],
+			// @ts-expect-error the schedule takes NotFound, not "timeout"
+			run: Effect.fail("timeout" as const),
+			retry: onNotFound,
+		});
 	});
 });
 
@@ -160,5 +186,21 @@ describe("the cache API", () => {
 		>();
 		// @ts-expect-error a key is an array
 		expectTypeOf(Query.invalidate("todos"));
+	});
+
+	it("targets a query or a family that never succeeds", () => {
+		const failing = Query.make({ key: ["failing"], run: Effect.fail("no") });
+		const failingFamily = Query.family({
+			key: ["failing"],
+			run: (id: number) => Effect.fail(id),
+		});
+
+		expectTypeOf([
+			Query.invalidate(failing),
+			Query.refetch(failingFamily),
+			Query.reset(failingFamily(1)),
+		]).items.toEqualTypeOf<
+			Effect.Effect<void, never, QueryClient.QueryClient>
+		>();
 	});
 });
