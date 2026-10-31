@@ -11,7 +11,20 @@ describe("public entry points", () => {
 			"QueryClient",
 			"Signals",
 		]);
-		expect(Object.keys(Core.Query).sort()).toEqual([]);
+		expect(Object.keys(Core.Query).sort()).toEqual([
+			"QueryTypeId",
+			"family",
+			"fetch",
+			"get",
+			"invalidate",
+			"isQuery",
+			"make",
+			"prefetch",
+			"refetch",
+			"reset",
+			"set",
+			"update",
+		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([
 			"QueryClient",
 			"layer",

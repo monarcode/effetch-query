@@ -1,10 +1,15 @@
+import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import type * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Atom from "effect/reactivity/Atom";
+import * as Reactivity from "effect/reactivity/Reactivity";
 
+import type { Query } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import type { Signals } from "../Signals.js";
+import type { CacheEvent } from "./events.js";
 
 /** What `QueryClient.make` stores for queries and mutations to read at run time. */
 export interface Config {
@@ -18,6 +23,22 @@ const defaultConfig: Config = {
 	queries: {},
 	mutations: {},
 };
+
+/** A client's own mutable state. It lives in the client's registry. */
+export interface ClientState {
+	/** The queries that have a node in the registry (see `cache.ts`). */
+	readonly index: Set<Query<any, any>>;
+	/** Listeners on the cache event channel (see `events.ts`). */
+	readonly listeners: Set<(event: CacheEvent) => void>;
+	/** Fetches in flight, which `dispose()` interrupts and waits for. */
+	readonly fetches: Set<Fiber.Fiber<unknown, unknown>>;
+}
+
+export const makeClientState = (): ClientState => ({
+	index: new Set(),
+	listeners: new Set(),
+	fetches: new Set(),
+});
 
 /** The defect an atom dies with when it's read in a registry no client made. */
 export class MissingQueryClient extends Data.TaggedError("MissingQueryClient")<{
@@ -44,6 +65,7 @@ const MemoMapAtom = Atom.keepAlive(
 	Atom.readable(() => Layer.makeMemoMapUnsafe()),
 );
 export const ConfigAtom = Atom.keepAlive(Atom.readable(() => defaultConfig));
+export const StateAtom = Atom.keepAlive(Atom.readable(makeClientState));
 
 const initialValue = <A>(atom: Atom.Atom<A>, value: A) =>
 	[atom, value] as const;
@@ -52,6 +74,7 @@ const initialValue = <A>(atom: Atom.Atom<A>, value: A) =>
 export const initialValues = (input: {
 	readonly layer: Layer.Layer<QueryClient.Requirements>;
 	readonly memoMap: Layer.MemoMap;
+	readonly state: ClientState;
 	readonly options: QueryClient.Options;
 }): ReadonlyArray<readonly [Atom.Atom<unknown>, unknown]> => [
 	initialValue(LayerAtom, input.layer),
@@ -61,13 +84,22 @@ export const initialValues = (input: {
 		queries: input.options.queries ?? {},
 		mutations: input.options.mutations ?? {},
 	}),
+	initialValue(StateAtom, input.state),
 ];
 
 /**
- * The one atom runtime every query and mutation runs on. Through the memo map
- * it shares the client's `Reactivity`, so `factory.withReactivity` hears
- * invalidations run with `client.runPromise`.
+ * The client's `Reactivity`. Built with the client's memo map, it's the
+ * instance `client.runPromise` provides, so queries hear its invalidations.
  */
+export const ReactivityAtom = Atom.keepAlive(
+	Atom.make((get) =>
+		Effect.flatMap(Effect.scope, (scope) =>
+			Layer.buildWithMemoMap(Reactivity.layer, get(MemoMapAtom), scope),
+		).pipe(Effect.map(Context.get(Reactivity.Reactivity))),
+	),
+);
+
+/** The one atom runtime every query and mutation runs on. */
 export const runtime: Atom.AtomRuntime<QueryClient.Requirements> = Atom.context(
 	{ memoMap: MemoMapAtom },
 )((get) => get(LayerAtom));
