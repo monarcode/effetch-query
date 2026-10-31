@@ -204,8 +204,9 @@ export interface UseMutationResult<Variables, A, E> {
  * happen. With the mutation's `concurrent: false`, a run interrupts this
  * component's previous one.
  *
- * Define mutations at module level: a new definition on each render starts
- * a new state.
+ * Define mutations at module level, with {@link Mutation.make}: a new
+ * definition on each render starts a new state. Outside React, run one with
+ * {@link Mutation.run}.
  *
  * @example
  * ```ts
@@ -275,7 +276,7 @@ export interface UseRefetchResult {
  * Refetches queries on demand, such as for pull to refresh, with a flag that
  * is true only while this component's own refetch runs, unlike a query's
  * `waiting`, which a background revalidation also sets. It refetches the
- * target's queries in use, as `Query.refetch` does.
+ * target's queries in use, as {@link Query.refetch} does.
  *
  * @example
  * ```ts

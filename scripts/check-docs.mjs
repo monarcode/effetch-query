@@ -164,13 +164,25 @@ for (const entry of entries) {
 	}
 }
 
+// A fence can name its block, as in "```ts todos.ts": the block is then that
+// file, which other blocks import as "./todos.js", the way an app's files
+// import each other.
+const opening = /^```(tsx?)(?:\s+([\w.-]+\.tsx?))?$/;
+
 const codeBlocks = (file, lines, firstLine) => {
 	const blocks = [];
 	let block;
 	lines.forEach((line, index) => {
 		const fence = line.trim();
-		if (block === undefined && fence === "```ts") {
-			block = { file, line: firstLine + index + 1, code: [] };
+		const open = opening.exec(fence);
+		if (block === undefined && open !== null) {
+			block = {
+				file,
+				line: firstLine + index + 1,
+				extension: open[1],
+				name: open[2],
+				code: [],
+			};
 		} else if (block !== undefined && fence === "```") {
 			blocks.push({ ...block, code: block.code.join("\n") });
 			block = undefined;
@@ -205,12 +217,22 @@ for (const file of markdown) {
 	);
 }
 
-const virtual = new Map(
-	examples.map((example, index) => [
-		path.join(root, ".docs-check", `example-${index}.ts`),
-		example,
-	]),
-);
+const virtual = new Map();
+examples.forEach((example, index) => {
+	const fileName = path.join(
+		root,
+		".docs-check",
+		example.name ?? `example-${index}.${example.extension}`,
+	);
+	const taken = virtual.get(fileName);
+	if (taken === undefined) {
+		virtual.set(fileName, example);
+	} else {
+		problems.push(
+			`${relative(example.file)}:${example.line}: another block is named ${example.name} (${relative(taken.file)}:${taken.line})`,
+		);
+	}
+});
 const host = ts.createCompilerHost(options);
 const getSourceFile = host.getSourceFile.bind(host);
 // Examples compile in several programs (below); the cache parses the library
@@ -236,16 +258,36 @@ host.getSourceFile = (fileName, languageVersion, ...rest) => {
 };
 const fileExists = host.fileExists.bind(host);
 host.fileExists = (fileName) => virtual.has(fileName) || fileExists(fileName);
+const directoryExists = host.directoryExists?.bind(host);
+host.directoryExists = (directory) =>
+	directory === path.join(root, ".docs-check") ||
+	(directoryExists?.(directory) ?? true);
 
 // An augmentation (`declare module`, of `Register` say, or `declare global`)
 // applies to every file in a program, so each example that has one compiles
-// on its own. The rest share a program.
+// on its own. Named files and the examples that import them share one
+// program, with the named files' augmentations. The rest share another.
 const augments = (example) =>
 	/\bdeclare\s+(?:module|global)\b/.test(example.code);
+const usesNamed = (example) =>
+	example.name !== undefined || /from\s+["']\.\//.test(example.code);
 const fileNames = [...virtual.keys()];
+const named = fileNames.filter((fileName) => usesNamed(virtual.get(fileName)));
+for (const fileName of named) {
+	const example = virtual.get(fileName);
+	if (example.name === undefined && augments(example)) {
+		problems.push(
+			`${relative(example.file)}:${example.line}: imports a named block and augments a module, which would change the named blocks' types; name it, or drop one of the two`,
+		);
+	}
+}
+const unnamed = fileNames.filter(
+	(fileName) => !usesNamed(virtual.get(fileName)),
+);
 const groups = [
-	fileNames.filter((fileName) => !augments(virtual.get(fileName))),
-	...fileNames
+	named,
+	unnamed.filter((fileName) => !augments(virtual.get(fileName))),
+	...unnamed
 		.filter((fileName) => augments(virtual.get(fileName)))
 		.map((fileName) => [fileName]),
 ].filter((group) => group.length > 0);

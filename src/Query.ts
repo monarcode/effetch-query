@@ -17,7 +17,8 @@ import * as QueryClient from "./QueryClient.js";
 /**
  * Identifies a query in the cache. Keys are hierarchical arrays: each segment
  * is compared with `Equal.equals`, so plain objects and arrays match by
- * structure, and a key matches every longer key it is a prefix of.
+ * structure, and a key matches every longer key it is a prefix of (see
+ * {@link QueryTarget}).
  *
  * Keep keys JSON-compatible (strings, numbers, booleans, `null`, and arrays
  * and plain objects of them): with server rendering, they're sent to the
@@ -182,7 +183,8 @@ export type QueryTarget =
 	| QueryKey;
 
 /**
- * What a query's `run` receives, for reading other queries.
+ * What a query's `run` receives, for reading other queries: given to
+ * {@link make}'s `run` and as the second argument of {@link family}'s.
  *
  * @example
  * ```ts
@@ -211,8 +213,10 @@ export interface RunContext {
 }
 
 /**
- * The options every query takes besides `key` and `run`. Those shared with
- * the client's `queries.defaults` override them.
+ * The options every query takes besides `key` and `run`, in
+ * {@link MakeOptions} and {@link FamilyOptions}. Those shared with the
+ * client's `queries.defaults` ({@link QueryClient.QueryDefaults}) override
+ * them.
  *
  * @example
  * ```ts
@@ -430,8 +434,9 @@ export const prefetch = <A, E>(
 	Effect.asVoid(Effect.exit(fetch(query)));
 
 /**
- * Returns a query's cached value, if it has one. Never fetches. A query whose
- * last fetch failed still returns the value it had before.
+ * Returns a query's cached value, if it has one. Never fetches (use
+ * {@link fetch} for that). A query whose last fetch failed still returns the
+ * value it had before. Write it with {@link set} or {@link update}.
  *
  * @example
  * ```ts
