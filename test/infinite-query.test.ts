@@ -415,6 +415,132 @@ describe("InfiniteQuery", () => {
 		expect(items(data)).toEqual([4, 5, 6, 7]);
 		expect(data.pageParams).toEqual([4, 6]);
 	});
+
+	it("keeps a write made while a page loads", async () => {
+		const client = await makeClient();
+		const { state, page, pages } = server(9);
+		const list = InfiniteQuery.make({ key: ["list"], run: page, ...pages });
+		await valueOf(client.registry, list);
+		const { wait, open } = gate();
+		state.hold = wait;
+
+		const more = client.runPromise(InfiniteQuery.fetchNextPage(list));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await client.runPromise(
+			Query.update(list, (data) => ({
+				...data,
+				pages: data.pages.map((p) => ({
+					...p,
+					items: p.items.map((item) => item * 10),
+				})),
+			})),
+		);
+		open();
+
+		expect(items(await more)).toEqual([0, 10, 2, 3]);
+		expect(items(await valueOf(client.registry, list))).toEqual([
+			0, 10, 2, 3,
+		]);
+	});
+
+	it("fails a page with a defect when nextPageParam throws", async () => {
+		const client = await makeClient();
+		const { page, pages } = server(9);
+		let calls = 0;
+		const list = InfiniteQuery.make({
+			key: ["list"],
+			run: page,
+			...pages,
+			// The first call is fetchNextPage's check, the second the page's.
+			nextPageParam: (last) => {
+				calls += 1;
+				if (calls === 2) {
+					throw new PageFailed();
+				}
+				return pages.nextPageParam(last);
+			},
+		});
+		const unmount = client.registry.mount(list);
+		await valueOf(client.registry, list);
+
+		const exit = await client.runPromiseExit(
+			InfiniteQuery.fetchNextPage(list),
+		);
+
+		expect(exit).toEqual(Exit.die(new PageFailed()));
+		const result = client.registry.get(list);
+		expect(AsyncResult.isFailure(result)).toBe(true);
+		expect(Option.map(AsyncResult.value(result), items)).toEqual(
+			Option.some([0, 1]),
+		);
+		expect(client.registry.get(pagingAtom(list))._tag).toBe("Idle");
+		const retried = await client.runPromise(
+			InfiniteQuery.fetchNextPage(list),
+		);
+		expect(items(retried)).toEqual([0, 1, 2, 3]);
+		unmount();
+	});
+
+	it("joins the query's first fetch while it runs", async () => {
+		const client = await makeClient();
+		const { state, page, pages } = server(9);
+		const list = InfiniteQuery.make({ key: ["list"], run: page, ...pages });
+		const { wait, open } = gate();
+		state.hold = wait;
+		const unmount = client.registry.mount(list);
+
+		const more = client.runPromise(InfiniteQuery.fetchNextPage(list));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		open();
+
+		expect(items(await more)).toEqual([0, 1]);
+		expect(state.fetched).toEqual([0]);
+		unmount();
+	});
+
+	it("fetches from the first page when a write left no pages", async () => {
+		const client = await makeClient();
+		const { state, page, pages } = server(9);
+		const list = InfiniteQuery.make({
+			key: ["list"],
+			run: page,
+			...pages,
+			staleTime: "1 minute",
+		});
+		await client.runPromise(InfiniteQuery.fetchNextPage(list));
+		await client.runPromise(InfiniteQuery.fetchNextPage(list));
+		await client.runPromise(Query.set(list, { pages: [], pageParams: [] }));
+		expect(paged(client.registry, list).hasNextPage).toBe(false);
+
+		const data = await client.runPromise(InfiniteQuery.fetchNextPage(list));
+
+		expect(items(data)).toEqual([0, 1]);
+		expect(state.fetched).toEqual([0, 2, 0]);
+	});
+
+	it("gives way to a refetch of every page while a page loads", async () => {
+		const client = await makeClient();
+		const { state, page, pages } = server(9);
+		const list = InfiniteQuery.make({ key: ["list"], run: page, ...pages });
+		const unmount = client.registry.mount(list);
+		await client.runPromise(InfiniteQuery.fetchNextPage(list));
+		const { wait, open } = gate();
+		state.hold = wait;
+
+		const more = client.runPromise(InfiniteQuery.fetchNextPage(list));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(paged(client.registry, list).isFetchingNextPage).toBe(true);
+		await client.runPromise(Query.invalidate(list));
+		expect(paged(client.registry, list).isFetchingNextPage).toBe(false);
+		open();
+
+		expect(items(await more)).toEqual([0, 1, 2, 3]);
+		expect(state.fetched).toEqual([0, 2, 4, 0, 2]);
+		expect(client.registry.get(pagingAtom(list))._tag).toBe("Idle");
+		const next = await client.runPromise(InfiniteQuery.fetchNextPage(list));
+		expect(items(next)).toEqual([0, 1, 2, 3, 4, 5]);
+		unmount();
+	});
 });
 
 describe("Query.update on a family", () => {

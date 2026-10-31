@@ -37,7 +37,14 @@ export const makeFakeApi = (initial: ReadonlyArray<Todo>): FakeApi => {
 			return json({ message: "The server failed" }, status);
 		}
 		if (method === "GET" && url.pathname === "/todos") {
-			return json([...todos.values()]);
+			const all = [...todos.values()];
+			const skip = Number(url.searchParams.get("skip") ?? 0);
+			const limit = Number(url.searchParams.get("limit") ?? all.length);
+			return json({
+				todos: all.slice(skip, skip + limit),
+				skip,
+				total: all.length,
+			});
 		}
 		const id = Number(url.pathname.split("/")[2]);
 		const current = todos.get(id);

@@ -12,10 +12,11 @@ import { isMember, makeQuery, runOnce } from "../internal/queryAtom.js";
 import {
 	canonicalArgs,
 	type RouteArgs,
-	withoutQueryField,
 	routeKey,
 	routeKeyPrefix,
+	type Segment,
 	segments,
+	withoutQueryField,
 } from "../internal/routeKey.js";
 import * as Mutation from "../Mutation.js";
 import type * as Query from "../Query.js";
@@ -146,7 +147,7 @@ export interface EndpointInfiniteQueryOptions<
 	 * and left out of the key. The param must be a value a query field takes
 	 * (a string, number, boolean, `null` or `undefined`).
 	 */
-	readonly pageParam: P extends Fetch.QueryValue ? string : never;
+	readonly pageParam: [P] extends [Fetch.QueryValue] ? string : never;
 }
 
 /**
@@ -531,6 +532,25 @@ export const endpoints = <
 				return send(args);
 			});
 	};
+	// Calls with the same arguments after `toArgs` share a query.
+	const endpointFamily = (
+		endpoint: AnyEndpoint,
+		path: ReadonlyArray<Segment>,
+		toArgs: (args: RouteArgs | undefined) => RouteArgs,
+		member: (args: RouteArgs, family: object) => Query.Query<any, any>,
+	) => {
+		const family = Atom.family((args: RouteArgs) => member(args, self));
+		const self = Object.assign((args?: RouteArgs) => family(toArgs(args)), {
+			key: routeKeyPrefix(prefix, path),
+			// Keys can't tell `/todos/:id` from `/todos/comments`, so a family
+			// matches the queries it made.
+			[KeyMatcherId]: (query: Query.Query<any, any>) =>
+				isMember(query, self),
+			endpoint,
+			error: endpoint.error ?? options?.defaultError,
+		});
+		return self;
+	};
 	const query = (
 		endpoint: AnyEndpoint,
 		queryOptions?: EndpointQueryOptions<unknown, Ps>,
@@ -538,27 +558,18 @@ export const endpoints = <
 		const { headers, plugins, ...rest } = queryOptions ?? {};
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
-		const family = Atom.family((args: RouteArgs) =>
-			makeQuery({
-				key: routeKey(prefix, path, args),
-				fetch: runOnce(() => fetch(args)),
-				options: rest,
-				member: { family: self, args },
-			}),
+		return endpointFamily(
+			endpoint,
+			path,
+			(args) => canonicalArgs(path, args),
+			(args, family) =>
+				makeQuery({
+					key: routeKey(prefix, path, args),
+					fetch: runOnce(() => fetch(args)),
+					options: rest,
+					member: { family, args },
+				}),
 		);
-		const self = Object.assign(
-			(args?: RouteArgs) => family(canonicalArgs(path, args)),
-			{
-				key: routeKeyPrefix(prefix, path),
-				// Keys can't tell `/todos/:id` from `/todos/comments`, so a family
-				// matches the queries it made.
-				[KeyMatcherId]: (query: Query.Query<any, any>) =>
-					isMember(query, self),
-				endpoint,
-				error: endpoint.error ?? options?.defaultError,
-			},
-		);
-		return self;
 	};
 	const infiniteQuery = (
 		endpoint: AnyEndpoint,
@@ -582,28 +593,20 @@ export const endpoints = <
 			previousPageParam,
 			maxPages,
 		};
-		const family = Atom.family((args: RouteArgs) =>
-			makeInfiniteQuery({
-				key: routeKey(prefix, path, args),
-				run: (page: unknown) =>
-					fetch({ ...args, query: { ...args.query, [field]: page } }),
-				pages,
-				options: rest,
-				member: { family: self, args },
-			}),
+		return endpointFamily(
+			endpoint,
+			path,
+			(args) => withoutQueryField(canonicalArgs(path, args), field),
+			(args, family) =>
+				makeInfiniteQuery({
+					key: routeKey(prefix, path, args),
+					run: (page: unknown) =>
+						fetch({ ...args, query: { ...args.query, [field]: page } }),
+					pages,
+					options: rest,
+					member: { family, args },
+				}),
 		);
-		const self = Object.assign(
-			(args?: RouteArgs) =>
-				family(withoutQueryField(canonicalArgs(path, args), field)),
-			{
-				key: routeKeyPrefix(prefix, path),
-				[KeyMatcherId]: (query: Query.Query<any, any>) =>
-					isMember(query, self),
-				endpoint,
-				error: endpoint.error ?? options?.defaultError,
-			},
-		);
-		return self;
 	};
 	const mutation = (
 		endpoint: AnyEndpoint,

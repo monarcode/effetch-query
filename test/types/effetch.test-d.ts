@@ -125,6 +125,12 @@ describe("Endpoints.infiniteQuery", () => {
 			initialPageParam: { after: "a" },
 			nextPageParam: () => undefined,
 		});
+		api.infiniteQuery(listTodos, {
+			// @ts-expect-error: a Date, one of the param's types, can't be sent either
+			pageParam: "cursor",
+			initialPageParam: 0 as number | Date,
+			nextPageParam: () => undefined,
+		});
 	});
 
 	it("only takes endpoints without a body", () => {

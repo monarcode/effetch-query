@@ -433,9 +433,13 @@ export const family = <Args, A, E, P>(
  *
  * - With no next page (`nextPageParam` gives `undefined` or `null`), it
  *   returns the data as it is, without fetching.
- * - Without data, it's the query's first fetch.
+ * - Without data, it's the query's first fetch, and joins it while it
+ *   runs. With no pages (a write left none), it fetches from the first
+ *   page, as TanStack does.
  * - While a next page is being fetched, it joins that fetch; while any
  *   other fetch of the query runs, it waits for it, then fetches its page.
+ * - A write made while the page loads stays: the page is added to the data
+ *   shown when it lands.
  *
  * @example
  * ```ts

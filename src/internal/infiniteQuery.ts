@@ -95,6 +95,10 @@ export const pageParam = <A, P>(
 			);
 };
 
+/** Whether there's a page to fetch another from: with none, a fetch starts again from the first. */
+const hasPages = (data: InfiniteQuery.InfiniteData<unknown, unknown>) =>
+	data.pages.length > 0;
+
 /** Adds a page at one end, dropping one from the other past `maxPages`. */
 const addPage = <A, P>(
 	pages: Pages<A, P>,
@@ -148,25 +152,39 @@ export const makeInfiniteQuery = <A, E, P>(definition: {
 		options,
 		member,
 		// The query keeps `paging` alive without depending on it: a request
-		// refetches only through the refresh `requestPage` makes.
+		// refetches only through the refresh `fetchPage` makes.
 		mounts: [paging],
 		fetch: ({ get, previous, attempt }) => {
 			const page = (param: P) => attempt((ctx) => run(param, ctx));
 			const request = get.once(paging);
 			const shown = previous();
-			if (request._tag === "Requested" && Option.isSome(shown)) {
+			if (
+				request._tag === "Requested" &&
+				Option.isSome(shown) &&
+				hasPages(shown.value)
+			) {
 				const { direction } = request;
 				const running: Paging = { _tag: "Running", direction };
 				get.set(paging, running);
 				const data = shown.value;
-				const param = pageParam(pages, data, direction);
-				const fetch = Option.match(param, {
-					onNone: () => Effect.succeed(data),
-					onSome: (param) =>
-						Effect.map(page(param), (loaded) =>
-							addPage(pages, data, direction, loaded, param),
-						),
-				});
+				// `pageParam` runs user code: in the Effect, a throw is a defect.
+				const fetch = Effect.suspend(() =>
+					Option.match(pageParam(pages, data, direction), {
+						onNone: () => Effect.succeed(data),
+						// Added to the data shown when it lands, so a write made
+						// while it loaded stays.
+						onSome: (param) =>
+							Effect.map(page(param), (loaded) =>
+								addPage(
+									pages,
+									Option.getOrElse(previous(), () => data),
+									direction,
+									loaded,
+									param,
+								),
+							),
+					}),
+				);
 				return Effect.onExit(fetch, (exit) =>
 					Effect.sync(() => {
 						// An interrupted page was replaced by a refetch or a reset,
@@ -240,8 +258,9 @@ const refetchPages = <A, E, P>(
 /**
  * Fetches the page after the last one, or before the first (DESIGN.md
  * §3.11). Joins a fetch of a page in the same direction, and waits for any
- * other fetch first. Without data it's the query's first fetch; without a
- * page there it returns the data as it is.
+ * other fetch first. Without data it's the query's first fetch (joined while
+ * it runs), and with no pages a fetch from the first page, as in TanStack;
+ * without a page there it returns the data as it is.
  */
 export const fetchPage = <A, E, P>(
 	registry: AtomRegistry.AtomRegistry,
@@ -257,21 +276,28 @@ export const fetchPage = <A, E, P>(
 		const settle = AtomRegistry.getResult(registry, query, {
 			suspendOnWaiting: true,
 		});
+		const data = AsyncResult.value(current.value);
 		if (current.value.waiting) {
 			const request = Option.getOrElse(
 				nodeValue(registry, paging),
 				() => idle,
 			);
-			return request._tag !== "Idle" && request.direction === direction
+			const joins =
+				Option.isNone(data) ||
+				(request._tag !== "Idle" && request.direction === direction);
+			return joins
 				? settle
 				: Effect.andThen(
 						Effect.exit(settle),
 						fetchPage(registry, query, direction),
 					);
 		}
-		const data = AsyncResult.value(current.value);
 		if (Option.isNone(data)) {
 			return fetchValue(registry, query);
+		}
+		if (!hasPages(data.value)) {
+			registry.refresh(query);
+			return settle;
 		}
 		if (Option.isNone(pageParam(pages, data.value, direction))) {
 			return Effect.succeed(data.value);

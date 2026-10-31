@@ -8,7 +8,7 @@
 
 [![npm](https://img.shields.io/npm/v/@monarcode/effetch-query)](https://www.npmjs.com/package/@monarcode/effetch-query)
 [![CI](https://github.com/monarcode/effetch-query/actions/workflows/ci.yml/badge.svg)](https://github.com/monarcode/effetch-query/actions/workflows/ci.yml)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/@monarcode/effetch-query)](https://bundlephobia.com/package/@monarcode/effetch-query)
+[![bundle size](https://deno.bundlejs.com/badge?q=@monarcode/effetch-query&config=%7B%22esbuild%22%3A%7B%22external%22%3A%5B%22effect%22%2C%22effect%2F%2A%22%2C%22%40effect%2Fatom-react%22%2C%22react%22%2C%22react%2F%2A%22%2C%22%40monarcode%2Feffetch%22%2C%22%40monarcode%2Feffetch%2F%2A%22%5D%7D%7D)](https://bundlejs.com/?q=@monarcode/effetch-query&config=%7B%22esbuild%22%3A%7B%22external%22%3A%5B%22effect%22%2C%22effect%2F%2A%22%2C%22%40effect%2Fatom-react%22%2C%22react%22%2C%22react%2F%2A%22%2C%22%40monarcode%2Feffetch%22%2C%22%40monarcode%2Feffetch%2F%2A%22%5D%7D%7D)
 
 **Server state for [Effect](https://effect.website), the TanStack Query way.**
 Turn any Effect into a cached query. Use it from React, refetch it when the
@@ -21,8 +21,8 @@ sibling of [`@monarcode/effetch`](https://github.com/monarcode/effetch), whose
 endpoints turn into queries and mutations in one line.
 
 > **Alpha.** effetch-query is in its `0.1.0-alpha.N` series: the API can
-> still change before `0.1.0-rc.0`. Server rendering, hydration and infinite
-> queries land during the alpha series.
+> still change before `0.1.0-rc.0`. Server rendering and hydration land
+> during the alpha series.
 
 ## Contents
 
@@ -43,11 +43,16 @@ endpoints turn into queries and mutations in one line.
 - [Mutations](#mutations)
   - [Optimistic updates](#optimistic-updates)
   - [Mutation options](#mutation-options)
+- [Infinite queries](#infinite-queries)
+  - [Defining infinite queries](#defining-infinite-queries)
+  - [Fetching pages](#fetching-pages)
+  - [Infinite query options](#infinite-query-options)
 - [React](#react)
   - [The provider](#the-provider)
   - [Reading queries](#reading-queries)
   - [Suspense and error boundaries](#suspense-and-error-boundaries)
   - [Running mutations](#running-mutations)
+  - [Load more](#load-more)
   - [Pull to refresh](#pull-to-refresh)
   - [Atoms](#atoms)
 - [React Native](#react-native)
@@ -147,6 +152,8 @@ export function Todos() {
   back online, on the web and in React Native.
 - **Precise invalidation.** Invalidate one query, a family of queries, or
   every key under a prefix such as `["todos"]`.
+- **Infinite queries.** "Load more" lists and infinite scroll, with cursors
+  that stay consistent when the list changes underneath.
 - **Optimistic updates that undo themselves.** Writes made in a mutation's
   `optimistic` step are rolled back if it fails.
 - **Typed services.** You declare your services once. A query that needs a
@@ -198,6 +205,12 @@ export interface TodoFilter {
   readonly done?: boolean | undefined;
 }
 
+export interface TodoPage {
+  readonly todos: ReadonlyArray<Todo>;
+  /** Where the next page starts, or null on the last page. */
+  readonly nextCursor: number | null;
+}
+
 export class TodoNotFound extends Data.TaggedError("TodoNotFound")<{
   readonly id: number;
 }> {}
@@ -206,6 +219,10 @@ export class TodoApi extends Context.Service<
   TodoApi,
   {
     readonly list: (filter: TodoFilter) => Effect.Effect<ReadonlyArray<Todo>>;
+    readonly page: (
+      filter: TodoFilter,
+      cursor: number,
+    ) => Effect.Effect<TodoPage>;
     readonly get: (id: number) => Effect.Effect<Todo, TodoNotFound>;
     readonly update: (
       id: number,
@@ -307,10 +324,18 @@ export const toggleTodo = Mutation.make({
   run: (current: Todo) =>
     TodoApi.use((api) => api.update(current.id, { done: !current.done })),
   optimistic: (current) =>
-    Query.update(todo(current.id), (cached) => ({
-      ...cached,
-      done: !cached.done,
-    })),
+    Effect.andThen(
+      Query.update(todo(current.id), (cached) => ({
+        ...cached,
+        done: !cached.done,
+      })),
+      // Every cached list, whatever its filter.
+      Query.update(todos, (list) =>
+        list.map((item) =>
+          item.id === current.id ? { ...item, done: !item.done } : item,
+        ),
+      ),
+    ),
   onSuccess: (updated) => Query.set(todo(updated.id), updated),
   invalidates: [todos],
 });
@@ -405,6 +430,7 @@ export const refreshAll = () =>
 | `Query.get(query)`         | The cached value as an `Option`. Never fetches.                                                |
 | `Query.set(query, value)`  | Writes a value, fresh as if just fetched (the client's hooks don't run).                       |
 | `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                               |
+| `Query.update(family, f)`  | Writes `f(value, args)` to every cached member of a family (TanStack's `setQueriesData`).      |
 | `Query.invalidate(target)` | Marks queries stale: those in use refetch now, the rest when next used.                        |
 | `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
 | `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
@@ -417,7 +443,8 @@ key (`["todos"]`: every query whose key starts with it).
 A mutation is a change to server state: `run` makes it, and the options say
 what to update afterwards. `toggleTodo` in [`todos.ts`](#defining-queries):
 
-1. runs `optimistic`, which flips the cached todo before the request,
+1. runs `optimistic`, which flips the cached todo, and the todo in every
+   cached list, before the request,
 2. runs `run`, the request,
 3. on success, runs `onSuccess`, which writes the server's todo to the cache,
 4. then invalidates `todos`, so every todo list refetches.
@@ -447,6 +474,11 @@ newest first, before `onFailure` runs. A written value shows until the
 next fetch settles, including while that fetch runs, so the old value never
 flashes back in the meantime.
 
+`Query.update` on a family writes every member that has a value, such as
+each filter's list, and gives `f` the member's argument too. It writes only
+that family's own queries, not every key under its prefix, and creates
+none. Each member's write is undone on its own.
+
 ### Mutation options
 
 | Option        | What it does                                                                                 |
@@ -462,6 +494,95 @@ flashes back in the meantime.
 
 The callbacks run with your services, and with `QueryClient`, so they can use
 the cache.
+
+## Infinite queries
+
+An infinite query loads a list one page at a time, for "load more" buttons
+and infinite scroll, as TanStack's `useInfiniteQuery`. Its value is every
+page loaded so far, with the param each was fetched with:
+`{ pages, pageParams }`.
+
+### Defining infinite queries
+
+`InfiniteQuery.make` and `InfiniteQuery.family` take a query's options, plus
+where pages start and how to find the next one:
+
+```ts todo-pages.ts
+import { InfiniteQuery } from "@monarcode/effetch-query";
+
+import { TodoApi, type TodoFilter } from "./todo-api.js";
+
+export const todoPages = InfiniteQuery.family({
+  key: ["todos", "pages"],
+  initialPageParam: 0,
+  run: (filter: TodoFilter, cursor) =>
+    TodoApi.use((api) => api.page(filter, cursor)),
+  // undefined or null: there's no next page.
+  nextPageParam: (lastPage) => lastPage.nextCursor,
+  staleTime: "1 minute",
+});
+// todoPages({ done: false }):
+//   InfiniteQuery<TodoPage, never, number>, keyed ["todos", "pages", { done: false }]
+```
+
+An infinite query **is** a query, of `InfiniteData<TodoPage, number>`: the
+cache API, invalidation, the client's defaults and `useQuery` work on it as
+on any other. Invalidating `["todos"]` reaches it too.
+
+### Fetching pages
+
+The first fetch loads one page, from `initialPageParam`.
+`InfiniteQuery.fetchNextPage` appends the page after the last one, and
+`fetchPreviousPage` prepends the one before the first (with
+`previousPageParam`):
+
+```ts
+import * as Effect from "effect/Effect";
+
+import { InfiniteQuery } from "@monarcode/effetch-query";
+
+import { queryClient } from "./client.js";
+import { todoPages } from "./todo-pages.js";
+
+export const loadMore = () =>
+  queryClient.runPromise(
+    Effect.map(InfiniteQuery.fetchNextPage(todoPages({})), (data) =>
+      data.pages.flatMap((page) => page.todos),
+    ),
+  );
+```
+
+- On the last page (`nextPageParam` gives `undefined` or `null`), it
+  returns the pages without fetching.
+- While a next page is being fetched, a second call joins that fetch; while
+  the query refetches, it waits, then fetches its page. Before the first
+  page has loaded, it joins that first fetch.
+- A write made while the page loads (an optimistic update, say) stays: the
+  page is added to the pages shown when it lands.
+- A page that fails keeps the loaded pages: the query becomes a `Failure`
+  whose `previousSuccess` holds them, and `fetchNextPage` fails with the
+  error.
+
+A **refetch** (invalidation, focus, reconnect, a stale mount) fetches as
+many pages as are loaded, one after the other, and shows them together. The
+first starts from its stored param, and each later one from `nextPageParam`
+of the page before it, so a list that changed underneath doesn't show
+duplicates or gaps.
+
+### Infinite query options
+
+| Option              | What it does                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `run`               | `(pageParam, ctx) => Effect`; for a family, `(args, pageParam, ctx) => Effect`: one page.                                |
+| `initialPageParam`  | The first page's param. Its type is the page param's type.                                                               |
+| `nextPageParam`     | `(lastPage, pages, lastPageParam, pageParams) => param`: the next page's param, or `undefined` / `null` for none.        |
+| `previousPageParam` | The same, from the first page: the previous page's. Without it, there's no previous page.                                |
+| `maxPages`          | The most pages to keep. Past it, a page is dropped from the far end; give `previousPageParam` too, so it can load again. |
+| the rest            | As for [queries](#query-options): `key`, `staleTime`, `retry` (for each page), `refetchOnFocus`, …                       |
+
+To change pages in a mutation's `optimistic`, `Query.update` the whole
+value: `Query.update(todoPages, (data) => ({ ...data, pages: … }))` writes
+every cached member, and is undone like any other write.
 
 ## React
 
@@ -624,6 +745,51 @@ export function ToggleButton({ todo }: { readonly todo: Todo }) {
 when the component unmounts, so its `onSuccess` and `invalidates` still
 happen.
 
+### Load more
+
+`useInfiniteQuery` reads an infinite query as `useQuery` does, with controls
+for the next and previous pages. `useSuspenseInfiniteQuery` suspends only
+until the first page:
+
+```tsx
+import { useSuspenseInfiniteQuery } from "@monarcode/effetch-query/react";
+
+import { todoPages } from "./todo-pages.js";
+
+export function OpenTodos() {
+  const { result, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useSuspenseInfiniteQuery(todoPages({ done: false }));
+
+  return (
+    <>
+      <ul>
+        {result.value.pages
+          .flatMap((page) => page.todos)
+          .map((todo) => (
+            <li key={todo.id}>{todo.title}</li>
+          ))}
+      </ul>
+      {hasNextPage ? (
+        <button
+          disabled={isFetchingNextPage}
+          onClick={() => void fetchNextPage()}
+        >
+          {isFetchingNextPage ? "Loading…" : "Load more"}
+        </button>
+      ) : null}
+    </>
+  );
+}
+// React Native: <FlatList onEndReached={() => {
+//   if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+// }} … />
+```
+
+The loaded pages stay shown while the next one loads: `isFetchingNextPage`
+tells a page fetch from a refetch of every page. `fetchNextPage` returns a
+`Promise` that never rejects: a failed page shows in `result`, which keeps
+the pages. In React Native, call it from `FlatList`'s `onEndReached`.
+
 ### Pull to refresh
 
 A query's `waiting` is also true for background refetches, which shouldn't
@@ -758,6 +924,22 @@ export const toggleTodo = api.mutation(
 );
 // run with { params: { id: 1 }, body: { done: true } }
 
+export const todoPages = api.infiniteQuery(
+  Fetch.endpoint("GET /todos", {
+    output: Schema.Struct({
+      todos: Schema.Array(Todo),
+      nextCursor: Schema.NullOr(Schema.String),
+    }),
+  }),
+  {
+    // Each page's param is sent as ?cursor=…, and left out of the key.
+    pageParam: "cursor",
+    initialPageParam: null as string | null,
+    nextPageParam: (lastPage) => lastPage.nextCursor,
+  },
+);
+// todoPages({ query: { done: false } }): keyed ["todos", { done: false }]
+
 export const refreshTodo = Query.refetch(todo);
 ```
 
@@ -773,8 +955,10 @@ export const refreshTodo = Query.refetch(todo);
 - **`query` takes endpoints without a body** (`GET`, `HEAD`, `OPTIONS`,
   `TRACE`); everything else is a `mutation`, whose variables are the call's
   options. A mutation invalidates nothing unless you say so.
-- Pass `headers` and `plugins` as options of `query` and `mutation`, as with
-  `client.bind`.
+- **`infiniteQuery` pages through an endpoint without a body:**
+  `pageParam` names the query field each page's param is sent in.
+- Pass `headers` and `plugins` as options of `query`, `infiniteQuery` and
+  `mutation`, as with `client.bind`.
 
 ## The client
 
@@ -864,6 +1048,7 @@ const first = { id: 1, title: "Write tests", done: false };
 
 const TodoApiTest = Layer.succeed(TodoApi, {
   list: () => Effect.succeed([first]),
+  page: () => Effect.succeed({ todos: [first], nextCursor: null }),
   get: () => Effect.succeed(first),
   update: (_, patch) => Effect.succeed({ ...first, ...patch }),
 });
@@ -905,19 +1090,21 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `retry: 3`                                            | `retry: Schedule` (default none)                                                      |
 | `onMutate` returning a rollback context               | `optimistic`, undone automatically                                                    |
 | `dehydrate`, `hydrate`, `HydrationBoundary`           | Coming during the alpha series                                                        |
-| `useInfiniteQuery`                                    | Coming during the alpha series                                                        |
+| `useInfiniteQuery`, `fetchNextPage`                   | `InfiniteQuery.family`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`             |
+| `getNextPageParam`, `getPreviousPageParam`            | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)           |
+| `setQueriesData`                                      | `Query.update(family, (value, args) => …)`                                            |
 | `cancelQueries`, devtools                             | Not in 0.1                                                                            |
 
 ## Reference
 
 ### API
 
-| Import                                  | Exports                                                                                                                                                        |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`              | `Query`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                      |
-| `@monarcode/effetch-query/react`        | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `QueryFailure`, `MissingQueryProvider` |
-| `@monarcode/effetch-query/react-native` | `reactNativeSignals`                                                                                                                                           |
-| `@monarcode/effetch-query/effetch`      | `endpoints`                                                                                                                                                    |
+| Import                                  | Exports                                                                                                                                                                                                        |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`              | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                     |
+| `@monarcode/effetch-query/react`        | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `QueryFailure`, `MissingQueryProvider` |
+| `@monarcode/effetch-query/react-native` | `reactNativeSignals`                                                                                                                                                                                           |
+| `@monarcode/effetch-query/effetch`      | `endpoints`                                                                                                                                                                                                    |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.
@@ -926,8 +1113,7 @@ editor's hover and "Go to Definition" show it.
 
 - `effect/reactivity` is marked unstable in Effect 4, so effetch-query
   follows its changes. It's tested against Effect 4.1 and the newest 4.x.
-- No server rendering or hydration yet, and no infinite queries: both land
-  during the alpha series.
+- No server rendering or hydration yet: they land during the alpha series.
 - No `cancelQueries` and no devtools in 0.1.
 - `gcTime` is per query, not per client: a query's atom is shared by every
   client.
@@ -939,9 +1125,10 @@ the package:
 
 - [`effect-only.ts`](examples/effect-only/effect-only.ts): queries, the cache
   and mutations from Effect code, with no UI.
-- [`todos/`](examples/todos): a React app over effetch endpoints: a list, a
-  detail view, an optimistic toggle, a missing todo with a retry button and
-  a refresh button, with tests that drive it.
+- [`todos/`](examples/todos): a React app over effetch endpoints: a list
+  with "load more", a detail view, an optimistic toggle that updates every
+  page, a missing todo with a retry button and a refresh button, with tests
+  that drive it.
 
 Its [README](examples/README.md) walks through each one.
 
