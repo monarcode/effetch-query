@@ -2,6 +2,17 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-alpha.1
+
+The first release from the Release workflow. The package's code is the same
+as `0.1.0-alpha.0`.
+
+### Changed
+
+- Published from GitHub Actions with npm trusted publishing, so this and
+  every later version carries a provenance statement linking it to its
+  source commit and build.
+
 ## 0.1.0-alpha.0
 
 The first release: TanStack-Query-style server state for Effect 4, built on
