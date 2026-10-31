@@ -2,6 +2,39 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-alpha.2
+
+Infinite queries, and `Query.update` across a family.
+
+### Added
+
+- `InfiniteQuery.make` and `InfiniteQuery.family`: paged queries whose
+  value is an `InfiniteData` (`pages` and `pageParams`), from
+  `initialPageParam`, `nextPageParam`, an optional `previousPageParam`, and
+  `maxPages`. An infinite query is a query, so `Query.get`, `Query.set`,
+  `Query.update`, `Query.invalidate` and the rest work on it. A refetch
+  fetches as many pages as are loaded, each from the page before it, as
+  TanStack v5 does.
+- `InfiniteQuery.fetchNextPage` and `InfiniteQuery.fetchPreviousPage`: fetch
+  one page at either end. A failed page keeps the loaded pages, and a write
+  made while a page loads stays.
+- `@monarcode/effetch-query/react`: `useInfiniteQuery` and
+  `useSuspenseInfiniteQuery`, with `fetchNextPage`, `fetchPreviousPage`,
+  `hasNextPage`, `hasPreviousPage`, `isFetchingNextPage` and
+  `isFetchingPreviousPage`, for "load more" buttons and infinite scroll
+  (`onEndReached` in React Native).
+- `@monarcode/effetch-query/effetch`: `api.infiniteQuery(endpoint, {
+  pageParam, ... })`. `pageParam` names the query field each page's param
+  is sent in; it's left out of the key.
+- `Query.update` takes a family: it writes every cached member, with its
+  argument, as TanStack's `setQueriesData` does. In a mutation's
+  `optimistic`, a failed run puts each member back.
+
+### Fixed
+
+- `Query.fetch` no longer fetches twice when a query that was invalidated
+  while unused settles at once.
+
 ## 0.1.0-alpha.1
 
 The first release from the Release workflow. The package's code is the same
