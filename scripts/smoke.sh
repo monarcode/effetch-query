@@ -101,13 +101,41 @@ for optional in react @effect/atom-react; do
 done
 
 cat >core.ts <<'TS'
-import { Query } from "@monarcode/effetch-query";
+import * as Context from "effect/Context";
+import * as Layer from "effect/Layer";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
 import * as ReactNative from "@monarcode/effetch-query/react-native";
 
-const key: Query.QueryKey = ["todos", "detail", 1];
+class Greeter extends Context.Service<
+	Greeter,
+	{ readonly greet: (name: string) => string }
+>()("smoke/Greeter") {}
 
-if (key.length !== 3 || Object.keys(ReactNative).length !== 0) {
-	throw new Error("Unexpected core or react-native exports");
+// Augmenting through the root re-export must reach QueryClient's `Register`.
+declare module "@monarcode/effetch-query" {
+	interface Register {
+		readonly services: Greeter;
+	}
+}
+
+const key: Query.QueryKey = ["todos", "detail", 1];
+const client = QueryClient.make({
+	layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}` }),
+});
+const greeting = await client.runPromise(
+	Greeter.useSync((greeter) => greeter.greet("smoke")),
+);
+await client.dispose();
+
+if (key.length !== 3) {
+	throw new Error(`Unexpected query key: ${JSON.stringify(key)}`);
+}
+if (greeting !== "Hello, smoke") {
+	throw new Error(`Unexpected runPromise result: ${greeting}`);
+}
+if (Object.keys(ReactNative).length !== 0) {
+	throw new Error("Unexpected react-native exports");
 }
 
 console.log("core: ok");
