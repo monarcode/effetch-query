@@ -36,6 +36,12 @@ export const disposeClients = async (): Promise<void> => {
 	await Promise.all(clients.splice(0).map((client) => client.dispose()));
 };
 
+/** Disposes a client `makeClient` made, which `disposeClients` then skips. */
+export const dispose = async (client: QueryClient.QueryClient) => {
+	clients.splice(clients.indexOf(client), 1);
+	await client.dispose();
+};
+
 export const useFakeTimers = () =>
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 

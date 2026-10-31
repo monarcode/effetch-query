@@ -13,7 +13,13 @@ import { resolveGcTime, resolveQueryOptions } from "./defaults.js";
 import { emit } from "./events.js";
 import { type Watcher, watch } from "./freshness.js";
 import { forkQueryHooks } from "./hooks.js";
-import { ConfigAtom, ReactivityAtom, runtime, StateAtom } from "./runtime.js";
+import {
+	ConfigAtom,
+	ReactivityAtom,
+	runtime,
+	StateAtom,
+	track,
+} from "./runtime.js";
 
 export const QueryTypeId = "~@monarcode/effetch-query/Query" as const;
 export type QueryTypeId = typeof QueryTypeId;
@@ -173,11 +179,10 @@ export const makeQuery = <A, E>(definition: {
 				retry === undefined ? attempt : Effect.retry(attempt, retry);
 			return Effect.withFiber((fiber) => {
 				const state = get.once(StateAtom);
-				state.fibers.add(fiber);
+				track(state, fiber);
 				emit(state, { _tag: "FetchStarted", key, fetchId: fiber.id });
 				return Effect.onExit(fetch, (exit) =>
 					Effect.suspend(() => {
-						state.fibers.delete(fiber);
 						emit(state, {
 							_tag: "FetchSettled",
 							key,

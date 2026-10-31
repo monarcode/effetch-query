@@ -7,9 +7,15 @@ import * as React from "../src/react/index.js";
 describe("public entry points", () => {
 	it("@monarcode/effetch-query exports exactly these values", () => {
 		expect(Object.keys(Core).sort()).toEqual([
+			"Mutation",
 			"Query",
 			"QueryClient",
 			"Signals",
+		]);
+		expect(Object.keys(Core.Mutation).sort()).toEqual([
+			"MutationTypeId",
+			"make",
+			"run",
 		]);
 		expect(Object.keys(Core.Query).sort()).toEqual([
 			"QueryTypeId",

@@ -1,12 +1,14 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import type * as Atom from "effect/reactivity/Atom";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
 import { type QuerySettings, resolveQueryOptions } from "./defaults.js";
 import { emit } from "./events.js";
 import { isFresh } from "./freshness.js";
+import type { Undo } from "./optimistic.js";
 import {
 	combine,
 	internals,
@@ -87,6 +89,19 @@ export const peek = <A, E>(
 	return Option.some(combine(result.value, value));
 };
 
+// The node takes `skipInitialRun` as `initialValues` does, though its
+// interface leaves the parameter out.
+const seed = <A>(
+	registry: AtomRegistry.AtomRegistry,
+	atom: Atom.Atom<A>,
+	value: A,
+): void =>
+	(
+		registry.ensureNode(atom) as unknown as {
+			setInitialValue(value: A, skipInitialRun: boolean): void;
+		}
+	).setInitialValue(value, true);
+
 /**
  * Writes a value. A query whose fetch atom is up to date takes it as a
  * written value (DESIGN.md §4.1). One that isn't cached, or was invalidated
@@ -96,40 +111,57 @@ export const peek = <A, E>(
  * has a value. So the value counts as fresh, as TanStack's `setQueryData`
  * clears `isInvalidated`. The query is then read, so the seeded node has a
  * dependent before the registry sweeps unused nodes.
+ *
+ * Returns how to undo the write, for optimistic writes (DESIGN.md §5.6).
+ * A written value is undone by putting `local` back. A value seeded into the
+ * current generation, which had none, is dropped with a reset. One seeded
+ * over a stale generation goes back to that generation, whose fetch atom
+ * the registry has swept by then: it's seeded again with its old result and
+ * invalidated, so the query is as it was, refetching when next used.
  */
 export const setValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
 	value: A,
-): void => {
+): Undo => {
 	const { local, fetchAtom } = internals(query);
-	const { generation } = localValue(registry, query);
+	const previous = localValue(registry, query);
+	const { generation } = previous;
+	const restore = () => registry.set(local, previous);
 	const state = registry.getNodes().get(fetchAtom(generation))?.currentState();
 	if (state === "valid") {
 		registry.set(query, value);
-		return;
+		return restore;
 	}
 	const target = state === "stale" ? generation + 1 : generation;
-	// The node takes `skipInitialRun` as `initialValues` does, though its
-	// interface leaves the parameter out.
-	(
-		registry.ensureNode(fetchAtom(target)) as unknown as {
-			setInitialValue(value: unknown, skipInitialRun: boolean): void;
-		}
-	).setInitialValue(written(value).value, true);
+	const stale = nodeValue(registry, fetchAtom(generation));
+	seed(registry, fetchAtom(target), written<A, E>(value).value);
 	registry.set(local, { generation: target, written: Option.none() });
 	registry.get(query);
+	if (target === generation) {
+		return () => resetQuery(registry, query);
+	}
+	return Option.match(stale, {
+		onNone: () => restore,
+		onSome: (result) => () => {
+			seed(registry, fetchAtom(generation), result);
+			restore();
+			registry.get(query);
+			registry.refresh(fetchAtom(generation));
+		},
+	});
 };
 
+/** Writes a value computed from the cached one, as `setValue` does, if there is one. */
 export const updateValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
 	f: (value: A) => A,
-): void => {
+): Undo | undefined => {
 	const current = Option.flatMap(peek(registry, query), AsyncResult.value);
-	if (Option.isSome(current)) {
-		registry.set(query, f(current.value));
-	}
+	return Option.isSome(current)
+		? setValue(registry, query, f(current.value))
+		: undefined;
 };
 
 /**

@@ -1,4 +1,10 @@
 /**
+ * Mutations: changes to server state, with optimistic cache writes.
+ *
+ * @since 0.1.0
+ */
+export * as Mutation from "./Mutation.js";
+/**
  * Queries: keyed, cached server state.
  *
  * @since 0.1.0
