@@ -35,6 +35,12 @@ export interface ClientState {
 	readonly fibers: Set<Fiber.Fiber<unknown, unknown>>;
 	/** Set when `dispose()` starts. The registry throws once it's disposed. */
 	disposed: boolean;
+	/** What suspended readers wait on, one per query (see `suspense.ts`). */
+	readonly suspensions: Map<Query<any, any>, Promise<void>>;
+	/** How many fetches have started, which orders them (see `queryUse.ts`). */
+	fetchCount: number;
+	/** Each query's latest fetch, by its place in `fetchCount`. */
+	readonly fetchedAt: WeakMap<Query<any, any>, number>;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -42,6 +48,9 @@ export const makeClientState = (): ClientState => ({
 	listeners: new Set(),
 	fibers: new Set(),
 	disposed: false,
+	suspensions: new Map(),
+	fetchCount: 0,
+	fetchedAt: new WeakMap(),
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */
@@ -54,6 +63,22 @@ export const track = (
 		state.fibers.delete(fiber);
 	});
 };
+
+/**
+ * Refreshes an atom whose value lives outside the registry, if it has a
+ * node: refreshing one with none would create a node that's never swept.
+ */
+export const refreshIfBuilt = (
+	registry: AtomRegistry.AtomRegistry,
+	atom: Atom.Atom<unknown>,
+): void => {
+	if (registry.getNodes().has(atom)) {
+		registry.refresh(atom);
+	}
+};
+
+/** Reads the registry from an atom read that's only given `get`. */
+export const RegistryAtom = Atom.readable((get) => get.registry);
 
 /** The defect an atom dies with when it's read in a registry no client made. */
 export class MissingQueryClient extends Data.TaggedError("MissingQueryClient")<{

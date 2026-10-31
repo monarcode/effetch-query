@@ -10,10 +10,11 @@ import { emit } from "./events.js";
 import { isFresh } from "./freshness.js";
 import type { Undo } from "./optimistic.js";
 import {
-	combine,
 	internals,
 	isQuery,
-	type Local,
+	localValue,
+	nodeValue,
+	peek,
 	written,
 } from "./queryAtom.js";
 import { ConfigAtom, type ClientState } from "./runtime.js";
@@ -40,14 +41,6 @@ export const observeNodes = (
 	};
 };
 
-export const nodeValue = <A>(
-	registry: AtomRegistry.AtomRegistry,
-	atom: AtomRegistry.Node<A>["atom"],
-): Option.Option<A> =>
-	(registry.getNodes().get(atom)?.valueOption() as
-		| Option.Option<A>
-		| undefined) ?? Option.none();
-
 /** A query's settings: its watcher's, or resolved again if it has none yet. */
 export const settings = <E>(
 	registry: AtomRegistry.AtomRegistry,
@@ -62,31 +55,6 @@ export const settings = <E>(
 				registry.get(ConfigAtom).queries.defaults,
 			),
 	});
-};
-
-const localValue = <A, E>(
-	registry: AtomRegistry.AtomRegistry,
-	query: Query.Query<A, E>,
-): Local<A, E> =>
-	Option.getOrElse(
-		nodeValue<Local<A, E>>(registry, internals(query).local),
-		(): Local<A, E> => ({ generation: 0, written: Option.none() }),
-	);
-
-/**
- * What a query shows, without building or fetching it: from its nodes'
- * values, which a stale node still holds.
- */
-export const peek = <A, E>(
-	registry: AtomRegistry.AtomRegistry,
-	query: Query.Query<A, E>,
-): Option.Option<AsyncResult.AsyncResult<A, E>> => {
-	const { generation, written: value } = localValue(registry, query);
-	const result = nodeValue(registry, internals(query).fetchAtom(generation));
-	if (Option.isNone(result)) {
-		return Option.map(value, (written) => written.value);
-	}
-	return Option.some(combine(result.value, value));
 };
 
 // The node takes `skipInitialRun` as `initialValues` does, though its

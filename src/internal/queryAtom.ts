@@ -16,6 +16,7 @@ import { forkQueryHooks } from "./hooks.js";
 import {
 	ConfigAtom,
 	ReactivityAtom,
+	RegistryAtom,
 	runtime,
 	StateAtom,
 	track,
@@ -123,6 +124,39 @@ const markWritten = <A, E>(
 		: "failed";
 };
 
+export const nodeValue = <A>(
+	registry: AtomRegistry.AtomRegistry,
+	atom: AtomRegistry.Node<A>["atom"],
+): Option.Option<A> =>
+	(registry.getNodes().get(atom)?.valueOption() as
+		| Option.Option<A>
+		| undefined) ?? Option.none();
+
+export const localValue = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+): Local<A, E> =>
+	Option.getOrElse(
+		nodeValue<Local<A, E>>(registry, internals(query).local),
+		(): Local<A, E> => ({ generation: 0, written: Option.none() }),
+	);
+
+/**
+ * What a query shows, without building or fetching it: from its nodes'
+ * values, which a stale node still holds.
+ */
+export const peek = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+): Option.Option<AsyncResult.AsyncResult<A, E>> => {
+	const { generation, written: value } = localValue(registry, query);
+	const result = nodeValue(registry, internals(query).fetchAtom(generation));
+	if (Option.isNone(result)) {
+		return Option.map(value, (written) => written.value);
+	}
+	return Option.some(combine(result.value, value));
+};
+
 /** Builds a query atom (DESIGN.md §5.2). */
 export const makeQuery = <A, E>(definition: {
 	readonly key: Query.QueryKey;
@@ -180,6 +214,7 @@ export const makeQuery = <A, E>(definition: {
 			return Effect.withFiber((fiber) => {
 				const state = get.once(StateAtom);
 				track(state, fiber);
+				state.fetchedAt.set(query, ++state.fetchCount);
 				emit(state, { _tag: "FetchStarted", key, fetchId: fiber.id });
 				return Effect.onExit(fetch, (exit) =>
 					Effect.suspend(() => {
@@ -229,6 +264,11 @@ export const makeQuery = <A, E>(definition: {
 			[QueryTypeId]: QueryTypeId,
 			key,
 			initialValueTarget: fetchAtom(0),
+			// A server render reads the cache and never fetches (DESIGN.md §5.8).
+			[Atom.ServerValueTypeId]: (get: <X>(atom: Atom.Atom<X>) => X) =>
+				Option.getOrElse(peek(get(RegistryAtom), query), () =>
+					AsyncResult.initial<A, E>(true),
+				),
 			[InternalsId]: { options, local, fetchAtom, watcher },
 		},
 	);

@@ -8,7 +8,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Mutation from "../Mutation.js";
 import { resolveMutationOptions } from "./defaults.js";
 import { execute, options } from "./mutation.js";
-import { ConfigAtom, forkWithClient } from "./runtime.js";
+import { ConfigAtom, forkWithClient, refreshIfBuilt } from "./runtime.js";
 
 /**
  * One use of a mutation, such as a component's `useMutation` (DESIGN.md
@@ -56,12 +56,9 @@ export const makeHandle = <Variables, A, E>(
 		);
 		return AsyncResult.waitingFrom(previous);
 	});
-	// Refreshing an atom with no node would create one that's never swept.
 	const show = (fiber: Fiber.Fiber<A, E> | undefined) => {
 		shown = fiber;
-		if (registry.getNodes().has(result)) {
-			registry.refresh(result);
-		}
+		refreshIfBuilt(registry, result);
 	};
 	const start = (variables: Variables): Fiber.Fiber<A, E> => {
 		const { concurrent } = resolveMutationOptions(
