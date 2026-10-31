@@ -38,22 +38,29 @@ export const observeNodes = (
 	};
 };
 
-export const settings = <E>(
-	registry: AtomRegistry.AtomRegistry,
-	query: Query.Query<any, E>,
-): QuerySettings<E> =>
-	resolveQueryOptions(
-		internals(query).options,
-		registry.get(ConfigAtom).queries.defaults,
-	);
-
-const nodeValue = <A>(
+export const nodeValue = <A>(
 	registry: AtomRegistry.AtomRegistry,
 	atom: AtomRegistry.Node<A>["atom"],
 ): Option.Option<A> =>
 	(registry.getNodes().get(atom)?.valueOption() as
 		| Option.Option<A>
 		| undefined) ?? Option.none();
+
+/** A query's settings: its watcher's, or resolved again if it has none yet. */
+export const settings = <E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, E>,
+): QuerySettings<E> => {
+	const { options, watcher } = internals(query);
+	return Option.match(nodeValue(registry, watcher), {
+		onSome: (watcher) => watcher.settings,
+		onNone: () =>
+			resolveQueryOptions(
+				options,
+				registry.get(ConfigAtom).queries.defaults,
+			),
+	});
+};
 
 const localValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
@@ -81,46 +88,36 @@ export const peek = <A, E>(
 };
 
 /**
- * Whether something uses the query: a listener on it, or on anything that
- * depends on it, as the registry decides which nodes to keep up to date.
- */
-export const isInUse = (
-	registry: AtomRegistry.AtomRegistry,
-	query: Query.Query<any, any>,
-): boolean => {
-	const node = registry.getNodes().get(query);
-	return node !== undefined && isObserved(node);
-};
-
-const isObserved = (node: AtomRegistry.Node<unknown>): boolean =>
-	!node.atom.lazy ||
-	node.listeners.size > 0 ||
-	Array.from(node.children).some(isObserved);
-
-/**
- * Writes a value. A query that isn't cached is seeded the way hydration does
- * it: its current fetch atom keeps the value instead of running its first
- * fetch. The query is then read, so the seeded node has a dependent before
- * the registry sweeps unused nodes.
+ * Writes a value. A query whose fetch atom is up to date takes it as a
+ * written value (DESIGN.md §4.1). One that isn't cached, or was invalidated
+ * while unused (its fetch atom is stale, and would refetch when next read),
+ * is seeded instead, the way hydration does it: a fetch atom keeps the value
+ * instead of running its first fetch, a new generation's if the current one
+ * has a value. So the value counts as fresh, as TanStack's `setQueryData`
+ * clears `isInvalidated`. The query is then read, so the seeded node has a
+ * dependent before the registry sweeps unused nodes.
  */
 export const setValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
 	value: A,
 ): void => {
-	if (Option.isSome(peek(registry, query))) {
+	const { local, fetchAtom } = internals(query);
+	const { generation } = localValue(registry, query);
+	const state = registry.getNodes().get(fetchAtom(generation))?.currentState();
+	if (state === "valid") {
 		registry.set(query, value);
 		return;
 	}
+	const target = state === "stale" ? generation + 1 : generation;
 	// The node takes `skipInitialRun` as `initialValues` does, though its
 	// interface leaves the parameter out.
 	(
-		registry.ensureNode(
-			internals(query).fetchAtom(localValue(registry, query).generation),
-		) as unknown as {
+		registry.ensureNode(fetchAtom(target)) as unknown as {
 			setInitialValue(value: unknown, skipInitialRun: boolean): void;
 		}
 	).setInitialValue(written(value).value, true);
+	registry.set(local, { generation: target, written: Option.none() });
 	registry.get(query);
 };
 

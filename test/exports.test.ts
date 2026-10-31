@@ -30,7 +30,7 @@ describe("public entry points", () => {
 			"layer",
 			"make",
 		]);
-		expect(Object.keys(Core.Signals).sort()).toEqual([]);
+		expect(Object.keys(Core.Signals).sort()).toEqual(["browser", "none"]);
 	});
 
 	it("@monarcode/effetch-query/react exports exactly these values", () => {

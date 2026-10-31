@@ -9,9 +9,11 @@ import type * as Scope from "effect/Scope";
 
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
-import { resolveGcTime } from "./defaults.js";
+import { resolveGcTime, resolveQueryOptions } from "./defaults.js";
 import { emit } from "./events.js";
-import { ReactivityAtom, runtime, StateAtom } from "./runtime.js";
+import { type Watcher, watch } from "./freshness.js";
+import { forkQueryHooks } from "./hooks.js";
+import { ConfigAtom, ReactivityAtom, runtime, StateAtom } from "./runtime.js";
 
 export const QueryTypeId = "~@monarcode/effetch-query/Query" as const;
 export type QueryTypeId = typeof QueryTypeId;
@@ -49,6 +51,7 @@ export interface Internals<A, E> {
 	readonly fetchAtom: (
 		generation: number,
 	) => Atom.Atom<AsyncResult.AsyncResult<A, E>>;
+	readonly watcher: Atom.Atom<Watcher<E>>;
 }
 
 interface QueryWithInternals<A, E> extends Query.Query<A, E> {
@@ -122,6 +125,15 @@ export const makeQuery = <A, E>(definition: {
 }): Query.Query<A, E> => {
 	const { key, run, options } = definition;
 	const { reactivityKeys } = options;
+	// The client's defaults are read at run time, so one definition serves
+	// every client; the watcher resolves them once per query node.
+	const watcher = Atom.readable((get) =>
+		watch(
+			get,
+			query,
+			resolveQueryOptions(options, get.once(ConfigAtom).queries.defaults),
+		),
+	);
 	// Refreshing the query refreshes this, and every fetch atom reads it, so
 	// a refresh refetches whichever generation is current.
 	const refreshSignal = Atom.readable(() => ({}));
@@ -150,28 +162,37 @@ export const makeQuery = <A, E>(definition: {
 					{ immediate: true },
 				);
 			}
-			const effect = run({ result: (query) => get.result(query) });
-			// The fetch gets its own scope, closed in its fiber, and the client
-			// tracks the fiber: `dispose()` waits for both.
+			const { retry } = get(watcher).settings;
+			const { queries } = get.once(ConfigAtom);
+			// Each attempt gets its own scope, closed in its fiber, and the
+			// client tracks the fiber: `dispose()` waits for both.
+			const attempt = Effect.scoped(
+				run({ result: (query) => get.result(query) }),
+			);
+			const fetch =
+				retry === undefined ? attempt : Effect.retry(attempt, retry);
 			return Effect.withFiber((fiber) => {
 				const state = get.once(StateAtom);
-				state.fetches.add(fiber);
+				state.fibers.add(fiber);
 				emit(state, { _tag: "FetchStarted", key, fetchId: fiber.id });
-				return Effect.onExit(Effect.scoped(effect), (exit) =>
-					Effect.sync(() => {
-						state.fetches.delete(fiber);
-						if (
-							Exit.isSuccess(exit) ||
-							!Cause.hasInterruptsOnly(exit.cause)
-						) {
-							markWritten(registry, local, generation, exit);
-						}
+				return Effect.onExit(fetch, (exit) =>
+					Effect.suspend(() => {
+						state.fibers.delete(fiber);
 						emit(state, {
 							_tag: "FetchSettled",
 							key,
 							fetchId: fiber.id,
 							exit,
 						});
+						// An interrupted fetch was replaced or left: it isn't a failure.
+						if (
+							Exit.isFailure(exit) &&
+							Cause.hasInterruptsOnly(exit.cause)
+						) {
+							return Effect.void;
+						}
+						markWritten(registry, local, generation, exit);
+						return forkQueryHooks(state, queries, key, exit);
 					}),
 				);
 			});
@@ -183,7 +204,9 @@ export const makeQuery = <A, E>(definition: {
 			Atom.writable(
 				(get): AsyncResult.AsyncResult<A, E> => {
 					const { generation, written } = get(local);
-					return combine(get(fetchAtom(generation)), written);
+					const result = combine(get(fetchAtom(generation)), written);
+					get(watcher).resume();
+					return result;
 				},
 				(ctx, value: A) => {
 					ctx.set(local, {
@@ -201,7 +224,7 @@ export const makeQuery = <A, E>(definition: {
 			[QueryTypeId]: QueryTypeId,
 			key,
 			initialValueTarget: fetchAtom(0),
-			[InternalsId]: { options, local, fetchAtom },
+			[InternalsId]: { options, local, fetchAtom, watcher },
 		},
 	);
 	return query;
