@@ -56,6 +56,6 @@ describe("public entry points", () => {
 	});
 
 	it("@monarcode/effetch-query/react-native exports exactly these values", () => {
-		expect(Object.keys(ReactNative).sort()).toEqual([]);
+		expect(Object.keys(ReactNative).sort()).toEqual(["reactNativeSignals"]);
 	});
 });

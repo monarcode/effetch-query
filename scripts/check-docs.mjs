@@ -15,6 +15,12 @@ const markdown = ["README.md"]
 	.filter((file) => existsSync(file));
 
 const relative = (file) => path.relative(root, file);
+// Declares `react-native` and NetInfo, which aren't installed, for the
+// `./react-native` examples.
+const reactNativeModules = path.join(
+	root,
+	"test/types/react-native-modules.d.ts",
+);
 
 const parsed = ts.getParsedCommandLineOfConfigFile(
 	path.join(root, "tsconfig.json"),
@@ -243,7 +249,11 @@ const groups = [
 		.map((fileName) => [fileName]),
 ].filter((group) => group.length > 0);
 for (const group of groups) {
-	const examplesProgram = ts.createProgram(group, options, host);
+	const examplesProgram = ts.createProgram(
+		[...group, reactNativeModules],
+		options,
+		host,
+	);
 	for (const diagnostic of ts.getPreEmitDiagnostics(examplesProgram)) {
 		const example = diagnostic.file && virtual.get(diagnostic.file.fileName);
 		if (!example) {
