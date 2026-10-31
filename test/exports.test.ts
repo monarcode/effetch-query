@@ -55,11 +55,13 @@ describe("public entry points", () => {
 			"MissingQueryProvider",
 			"QueryFailure",
 			"QueryProvider",
+			"useInfiniteQuery",
 			"useMutation",
 			"useQuery",
 			"useQueryClient",
 			"useRefetch",
 			"useResetQueryFailure",
+			"useSuspenseInfiniteQuery",
 			"useSuspenseQuery",
 		]);
 		expect(React.QueryFailure).toBe(Core.QueryFailure);

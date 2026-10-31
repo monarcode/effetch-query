@@ -8,6 +8,12 @@ import * as Atom from "effect/reactivity/Atom";
 
 import * as React from "react";
 
+import type * as InfiniteQuery from "../InfiniteQuery.js";
+import {
+	fetchPageFor,
+	pageState,
+	pagingAtom,
+} from "../internal/infiniteQuery.js";
 import { makeHandle } from "../internal/mutationHandle.js";
 import { makeQueryUse } from "../internal/queryUse.js";
 import { makeRefetchHandle } from "../internal/refetchHandle.js";
@@ -165,6 +171,248 @@ export const useSuspenseQuery = <A, E>(
 		[use, query],
 	);
 	return use.suspend(query, result);
+};
+
+/**
+ * The page controls {@link useInfiniteQuery} and
+ * {@link useSuspenseInfiniteQuery} return beside the result.
+ *
+ * @example
+ * ```ts
+ * import type { InfinitePageControls } from "@monarcode/effetch-query/react";
+ *
+ * export const onEndReached = (pages: InfinitePageControls) => {
+ *   if (pages.hasNextPage && !pages.isFetchingNextPage) {
+ *     void pages.fetchNextPage();
+ *   }
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface InfinitePageControls {
+	/**
+	 * Fetches the page after the last one, as
+	 * {@link InfiniteQuery.fetchNextPage} does. Resolves when it settles;
+	 * never rejects: a failure shows in `result`, which keeps the loaded pages.
+	 */
+	readonly fetchNextPage: () => Promise<void>;
+	/** Fetches the page before the first one, as {@link InfiniteQuery.fetchPreviousPage} does. */
+	readonly fetchPreviousPage: () => Promise<void>;
+	/** Whether `nextPageParam` gives a param for the shown pages (neither `undefined` nor `null`). */
+	readonly hasNextPage: boolean;
+	/** Whether `previousPageParam` gives a param for the shown pages. */
+	readonly hasPreviousPage: boolean;
+	/** Whether a next page is being fetched, as opposed to a refetch of every page. */
+	readonly isFetchingNextPage: boolean;
+	/** Whether a previous page is being fetched. */
+	readonly isFetchingPreviousPage: boolean;
+}
+
+/**
+ * What {@link useInfiniteQuery} returns.
+ *
+ * @example
+ * ```ts
+ * import type { InfiniteQuery } from "@monarcode/effetch-query";
+ * import {
+ *   useInfiniteQuery,
+ *   type UseInfiniteQueryResult,
+ * } from "@monarcode/effetch-query/react";
+ *
+ * declare const feed: InfiniteQuery.InfiniteQuery<ReadonlyArray<string>, Error, number>;
+ *
+ * export const useFeed = (): UseInfiniteQueryResult<ReadonlyArray<string>, Error, number> =>
+ *   useInfiniteQuery(feed);
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseInfiniteQueryResult<A, E, P> extends InfinitePageControls {
+	/** The query's result, as {@link useQuery} returns it. */
+	readonly result: AsyncResult.AsyncResult<
+		InfiniteQuery.InfiniteData<A, P>,
+		E
+	>;
+}
+
+/**
+ * What {@link useSuspenseInfiniteQuery} returns.
+ *
+ * @example
+ * ```ts
+ * import type { InfiniteQuery } from "@monarcode/effetch-query";
+ * import {
+ *   useSuspenseInfiniteQuery,
+ *   type UseSuspenseInfiniteQueryResult,
+ * } from "@monarcode/effetch-query/react";
+ *
+ * declare const feed: InfiniteQuery.InfiniteQuery<ReadonlyArray<string>, Error, number>;
+ *
+ * export const useFeed = (): UseSuspenseInfiniteQueryResult<
+ *   ReadonlyArray<string>,
+ *   Error,
+ *   number
+ * > => useSuspenseInfiniteQuery(feed);
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseSuspenseInfiniteQueryResult<
+	A,
+	E,
+	P,
+> extends InfinitePageControls {
+	/** The query's success, as {@link useSuspenseQuery} returns it. */
+	readonly result: AsyncResult.Success<InfiniteQuery.InfiniteData<A, P>, E>;
+}
+
+/** The page controls of a query and the result a reader shows for it. */
+const usePageControls = <A, E, P>(
+	query: InfiniteQuery.InfiniteQuery<A, E, P> | null,
+	result: AsyncResult.AsyncResult<InfiniteQuery.InfiniteData<A, P>, E>,
+): InfinitePageControls => {
+	const registry = useRegistry();
+	const paging = useAtomValue(pagingAtom(query));
+	const {
+		hasNextPage,
+		hasPreviousPage,
+		isFetchingNextPage,
+		isFetchingPreviousPage,
+	} = pageState(query, result, paging);
+	const fetchNextPage = React.useCallback(
+		() =>
+			query === null
+				? Promise.resolve()
+				: fetchPageFor(registry, query, "next"),
+		[registry, query],
+	);
+	const fetchPreviousPage = React.useCallback(
+		() =>
+			query === null
+				? Promise.resolve()
+				: fetchPageFor(registry, query, "previous"),
+		[registry, query],
+	);
+	return React.useMemo(
+		() => ({
+			fetchNextPage,
+			fetchPreviousPage,
+			hasNextPage,
+			hasPreviousPage,
+			isFetchingNextPage,
+			isFetchingPreviousPage,
+		}),
+		[
+			fetchNextPage,
+			fetchPreviousPage,
+			hasNextPage,
+			hasPreviousPage,
+			isFetchingNextPage,
+			isFetchingPreviousPage,
+		],
+	);
+};
+
+/**
+ * Reads an {@link InfiniteQuery.InfiniteQuery} as {@link useQuery} does
+ * (the mount policy, focus, reconnect and polling refetch every loaded
+ * page), with controls to fetch a page at either end: "load more" buttons
+ * and infinite scroll.
+ *
+ * A page fetch keeps the loaded pages shown: `result` stays a waiting
+ * `Success`, and `isFetchingNextPage` tells it from a refetch of every page.
+ * A page that fails makes `result` a `Failure` whose `previousSuccess` still
+ * holds the pages. Pass `null` to read nothing.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ * import * as AsyncResult from "effect/reactivity/AsyncResult";
+ *
+ * import { InfiniteQuery } from "@monarcode/effetch-query";
+ * import { useInfiniteQuery } from "@monarcode/effetch-query/react";
+ *
+ * const numbers = InfiniteQuery.make({
+ *   key: ["numbers"],
+ *   initialPageParam: 0,
+ *   run: (page: number) => Effect.succeed([page * 2, page * 2 + 1]),
+ *   nextPageParam: (_, __, page) => (page < 4 ? page + 1 : undefined),
+ * });
+ *
+ * export function Numbers() {
+ *   const { result, fetchNextPage, hasNextPage, isFetchingNextPage } =
+ *     useInfiniteQuery(numbers);
+ *   const items = AsyncResult.getOrElse(result, () => ({ pages: [] })).pages.flat();
+ *   return (
+ *     <>
+ *       <ul>{items.map((n) => <li key={n}>{n}</li>)}</ul>
+ *       <button
+ *         disabled={!hasNextPage || isFetchingNextPage}
+ *         onClick={() => void fetchNextPage()}
+ *       >
+ *         Load more
+ *       </button>
+ *     </>
+ *   );
+ * }
+ * ```
+ *
+ * @see {@link useSuspenseInfiniteQuery} to suspend until the first page
+ *
+ * @since 0.1.0
+ */
+export const useInfiniteQuery = <A, E, P>(
+	query: InfiniteQuery.InfiniteQuery<A, E, P> | null,
+	options?: UseQueryOptions | undefined,
+): UseInfiniteQueryResult<A, E, P> => {
+	const result = useQuery(query, options);
+	const controls = usePageControls(query, result);
+	return React.useMemo(() => ({ ...controls, result }), [controls, result]);
+};
+
+/**
+ * Reads an {@link InfiniteQuery.InfiniteQuery} through React Suspense, as
+ * {@link useSuspenseQuery} does, with the same page controls as
+ * {@link useInfiniteQuery}. It suspends only until the first page: later
+ * pages load while the loaded ones show, through `isFetchingNextPage`. A
+ * page that fails isn't thrown, since there are pages to show; only a
+ * failure with no pages before it reaches the error boundary.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { InfiniteQuery } from "@monarcode/effetch-query";
+ * import { useSuspenseInfiniteQuery } from "@monarcode/effetch-query/react";
+ *
+ * const numbers = InfiniteQuery.make({
+ *   key: ["numbers"],
+ *   initialPageParam: 0,
+ *   run: (page: number) => Effect.succeed([page * 2, page * 2 + 1]),
+ *   nextPageParam: (_, __, page) => (page < 4 ? page + 1 : undefined),
+ * });
+ *
+ * export function Numbers() {
+ *   const { result, fetchNextPage, hasNextPage } =
+ *     useSuspenseInfiniteQuery(numbers);
+ *   return (
+ *     <ul>
+ *       {result.value.pages.flat().map((n) => <li key={n}>{n}</li>)}
+ *       {hasNextPage ? <li onClick={() => void fetchNextPage()}>More</li> : null}
+ *     </ul>
+ *   );
+ * }
+ * ```
+ *
+ * @since 0.1.0
+ */
+export const useSuspenseInfiniteQuery = <A, E, P>(
+	query: InfiniteQuery.InfiniteQuery<A, E, P>,
+): UseSuspenseInfiniteQueryResult<A, E, P> => {
+	const result = useSuspenseQuery(query);
+	const controls = usePageControls(query, result);
+	return React.useMemo(() => ({ ...controls, result }), [controls, result]);
 };
 
 /**

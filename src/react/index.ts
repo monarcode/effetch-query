@@ -1,6 +1,9 @@
 "use client";
 
 export {
+	type InfinitePageControls,
+	useInfiniteQuery,
+	type UseInfiniteQueryResult,
 	useMutation,
 	type UseMutationResult,
 	useQuery,
@@ -8,6 +11,8 @@ export {
 	useRefetch,
 	type UseRefetchResult,
 	useResetQueryFailure,
+	useSuspenseInfiniteQuery,
+	type UseSuspenseInfiniteQueryResult,
 	useSuspenseQuery,
 } from "./hooks.js";
 export {

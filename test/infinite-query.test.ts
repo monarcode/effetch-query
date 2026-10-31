@@ -2,12 +2,13 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Schedule from "effect/Schedule";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InfiniteQuery, Mutation, Query } from "../src/index.js";
-import { isFetchingPage } from "../src/internal/infiniteQuery.js";
+import { pageState, pagingAtom } from "../src/internal/infiniteQuery.js";
 import { disposeClients, gate, makeClient, use, valueOf } from "./helpers.js";
 
 afterEach(disposeClients);
@@ -51,6 +52,12 @@ const server = (count: number, size = 2) => {
 	};
 	return { state, page, pages };
 };
+
+/** What a reader of the query shows besides its result. */
+const paged = <A, E, P>(
+	registry: AtomRegistry.AtomRegistry,
+	query: InfiniteQuery.InfiniteQuery<A, E, P>,
+) => pageState(query, registry.get(query), registry.get(pagingAtom(query)));
 
 const items = (data: InfiniteQuery.InfiniteData<Page, number>) =>
 	data.pages.flatMap((page) => page.items);
@@ -145,14 +152,20 @@ describe("InfiniteQuery", () => {
 		const first = client.runPromise(InfiniteQuery.fetchNextPage(list));
 		const second = client.runPromise(InfiniteQuery.fetchNextPage(list));
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(isFetchingPage(client.registry, list, "next")).toBe(true);
-		expect(isFetchingPage(client.registry, list, "previous")).toBe(false);
+		expect(paged(client.registry, list)).toMatchObject({
+			isFetchingNextPage: true,
+			isFetchingPreviousPage: false,
+		});
 		open();
 
 		expect(items(await first)).toEqual([0, 1, 2, 3]);
 		expect(await second).toBe(await first);
 		expect(state.fetched).toEqual([0, 2]);
-		expect(isFetchingPage(client.registry, list, "next")).toBe(false);
+		expect(paged(client.registry, list)).toMatchObject({
+			isFetchingNextPage: false,
+			hasNextPage: true,
+			hasPreviousPage: false,
+		});
 	});
 
 	it("waits for a refetch before fetching its page", async () => {

@@ -11,6 +11,7 @@ import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { fetchValue } from "./cache.js";
 import { type Member, makeQuery, nodeValue, peek } from "./queryAtom.js";
+import { forkWithClient } from "./runtime.js";
 
 export const InfiniteQueryTypeId =
 	"~@monarcode/effetch-query/InfiniteQuery" as const;
@@ -280,27 +281,74 @@ export const fetchPage = <A, E, P>(
 		return settle;
 	});
 
-/** Whether a page is being fetched in a direction, for `isFetchingNextPage`. */
-export const isFetchingPage = (
+/**
+ * What a reader of an infinite query shows besides its result
+ * (`useInfiniteQuery`): whether there's a page at either end of the shown
+ * data, and whether one is being fetched.
+ */
+export interface PageState {
+	readonly hasNextPage: boolean;
+	readonly hasPreviousPage: boolean;
+	readonly isFetchingNextPage: boolean;
+	readonly isFetchingPreviousPage: boolean;
+}
+
+const noPages: PageState = {
+	hasNextPage: false,
+	hasPreviousPage: false,
+	isFetchingNextPage: false,
+	isFetchingPreviousPage: false,
+};
+
+/** An infinite query's paging atom: readers subscribe to it for {@link pageState}. */
+export const pagingAtom = (
+	query: InfiniteQuery.InfiniteQuery<any, any, any> | null,
+): Atom.Atom<Paging> => (query === null ? idlePaging : pagingOf(query).paging);
+
+const idlePaging = Atom.readable((): Paging => idle);
+
+/** The {@link PageState} of a result, given its query's paging atom's value. */
+export const pageState = <A, E, P>(
+	query: InfiniteQuery.InfiniteQuery<A, E, P> | null,
+	result: AsyncResult.AsyncResult<InfiniteQuery.InfiniteData<A, P>, E>,
+	paging: Paging,
+): PageState => {
+	const data = AsyncResult.value(result);
+	if (query === null || Option.isNone(data)) {
+		return noPages;
+	}
+	const { pages } = pagingOf(query);
+	const fetching = (direction: Direction) =>
+		result.waiting &&
+		paging._tag === "Running" &&
+		paging.direction === direction;
+	return {
+		hasNextPage: Option.isSome(pageParam(pages, data.value, "next")),
+		hasPreviousPage: Option.isSome(pageParam(pages, data.value, "previous")),
+		isFetchingNextPage: fetching("next"),
+		isFetchingPreviousPage: fetching("previous"),
+	};
+};
+
+/**
+ * Fetches a page for a reader, such as `useInfiniteQuery`'s `fetchNextPage`.
+ * Resolves when it settles; never rejects, since a failure shows in the
+ * query's result. Resolves at once once the client is disposed.
+ */
+export const fetchPageFor = (
 	registry: AtomRegistry.AtomRegistry,
 	query: InfiniteQuery.InfiniteQuery<any, any, any>,
 	direction: Direction,
-): boolean => {
-	const request = nodeValue(registry, pagingOf(query).paging);
-	return (
-		Option.isSome(request) &&
-		request.value._tag === "Running" &&
-		request.value.direction === direction &&
-		Option.exists(peek(registry, query), (result) => result.waiting)
-	);
+): Promise<void> => {
+	let fiber;
+	try {
+		fiber = forkWithClient(
+			registry,
+			Effect.ignore(fetchPage(registry, query, direction)),
+		);
+	} catch {
+		// The registry throws once its client is disposed: nothing to fetch.
+		return Promise.resolve();
+	}
+	return new Promise((resolve) => fiber.addObserver(() => resolve()));
 };
-
-/** The atom a reader subscribes to for {@link isFetchingPage}. */
-export const pagingAtom = (
-	query: InfiniteQuery.InfiniteQuery<any, any, any>,
-): Atom.Atom<Paging> => pagingOf(query).paging;
-
-/** The page options, for `hasNextPage`. */
-export const pagesOf = <A, E, P>(
-	query: InfiniteQuery.InfiniteQuery<A, E, P>,
-): Pages<A, P> => pagingOf(query).pages;
