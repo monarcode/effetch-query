@@ -11,7 +11,7 @@ import {
 	reactNativeSignals,
 } from "../src/react-native/index.js";
 import { disposeClients, makeClient, tracked, use } from "./helpers.js";
-import { greetingLayer } from "./services.js";
+import { servicesLayer } from "./services.js";
 
 // Run even when an assertion fails, so no listener outlives its test.
 const cleanups: Array<() => unknown> = [];
@@ -28,7 +28,7 @@ const makeRegistry = () => {
 
 /** A client that hasn't used a query yet, unlike `makeClient`'s. */
 const makeIdleClient = (signals: Signals.Signals) => {
-	const client = QueryClient.make({ layer: greetingLayer("hello"), signals });
+	const client = QueryClient.make({ layer: servicesLayer("hello"), signals });
 	cleanups.push(() => client.dispose());
 	return client;
 };

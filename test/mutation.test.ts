@@ -20,7 +20,7 @@ import {
 	record,
 	tracked,
 } from "./helpers.js";
-import { Greeting } from "./services.js";
+import { Greeting, servicesLayer } from "./services.js";
 
 afterEach(disposeClients);
 
@@ -345,9 +345,7 @@ describe("Mutation.run", () => {
 			optimistic: () =>
 				Effect.andThen(
 					Query.set(outer.query, 1),
-					Mutation.run(save, 5).pipe(
-						Effect.provideService(Greeting, { text: "hi" }),
-					),
+					Mutation.run(save, 5).pipe(Effect.provide(servicesLayer("hi"))),
 				),
 		});
 

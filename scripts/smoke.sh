@@ -33,7 +33,9 @@ for required in \
 	package/dist/react/index.js \
 	package/dist/react/index.d.ts \
 	package/dist/react-native/index.js \
-	package/dist/react-native/index.d.ts; do
+	package/dist/react-native/index.d.ts \
+	package/dist/effetch/index.js \
+	package/dist/effetch/index.d.ts; do
 	if ! grep -qx "$required" <<<"$contents"; then
 		echo "✗ Missing from tarball: $required" >&2
 		exit 1
@@ -62,6 +64,7 @@ react_dom_version="$(dev_version react-dom)"
 react_dom_types_version="$(dev_version @types/react-dom)"
 react_types_version="$(dev_version @types/react)"
 atom_react_version="$(dev_version @effect/atom-react)"
+effetch_version="$(dev_version @monarcode/effetch)"
 scheduler_version="$(dev_version scheduler)"
 
 common_options='
@@ -101,7 +104,7 @@ cat >package.json <<'JSON'
 JSON
 npm install --silent --no-audit --no-fund --no-package-lock \
 	"$tarball" "effect@$effect_version" "typescript@$typescript_version"
-for optional in react @effect/atom-react; do
+for optional in react @effect/atom-react @monarcode/effetch; do
 	if [ -d "node_modules/$optional" ]; then
 		echo "✗ $optional was installed, but it's an optional peer" >&2
 		exit 1
@@ -178,6 +181,66 @@ TS
 typecheck core.ts
 echo "› Running core.ts"
 node core.ts
+
+echo "› Installing @monarcode/effetch@$effetch_version"
+npm install --silent --no-audit --no-fund --no-package-lock \
+	"@monarcode/effetch@$effetch_version"
+
+cat >effetch.ts <<'TS'
+import * as Fetch from "@monarcode/effetch";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import { endpoints } from "@monarcode/effetch-query/effetch";
+
+class Api extends Context.Service<Api, Fetch.Client<[]>>()("smoke/Api") {}
+
+declare module "@monarcode/effetch-query" {
+	interface Register {
+		readonly services: Api;
+	}
+}
+
+const todo = endpoints(Api).query(
+	Fetch.endpoint("GET /todos/:id", {
+		output: Schema.Struct({ id: Schema.Finite }),
+	}),
+);
+const http = HttpClient.make((request, url) =>
+	Effect.sync(() =>
+		HttpClientResponse.fromWeb(
+			request,
+			Response.json({ id: Number(url.pathname.split("/")[2]) }),
+		),
+	),
+);
+const client = QueryClient.make({
+	layer: Layer.effect(Api)(Fetch.make({ baseUrl: "https://api.test" })).pipe(
+		Layer.provide(Layer.succeed(HttpClient.HttpClient, http)),
+	),
+});
+const query = todo({ params: { id: 7 } });
+const value = await client.runPromise(Query.fetch(query));
+await client.dispose();
+
+if (JSON.stringify(query.key) !== '["todos",7]') {
+	throw new Error(`Unexpected key: ${JSON.stringify(query.key)}`);
+}
+if (value.id !== 7) {
+	throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
+
+console.log("effetch: ok");
+TS
+
+typecheck effetch.ts
+echo "› Running effetch.ts"
+node effetch.ts
 
 echo "› Installing React (react@$react_version, @effect/atom-react@$atom_react_version)"
 npm install --silent --no-audit --no-fund --no-package-lock \

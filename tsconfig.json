@@ -20,7 +20,8 @@
 			"@monarcode/effetch-query/react": ["./src/react/index.js"],
 			"@monarcode/effetch-query/react-native": [
 				"./src/react-native/index.js"
-			]
+			],
+			"@monarcode/effetch-query/effetch": ["./src/effetch/index.js"]
 		},
 		"plugins": [{ "name": "@effect/language-service" }]
 	},

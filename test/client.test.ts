@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { QueryClient } from "../src/index.js";
 import { MissingQueryClient, runtime } from "../src/internal/runtime.js";
-import { Greeting, greetingLayer } from "./services.js";
+import { Greeting, servicesLayer, testApiLayer } from "./services.js";
 
 const readGreeting = Greeting.useSync((service) => service.text);
 const greeting = runtime.atom(readGreeting);
@@ -29,18 +29,21 @@ const wait = (millis: number) =>
 
 const countingLayer = (text: string) => {
 	const counts = { builds: 0, releases: 0 };
-	const layer = Layer.effect(
-		Greeting,
-		Effect.acquireRelease(
-			Effect.sync(() => {
-				counts.builds++;
-				return { text };
-			}),
-			() =>
+	const layer = Layer.merge(
+		Layer.effect(
+			Greeting,
+			Effect.acquireRelease(
 				Effect.sync(() => {
-					counts.releases++;
+					counts.builds++;
+					return { text };
 				}),
+				() =>
+					Effect.sync(() => {
+						counts.releases++;
+					}),
+			),
 		),
+		testApiLayer(),
 	);
 	return { counts, layer };
 };
@@ -74,8 +77,8 @@ describe("QueryClient.make", () => {
 	});
 
 	it("gives two clients with one definition their own layer (P1)", async () => {
-		const english = QueryClient.make({ layer: greetingLayer("hello") });
-		const french = QueryClient.make({ layer: greetingLayer("bonjour") });
+		const english = QueryClient.make({ layer: servicesLayer("hello") });
+		const french = QueryClient.make({ layer: servicesLayer("bonjour") });
 
 		expect(
 			await Promise.all([
@@ -91,8 +94,8 @@ describe("QueryClient.make", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 		const delayed = runtime.atom(Effect.delay(readGreeting, "1 second"));
 		const count = Atom.make(0);
-		const english = QueryClient.make({ layer: greetingLayer("hello") });
-		const french = QueryClient.make({ layer: greetingLayer("bonjour") });
+		const english = QueryClient.make({ layer: servicesLayer("hello") });
+		const french = QueryClient.make({ layer: servicesLayer("bonjour") });
 		english.registry.mount(count);
 		french.registry.mount(count);
 
@@ -174,9 +177,12 @@ describe("QueryClient.make", () => {
 	});
 
 	it("waits for a layer build in progress, so a shared memo map isn't left with an interruption", async () => {
-		const layer = Layer.effect(
-			Greeting,
-			Effect.sleep("30 millis").pipe(Effect.as({ text: "hello" })),
+		const layer = Layer.merge(
+			Layer.effect(
+				Greeting,
+				Effect.sleep("30 millis").pipe(Effect.as({ text: "hello" })),
+			),
+			testApiLayer(),
 		);
 		const appRuntime = ManagedRuntime.make(layer);
 		const client = QueryClient.make({ layer, memoMap: appRuntime.memoMap });
@@ -214,7 +220,7 @@ describe("QueryClient.make", () => {
 
 describe("QueryClient runPromise and runPromiseExit", () => {
 	it("provide the client, the services and Reactivity", async () => {
-		const client = QueryClient.make({ layer: greetingLayer("hello") });
+		const client = QueryClient.make({ layer: servicesLayer("hello") });
 
 		const [self, text] = await client.runPromise(
 			Effect.gen(function* () {
@@ -231,7 +237,7 @@ describe("QueryClient runPromise and runPromiseExit", () => {
 	});
 
 	it("report a failure as a rejection or an Exit", async () => {
-		const client = QueryClient.make({ layer: greetingLayer("hello") });
+		const client = QueryClient.make({ layer: servicesLayer("hello") });
 
 		await expect(client.runPromise(Effect.fail("boom"))).rejects.toBe("boom");
 		expect(squashed(await client.runPromiseExit(Effect.fail("boom")))).toBe(
@@ -250,7 +256,7 @@ describe("QueryClient runPromise and runPromiseExit", () => {
 		const usersAtom = runtime.factory.withReactivity(["users"])(
 			runtime.atom(Effect.sync(() => ++users)),
 		);
-		const client = QueryClient.make({ layer: greetingLayer("hello") });
+		const client = QueryClient.make({ layer: servicesLayer("hello") });
 		client.registry.mount(todosAtom);
 		client.registry.mount(usersAtom);
 		await valueOf(client.registry, todosAtom);
@@ -269,7 +275,7 @@ describe("QueryClient.layer", () => {
 		const client = await Effect.runPromise(
 			QueryClient.QueryClient.useSync((client) => client).pipe(
 				Effect.provide(
-					QueryClient.layer({ layer: greetingLayer("hello") }),
+					QueryClient.layer({ layer: servicesLayer("hello") }),
 				),
 			),
 		);

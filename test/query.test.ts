@@ -23,7 +23,7 @@ import {
 	useFakeTimers,
 	valueOf,
 } from "./helpers.js";
-import { Greeting } from "./services.js";
+import { Greeting, testApiLayer } from "./services.js";
 
 afterEach(disposeClients);
 
@@ -669,11 +669,14 @@ describe("disposing a client", () => {
 	it("waits for interrupted fetches to finish their finalizers before releasing the layer", async () => {
 		const log: Array<string> = [];
 		const client = QueryClient.make({
-			layer: Layer.effect(
-				Greeting,
-				Effect.acquireRelease(Effect.succeed({ text: "hello" }), () =>
-					Effect.sync(() => log.push("layer released")),
+			layer: Layer.merge(
+				Layer.effect(
+					Greeting,
+					Effect.acquireRelease(Effect.succeed({ text: "hello" }), () =>
+						Effect.sync(() => log.push("layer released")),
+					),
 				),
+				testApiLayer(),
 			),
 		});
 		let resolve!: () => void;

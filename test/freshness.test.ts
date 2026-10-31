@@ -25,7 +25,7 @@ import {
 	useFakeTimers,
 	valueOf,
 } from "./helpers.js";
-import { Greeting, greetingLayer } from "./services.js";
+import { Greeting, servicesLayer } from "./services.js";
 
 afterEach(async () => {
 	// Clients first: disposing ends the listeners on the stubbed globals.
@@ -483,7 +483,7 @@ describe("the client's query hooks (G9)", () => {
 		const calls: Array<string> = [];
 		const { errors, layer } = errorLog();
 		const client = await makeClient({
-			layer: Layer.merge(greetingLayer("hello"), layer),
+			layer: Layer.merge(servicesLayer("hello"), layer),
 			queries: {
 				onSuccess: ({ key }) =>
 					isWarmUp(key) ? Effect.void : Effect.die("hook"),
@@ -509,7 +509,7 @@ describe("the client's query hooks (G9)", () => {
 		const calls: Array<string> = [];
 		const { errors, layer } = errorLog();
 		const client = QueryClient.make({
-			layer: Layer.merge(greetingLayer("hello"), layer),
+			layer: Layer.merge(servicesLayer("hello"), layer),
 			queries: {
 				onSuccess: () =>
 					Effect.sync(() => calls.push("success")).pipe(
@@ -613,7 +613,7 @@ describe("disposing a client", () => {
 				return value;
 			});
 		const client = QueryClient.make({
-			layer: greetingLayer("hello"),
+			layer: servicesLayer("hello"),
 			signals: { focus: signal("focus", 0), online: signal("online", true) },
 		});
 		const { query } = tracked(["poll"], (fetch) => Effect.succeed(fetch), {

@@ -8,7 +8,7 @@ import { vi } from "vitest";
 
 import { Query, QueryClient } from "../src/index.js";
 import { beforeUse } from "../src/internal/mountPolicy.js";
-import { greetingLayer } from "./services.js";
+import { servicesLayer } from "./services.js";
 
 const clients: Array<QueryClient.QueryClient> = [];
 
@@ -18,7 +18,7 @@ const clients: Array<QueryClient.QueryClient> = [];
  */
 export const makeClient = async (options?: Partial<QueryClient.Options>) => {
 	const client = QueryClient.make({
-		layer: greetingLayer("hello"),
+		layer: servicesLayer("hello"),
 		...options,
 	});
 	clients.push(client);
