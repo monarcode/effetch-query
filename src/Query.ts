@@ -335,6 +335,14 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
  * Defines a {@link QueryFamily}: one query per argument, each cached on its
  * own.
  *
+ * Members are weakly held where the runtime has `WeakRef` and
+ * `FinalizationRegistry`. Where `typeof FinalizationRegistry` is
+ * `"undefined"`, as on React Native with a Hermes older than its 2026
+ * releases, each distinct argument's query definition stays in memory for
+ * the app's lifetime (about 2 KB each, measured on V8). Its cached value is
+ * still dropped after `gcTime`, so this matters only for families with many
+ * thousands of arguments over a session.
+ *
  * @example
  * ```ts
  * import * as Effect from "effect/Effect";

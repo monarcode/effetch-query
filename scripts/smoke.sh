@@ -110,6 +110,7 @@ done
 
 cat >core.ts <<'TS'
 import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { Query, QueryClient } from "@monarcode/effetch-query";
@@ -128,9 +129,31 @@ declare module "@monarcode/effetch-query" {
 }
 
 const key: Query.QueryKey = ["todos", "detail", 1];
+let listening = 0;
+// The React Native entry imports cleanly without react-native installed.
+const signals = ReactNative.reactNativeSignals({
+	AppState: {
+		currentState: "active",
+		addEventListener: () => {
+			listening++;
+			return { remove: () => listening-- };
+		},
+	},
+	NetInfo: {
+		addEventListener: () => {
+			listening++;
+			return () => listening--;
+		},
+	},
+});
 const client = QueryClient.make({
 	layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}` }),
+	signals,
 });
+await client.runPromise(
+	Query.fetch(Query.make({ key: ["smoke"], run: Effect.void })),
+);
+const listened = listening;
 const greeting = await client.runPromise(
 	Greeter.useSync((greeter) => greeter.greet("smoke")),
 );
@@ -142,8 +165,11 @@ if (key.length !== 3) {
 if (greeting !== "Hello, smoke") {
 	throw new Error(`Unexpected runPromise result: ${greeting}`);
 }
-if (Object.keys(ReactNative).length !== 0) {
+if (Object.keys(ReactNative).join() !== "reactNativeSignals") {
 	throw new Error("Unexpected react-native exports");
+}
+if (listened !== 2 || listening !== 0) {
+	throw new Error(`React Native listeners: ${listened} used, ${listening} left`);
 }
 
 console.log("core: ok");
