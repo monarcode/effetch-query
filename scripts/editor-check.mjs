@@ -5,9 +5,10 @@ import ts from "typescript";
 
 const dir = process.cwd();
 const probe = path.join(dir, "editor.ts");
-const source = `import { /*Query*/Query } from "@monarcode/effetch-query";
+const source = `import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
 
 export const key: Query./*QueryKey*/QueryKey = ["todos"];
+export const make = QueryClient./*make*/make;
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -66,7 +67,10 @@ const dist = path.join(
 
 // TypeScript doesn't show the JSDoc of `export * as Query` in hovers, so a
 // namespace is only checked for where go-to-definition lands.
-for (const [marker, file] of [["Query", "Query.d.ts"]]) {
+for (const [marker, file] of [
+	["Query", "Query.d.ts"],
+	["QueryClient", "QueryClient.d.ts"],
+]) {
 	const definitions = service.getDefinitionAtPosition(probe, at(marker)) ?? [];
 	const targets = definitions.map((definition) =>
 		path.relative(dist, definition.fileName),
@@ -85,6 +89,12 @@ for (const [marker, file, signature, docs] of [
 		"Query.d.ts",
 		"type QueryKey = readonly unknown[]",
 		"Identifies a query in the cache",
+	],
+	[
+		"make",
+		"QueryClient.d.ts",
+		"const make: (options: QueryClient.Options) => QueryClient.QueryClient",
+		"Nothing is built until",
 	],
 ]) {
 	const definitions = service.getDefinitionAtPosition(probe, at(marker)) ?? [];

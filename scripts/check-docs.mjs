@@ -206,36 +206,60 @@ const virtual = new Map(
 );
 const host = ts.createCompilerHost(options);
 const getSourceFile = host.getSourceFile.bind(host);
+// Examples compile in several programs (below); the cache parses the library
+// and its dependencies once for all of them.
+const sourceFiles = new Map();
 host.getSourceFile = (fileName, languageVersion, ...rest) => {
 	const example = virtual.get(fileName);
-	return example === undefined
-		? getSourceFile(fileName, languageVersion, ...rest)
-		: ts.createSourceFile(
+	if (example === undefined) {
+		if (!sourceFiles.has(fileName)) {
+			sourceFiles.set(
 				fileName,
-				`${example.code}\nexport {};\n`,
-				languageVersion,
-				true,
+				getSourceFile(fileName, languageVersion, ...rest),
 			);
+		}
+		return sourceFiles.get(fileName);
+	}
+	return ts.createSourceFile(
+		fileName,
+		`${example.code}\nexport {};\n`,
+		languageVersion,
+		true,
+	);
 };
 const fileExists = host.fileExists.bind(host);
 host.fileExists = (fileName) => virtual.has(fileName) || fileExists(fileName);
 
-const examplesProgram = ts.createProgram([...virtual.keys()], options, host);
-for (const diagnostic of ts.getPreEmitDiagnostics(examplesProgram)) {
-	const example = diagnostic.file && virtual.get(diagnostic.file.fileName);
-	if (!example) {
-		continue;
+// An augmentation (`declare module`, of `Register` say, or `declare global`)
+// applies to every file in a program, so each example that has one compiles
+// on its own. The rest share a program.
+const augments = (example) =>
+	/\bdeclare\s+(?:module|global)\b/.test(example.code);
+const fileNames = [...virtual.keys()];
+const groups = [
+	fileNames.filter((fileName) => !augments(virtual.get(fileName))),
+	...fileNames
+		.filter((fileName) => augments(virtual.get(fileName)))
+		.map((fileName) => [fileName]),
+].filter((group) => group.length > 0);
+for (const group of groups) {
+	const examplesProgram = ts.createProgram(group, options, host);
+	for (const diagnostic of ts.getPreEmitDiagnostics(examplesProgram)) {
+		const example = diagnostic.file && virtual.get(diagnostic.file.fileName);
+		if (!example) {
+			continue;
+		}
+		const { line } = diagnostic.file.getLineAndCharacterOfPosition(
+			diagnostic.start ?? 0,
+		);
+		const message = ts.flattenDiagnosticMessageText(
+			diagnostic.messageText,
+			"\n",
+		);
+		problems.push(
+			`${relative(example.file)}:${example.line + line}: example doesn't compile: TS${diagnostic.code} ${message}`,
+		);
 	}
-	const { line } = diagnostic.file.getLineAndCharacterOfPosition(
-		diagnostic.start ?? 0,
-	);
-	const message = ts.flattenDiagnosticMessageText(
-		diagnostic.messageText,
-		"\n",
-	);
-	problems.push(
-		`${relative(example.file)}:${example.line + line}: example doesn't compile: TS${diagnostic.code} ${message}`,
-	);
 }
 
 if (problems.length > 0) {

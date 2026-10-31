@@ -64,13 +64,18 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
 - Document the public API in JSDoc: what it does, an `@example` that compiles
   (`check-docs` compiles every one), `@since`, and `{@link}` to related APIs
   so readers can navigate. Non-obvious behaviour, such as rollback order or
-  when a hook doesn't run, belongs there too.
+  when a hook doesn't run, belongs there too. An example that augments
+  `Register` (`declare module`) compiles on its own; the rest share one
+  program, where `Register` isn't augmented.
 - `src/internal/` isn't public: document only what's non-obvious.
 - Pass `useEffect` (and `useLayoutEffect`) a named function, not an arrow,
   and name its cleanup too:
   `useEffect(function subscribeToFocus() { … return function unsubscribe() { … } }, [deps])`.
   The names show in stack traces and React DevTools, and say what the effect
   is for.
+- Errors and defects are `Data.TaggedError` classes, never a plain
+  `new Error()`, so they carry a `_tag` to match on as well as a message
+  and a stack.
 - Source imports use explicit `.js` extensions. Because
   `exactOptionalPropertyTypes` is on, write optional props as
   `readonly foo?: T | undefined`.
@@ -79,6 +84,22 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   in consumers' hovers. Stay on TypeScript 6: TypeScript 7 ships no compiler
   API, which `check-docs.mjs`, `editor-check.mjs` and the Effect language
   service need.
+
+## Testing
+
+- Control time with vitest's fake timers, faking only the timers:
+  `vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })`,
+  then `await vi.advanceTimersByTimeAsync(ms)`. They drive the registry's
+  idle TTLs, `Effect.sleep` and `AsyncResult` timestamps, and
+  `vi.getTimerCount()` finds leftover timers. Leave `setImmediate` real:
+  Effect's scheduler runs on it, so faking it stalls `runPromise` until the
+  timers advance. `TestClock` doesn't reach atoms, which run with the
+  client's layer rather than the test fiber's services.
+- `test/services.ts` augments `Register` for the whole suite (it's one
+  TypeScript program), so tests run with its `Greeting` service.
+- Type tests that expect a missing service also need
+  `// @effect-diagnostics-next-line <rule>:off`: the Effect language service
+  doesn't read `@ts-expect-error`.
 
 ## Working with the maintainer
 
