@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
@@ -10,7 +11,8 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 
-import { initialValues } from "./internal/runtime.js";
+import { observeNodes } from "./internal/cache.js";
+import { initialValues, makeClientState } from "./internal/runtime.js";
 import type { QueryKey } from "./Query.js";
 import type { Signals } from "./Signals.js";
 
@@ -143,7 +145,8 @@ export interface QueryClient {
 	/**
 	 * The registry that holds this client's cache, for `@effect/atom-react`
 	 * and your own atoms. Don't `reset` or `dispose` it: use
-	 * {@link QueryClient.dispose}.
+	 * {@link QueryClient.dispose}. Its `onNodeAdded` and `onNodeRemoved`
+	 * hooks are the client's: replacing them breaks invalidation.
 	 */
 	readonly registry: AtomRegistry.AtomRegistry;
 	/**
@@ -173,10 +176,9 @@ export interface QueryClient {
 	 * build in progress is waited for, not cut short, because a memo map
 	 * shared with your app runtime would keep the interruption.
 	 *
-	 * Resolves once the layer's finalizers have run. An interrupted fetch's
-	 * own finalizers may still be running then. If a finalizer throws, the
-	 * layer is still released and the promise rejects. Don't use the client
-	 * afterwards.
+	 * Resolves once the interrupted fetches and the layer's finalizers have
+	 * run. If a finalizer throws, the layer is still released and the promise
+	 * rejects. Don't use the client afterwards.
 	 */
 	readonly dispose: () => Promise<void>;
 }
@@ -285,7 +287,8 @@ export interface QueriesOptions {
 
 /**
  * Options every query takes, set for all of them in
- * {@link QueriesOptions.defaults}.
+ * {@link QueriesOptions.defaults}. A query's own options (`Query.Options`)
+ * extend these, with `E` its error type.
  *
  * @example
  * ```ts
@@ -299,11 +302,11 @@ export interface QueriesOptions {
  *
  * @since 0.1.0
  */
-export interface QueryDefaults {
+export interface QueryDefaults<E = unknown> {
 	/** How long a success counts as fresh. Default: 0, stale at once. */
 	readonly staleTime?: Duration.Input | undefined;
 	/** Retries a failed fetch on this schedule. Default: no retries. */
-	readonly retry?: Schedule.Schedule<unknown, unknown> | undefined;
+	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/** Refetch a stale query when a component starts using it. Default: `true`. */
 	readonly refetchOnMount?: boolean | undefined;
 	/** Refetch a failed query when a component starts using it. Default: `true`. */
@@ -581,26 +584,33 @@ export const make = (options: Options): QueryClient => {
 		),
 		{ memoMap },
 	);
+	const state = makeClientState();
 	const registry = AtomRegistry.make({
 		initialValues: initialValues({
 			layer: Layer.effectContext(runtime.contextEffect),
 			memoMap,
+			state,
 			options,
 		}),
 	});
+	observeNodes(registry, state);
 	const client: QueryClient = {
 		registry,
 		runPromise: (effect, runOptions) =>
 			runtime.runPromise(effect, runOptions),
 		runPromiseExit: (effect, runOptions) =>
 			runtime.runPromiseExit(effect, runOptions),
-		// `registry.dispose()` rethrows a finalizer's error; the layer must
-		// still be released, and the error reported as a rejection.
+		// Disposing the registry interrupts fetches without waiting for them,
+		// so they're awaited before the layer they use is released.
+		// `registry.dispose()` rethrows a finalizer's error: the rest still
+		// runs, and the error becomes the rejection.
 		dispose: () =>
 			Effect.runPromise(
-				Effect.ensuring(
-					Effect.sync(() => registry.dispose()),
-					runtime.disposeEffect,
+				Effect.sync(() => registry.dispose()).pipe(
+					Effect.ensuring(
+						Effect.suspend(() => Fiber.interruptAll([...state.fetches])),
+					),
+					Effect.ensuring(runtime.disposeEffect),
 				),
 			),
 	};
