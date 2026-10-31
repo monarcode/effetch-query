@@ -49,12 +49,20 @@
 					{
 						"name": "@react-native-community/netinfo",
 						"message": "Take NetInfo as an argument instead"
+					},
+					{
+						"name": "@monarcode/effetch",
+						"message": "Only src/effetch may import @monarcode/effetch"
 					}
 				],
 				"patterns": [
 					{
 						"group": ["node:*"],
 						"message": "No Node built-ins in library code"
+					},
+					{
+						"group": ["@monarcode/effetch/*"],
+						"message": "Only src/effetch may import @monarcode/effetch"
 					}
 				]
 			}
@@ -110,6 +118,56 @@
 							{
 								"name": "@react-native-community/netinfo",
 								"message": "Take NetInfo as an argument instead"
+							},
+							{
+								"name": "@monarcode/effetch",
+								"message": "Only src/effetch may import @monarcode/effetch"
+							}
+						],
+						"patterns": [
+							{
+								"group": ["node:*"],
+								"message": "No Node built-ins in library code"
+							},
+							{
+								"group": ["@monarcode/effetch/*"],
+								"message": "Only src/effetch may import @monarcode/effetch"
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"files": ["src/effetch/**"],
+			"rules": {
+				"no-restricted-imports": [
+					"error",
+					{
+						"paths": [
+							{
+								"name": "effect",
+								"message": "Import a subpath, e.g. effect/Effect"
+							},
+							{
+								"name": "effect/reactivity",
+								"message": "Import a subpath, e.g. effect/reactivity/Atom"
+							},
+							{
+								"name": "react",
+								"message": "Only src/react may import React"
+							},
+							{
+								"name": "@effect/atom-react",
+								"message": "Only src/react may import @effect/atom-react"
+							},
+							{
+								"name": "react-native",
+								"message": "Take React Native APIs as arguments instead"
+							},
+							{
+								"name": "@react-native-community/netinfo",
+								"message": "Take NetInfo as an argument instead"
 							}
 						],
 						"patterns": [
@@ -124,7 +182,9 @@
 		},
 		{
 			"files": ["scripts/**", "test/**", "examples/**", "*.config.ts"],
-			"env": { "node": true },
+			"env": {
+				"node": true
+			},
 			"rules": {
 				"no-restricted-globals": "off",
 				"no-restricted-imports": [

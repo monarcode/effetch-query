@@ -20,6 +20,9 @@ importers:
       '@effect/vitest':
         specifier: 4.1.0
         version: 4.1.0(effect@4.1.0)(vitest@5.0.5(@types/node@26.6.6)(happy-dom@21.0.4)(vite@8.3.5(@types/node@26.6.6)))
+      '@monarcode/effetch':
+        specifier: 0.1.0-rc.1
+        version: 0.1.0-rc.1(effect@4.1.0)
       '@testing-library/dom':
         specifier: 10.4.2
         version: 10.4.2
@@ -131,6 +134,11 @@ packages:
 
   '@loaderkit/resolve@1.0.6':
     resolution: {integrity: sha512-G8FdIoF5CypfwmD9rl8BXod5HDn8JqB0CCNBXDTaRZ+yRYhARrrSToX1zg1zy9jX3zLqigsELwhT4gNtkdQAUg==}
+
+  '@monarcode/effetch@0.1.0-rc.1':
+    resolution: {integrity: sha512-w6eMGRluNDXJ+KmLKbMRvhbmTFYgRyhcG8ZISLTMy9mlZOne+UA/UeXhO+aRJhzDyuOTo19vMzn09MWWYt1gQg==}
+    peerDependencies:
+      effect: ^4.0.0
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
@@ -1158,6 +1166,10 @@ snapshots:
   '@loaderkit/resolve@1.0.6':
     dependencies:
       '@braidai/lang': 1.1.2
+
+  '@monarcode/effetch@0.1.0-rc.1(effect@4.1.0)':
+    dependencies:
+      effect: 4.1.0
 
   '@oxc-project/types@0.156.0': {}
 

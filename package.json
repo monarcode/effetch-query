@@ -6,6 +6,7 @@
 		"cache",
 		"effect",
 		"effect-ts",
+		"effetch",
 		"mutation",
 		"query",
 		"react",
@@ -44,6 +45,10 @@
 			"types": "./dist/react-native/index.d.ts",
 			"default": "./dist/react-native/index.js"
 		},
+		"./effetch": {
+			"types": "./dist/effetch/index.d.ts",
+			"default": "./dist/effetch/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"publishConfig": {
@@ -73,6 +78,7 @@
 		"@effect/atom-react": "4.1.0",
 		"@effect/language-service": "0.87.5",
 		"@effect/vitest": "4.1.0",
+		"@monarcode/effetch": "0.1.0-rc.1",
 		"@testing-library/dom": "10.4.2",
 		"@testing-library/react": "16.3.3",
 		"@types/node": "26.6.6",
@@ -92,11 +98,15 @@
 	},
 	"peerDependencies": {
 		"@effect/atom-react": "^4.1.0",
+		"@monarcode/effetch": ">=0.1.0-rc.1 <0.2.0",
 		"effect": "^4.1.0",
 		"react": ">=19.0.0 <20.0.0"
 	},
 	"peerDependenciesMeta": {
 		"@effect/atom-react": {
+			"optional": true
+		},
+		"@monarcode/effetch": {
 			"optional": true
 		},
 		"react": {
