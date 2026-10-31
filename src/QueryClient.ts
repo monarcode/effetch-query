@@ -12,7 +12,8 @@ import type * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 
 import { observeNodes } from "./internal/cache.js";
-import { initialValues, makeClientState } from "./internal/runtime.js";
+import { initialValues, makeClientState, track } from "./internal/runtime.js";
+import type { Mutation } from "./Mutation.js";
 import type { QueryKey } from "./Query.js";
 import type { Signals } from "./Signals.js";
 
@@ -97,7 +98,8 @@ export type Requirements = Services | QueryClient;
  * receives an event and runs with your services and the client. It can't
  * fail; handle errors inside it. A hook that dies is logged, and the others
  * still run. Query hooks run in a fiber of their own, after the query shows
- * its result, so a slow hook doesn't hold the query up.
+ * its result, so a slow hook doesn't hold the query up. Mutation hooks are
+ * part of the run: it completes after them.
  *
  * @example
  * ```ts
@@ -173,14 +175,16 @@ export interface QueryClient {
 	) => Promise<Exit.Exit<A, E>>;
 	/**
 	 * Releases everything the client owns. It disposes the cache and clears
-	 * its timers, interrupts fetches in flight and the Effects started by
-	 * {@link QueryClient.runPromise}, then closes the layer's scope. A layer
-	 * build in progress is waited for, not cut short, because a memo map
-	 * shared with your app runtime would keep the interruption.
+	 * its timers, then interrupts what's in flight: fetches, mutation runs,
+	 * and the Effects started by {@link QueryClient.runPromise}. Last, it
+	 * closes the layer's scope. An interrupted mutation run doesn't roll back
+	 * its optimistic writes, since the cache is already gone. A layer build in
+	 * progress is waited for, not cut short, because a memo map shared with
+	 * your app runtime would keep the interruption.
 	 *
-	 * Resolves once the interrupted fetches and the layer's finalizers have
-	 * run. If a finalizer throws, the layer is still released and the promise
-	 * rejects. Don't use the client afterwards.
+	 * Resolves once everything interrupted and the layer's finalizers have
+	 * run. If a finalizer throws, the layer is still released and the
+	 * promise rejects. Don't use the client afterwards.
 	 */
 	readonly dispose: () => Promise<void>;
 }
@@ -423,19 +427,26 @@ export interface QuerySettled {
 export interface MutationsOptions {
 	/** Options for every mutation. A mutation's own options override them. */
 	readonly defaults?: MutationDefaults | undefined;
-	/** Runs before each run, after the mutation's optimistic writes. */
+	/** Runs before each run's `run`, after its optimistic writes. */
 	readonly onMutate?: Hook<MutationStarted> | undefined;
-	/** Runs after each successful run. */
+	/** Runs after each successful run, after its `onSuccess` and `invalidates`. */
 	readonly onSuccess?: Hook<MutationSucceeded> | undefined;
-	/** Runs after each failed run, once its optimistic writes are rolled back. */
+	/**
+	 * Runs after each failed run, after its optimistic writes are rolled back
+	 * and its `onFailure` ran.
+	 */
 	readonly onFailure?: Hook<MutationFailed> | undefined;
-	/** Runs after each run that succeeds or fails. */
+	/**
+	 * Runs after each run that succeeds or fails, after its `onSettled`. None
+	 * of the hooks run past an interruption.
+	 */
 	readonly onSettled?: Hook<MutationSettled> | undefined;
 }
 
 /**
  * Options every mutation takes, set for all of them in
- * {@link MutationsOptions.defaults}.
+ * {@link MutationsOptions.defaults}. A mutation's own options
+ * (`Mutation.MakeOptions`) extend these, with `E` its error type.
  *
  * @example
  * ```ts
@@ -450,12 +461,17 @@ export interface MutationsOptions {
  *
  * @since 0.1.0
  */
-export interface MutationDefaults {
-	/** Retries a failed run on this schedule. Default: no retries. */
-	readonly retry?: Schedule.Schedule<unknown, unknown> | undefined;
+export interface MutationDefaults<E = unknown> {
 	/**
-	 * Whether runs can overlap. With `false`, a new run interrupts the one in
-	 * progress. Default: `true`.
+	 * Retries a failed run on this schedule, which gets each failure. Defects
+	 * aren't retried. Default: no retries.
+	 */
+	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
+	/**
+	 * Whether one use's runs can overlap, such as one component's
+	 * `useMutation`. With `false`, a new run interrupts the one in progress,
+	 * whose optimistic writes are rolled back first. Separate uses, and
+	 * `Mutation.run` calls, never interrupt each other. Default: `true`.
 	 */
 	readonly concurrent?: boolean | undefined;
 }
@@ -476,6 +492,8 @@ export interface MutationDefaults {
  * @since 0.1.0
  */
 export interface MutationStarted {
+	/** The mutation's definition, to compare with yours. */
+	readonly mutation: Mutation<never, unknown, unknown>;
 	/** What the mutation was called with. */
 	readonly variables: unknown;
 }
@@ -496,6 +514,8 @@ export interface MutationStarted {
  * @since 0.1.0
  */
 export interface MutationSucceeded {
+	/** The mutation's definition, to compare with yours. */
+	readonly mutation: Mutation<never, unknown, unknown>;
 	/** What the mutation was called with. */
 	readonly variables: unknown;
 	/** What the run returned. */
@@ -519,6 +539,8 @@ export interface MutationSucceeded {
  * @since 0.1.0
  */
 export interface MutationFailed {
+	/** The mutation's definition, to compare with yours. */
+	readonly mutation: Mutation<never, unknown, unknown>;
 	/** What the mutation was called with. */
 	readonly variables: unknown;
 	/** Why the run failed, after `retry`. */
@@ -542,6 +564,8 @@ export interface MutationFailed {
  * @since 0.1.0
  */
 export interface MutationSettled {
+	/** The mutation's definition, to compare with yours. */
+	readonly mutation: Mutation<never, unknown, unknown>;
 	/** What the mutation was called with. */
 	readonly variables: unknown;
 	/** How the run ended, after `retry`. */
@@ -599,26 +623,37 @@ export const make = (options: Options): QueryClient => {
 	const state = makeClientState();
 	const registry = AtomRegistry.make({
 		initialValues: initialValues({
-			layer: Layer.effectContext(runtime.contextEffect),
+			context: runtime.contextEffect,
 			memoMap,
 			state,
 			options,
 		}),
 	});
 	observeNodes(registry, state);
+	// Tracked so `dispose()` interrupts them along with fetches, as soon as
+	// the registry is gone, rather than once the layer is released: in
+	// between, a mutation run would reach the disposed registry.
+	const tracked = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+		Effect.withFiber((fiber) => {
+			track(state, fiber);
+			return effect;
+		});
 	const client: QueryClient = {
 		registry,
 		runPromise: (effect, runOptions) =>
-			runtime.runPromise(effect, runOptions),
+			runtime.runPromise(tracked(effect), runOptions),
 		runPromiseExit: (effect, runOptions) =>
-			runtime.runPromiseExit(effect, runOptions),
+			runtime.runPromiseExit(tracked(effect), runOptions),
 		// Disposing the registry interrupts fetches without waiting for them,
 		// so they're awaited before the layer they use is released.
 		// `registry.dispose()` rethrows a finalizer's error: the rest still
 		// runs, and the error becomes the rejection.
 		dispose: () =>
 			Effect.runPromise(
-				Effect.sync(() => registry.dispose()).pipe(
+				Effect.sync(() => {
+					state.disposed = true;
+					registry.dispose();
+				}).pipe(
 					Effect.ensuring(
 						Effect.suspend(() => Fiber.interruptAll([...state.fibers])),
 					),

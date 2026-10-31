@@ -222,6 +222,21 @@ describe("writing to the cache", () => {
 		expect(fetches.count).toBe(3);
 		expect(seen.at(-1)).toBe("Success 3");
 	});
+
+	it("update makes a query invalidated while idle fresh again, as set does", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(["d"], (fetch) =>
+			Effect.succeed(fetch),
+		);
+		const unmount = client.registry.mount(query);
+		await valueOf(client.registry, query);
+		unmount();
+		await client.runPromise(Query.invalidate(query));
+		await client.runPromise(Query.update(query, (n) => n * 10));
+
+		expect(record(client.registry, query)).toEqual(["Success 10"]);
+		expect(fetches.count).toBe(1);
+	});
 });
 
 describe("invalidation", () => {

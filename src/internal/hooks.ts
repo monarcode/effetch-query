@@ -3,10 +3,14 @@ import * as Exit from "effect/Exit";
 
 import type { QueryKey } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
-import type { ClientState } from "./runtime.js";
+import { type ClientState, track } from "./runtime.js";
 
-// Only defects: an interruption (the client disposed) ends the hooks.
-const runHook = <Event>(
+/**
+ * Runs one of the client's hooks, logging a defect so the hooks after it
+ * still run. Only defects: an interruption (the client disposed) ends them.
+ */
+export const runHook = <Event>(
+	group: "queries" | "mutations",
 	hook: QueryClient.Hook<Event> | undefined,
 	event: Event,
 ): Effect.Effect<void, never, QueryClient.Requirements> =>
@@ -14,7 +18,7 @@ const runHook = <Event>(
 		? Effect.void
 		: Effect.catchDefect(
 				Effect.suspend(() => hook(event)),
-				(defect) => Effect.logError("A queries hook died", defect),
+				(defect) => Effect.logError(`A ${group} hook died`, defect),
 			);
 
 /**
@@ -39,18 +43,13 @@ export const forkQueryHooks = (
 	}
 	const run = Effect.andThen(
 		Exit.isSuccess(exit)
-			? runHook(onSuccess, { key, value: exit.value })
-			: runHook(onFailure, { key, cause: exit.cause }),
-		runHook(onSettled, { key, exit }),
+			? runHook("queries", onSuccess, { key, value: exit.value })
+			: runHook("queries", onFailure, { key, cause: exit.cause }),
+		runHook("queries", onSettled, { key, exit }),
 	);
 	// Tracked from here, not from inside the fiber: it starts on the
 	// scheduler's next tick, and `dispose()` may run before then.
 	return Effect.flatMap(Effect.forkDetach(run), (fiber) =>
-		Effect.sync(() => {
-			state.fibers.add(fiber);
-			fiber.addObserver(() => {
-				state.fibers.delete(fiber);
-			});
-		}),
+		Effect.sync(() => track(state, fiber)),
 	);
 };

@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import type * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Atom from "effect/reactivity/Atom";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Reactivity from "effect/reactivity/Reactivity";
 
 import type { Query } from "../Query.js";
@@ -30,37 +31,50 @@ export interface ClientState {
 	readonly index: Set<Query<any, any>>;
 	/** Listeners on the cache event channel (see `events.ts`). */
 	readonly listeners: Set<(event: CacheEvent) => void>;
-	/** Fetches in flight and their hooks, which `dispose()` interrupts and waits for. */
+	/** Fetches, hooks and mutation runs in flight, which `dispose()` interrupts and waits for. */
 	readonly fibers: Set<Fiber.Fiber<unknown, unknown>>;
+	/** Set when `dispose()` starts. The registry throws once it's disposed. */
+	disposed: boolean;
 }
 
 export const makeClientState = (): ClientState => ({
 	index: new Set(),
 	listeners: new Set(),
 	fibers: new Set(),
+	disposed: false,
 });
+
+/** Adds a fiber to the ones `dispose()` interrupts, until it ends. */
+export const track = (
+	state: ClientState,
+	fiber: Fiber.Fiber<unknown, unknown>,
+): void => {
+	state.fibers.add(fiber);
+	fiber.addObserver(() => {
+		state.fibers.delete(fiber);
+	});
+};
 
 /** The defect an atom dies with when it's read in a registry no client made. */
 export class MissingQueryClient extends Data.TaggedError("MissingQueryClient")<{
 	readonly message: string;
 }> {}
 
-const missingClientLayer: Layer.Layer<QueryClient.Requirements> =
-	Layer.effectContext(
-		Effect.suspend(() =>
-			Effect.die(
-				new MissingQueryClient({
-					message:
-						"No QueryClient: this atom was read in a registry that no QueryClient created. Read it through queryClient.registry (with React, wrap the app in <QueryProvider client={queryClient}>).",
-				}),
-			),
+const missingClient: Effect.Effect<Context.Context<QueryClient.Requirements>> =
+	Effect.suspend(() =>
+		Effect.die(
+			new MissingQueryClient({
+				message:
+					"No QueryClient: this atom was read in a registry that no QueryClient created. Read it through queryClient.registry (with React, wrap the app in <QueryProvider client={queryClient}>).",
+			}),
 		),
 	);
 
 // The injected atoms must be keep-alive: a registry applies its initial values
 // when it's created, so a node removed while unused would lose its value. They
 // are definitions only; each client's values live in its own registry.
-const LayerAtom = Atom.keepAlive(Atom.readable(() => missingClientLayer));
+// The client's services: its runtime's context, built on first use.
+const ContextAtom = Atom.keepAlive(Atom.readable(() => missingClient));
 const MemoMapAtom = Atom.keepAlive(
 	Atom.readable(() => Layer.makeMemoMapUnsafe()),
 );
@@ -72,12 +86,12 @@ const initialValue = <A>(atom: Atom.Atom<A>, value: A) =>
 
 /** The values `QueryClient.make` injects into its registry. */
 export const initialValues = (input: {
-	readonly layer: Layer.Layer<QueryClient.Requirements>;
+	readonly context: Effect.Effect<Context.Context<QueryClient.Requirements>>;
 	readonly memoMap: Layer.MemoMap;
 	readonly state: ClientState;
 	readonly options: QueryClient.Options;
 }): ReadonlyArray<readonly [Atom.Atom<unknown>, unknown]> => [
-	initialValue(LayerAtom, input.layer),
+	initialValue(ContextAtom, input.context),
 	initialValue(MemoMapAtom, input.memoMap),
 	initialValue(ConfigAtom, {
 		signals: input.options.signals,
@@ -99,7 +113,25 @@ export const ReactivityAtom = Atom.keepAlive(
 	),
 );
 
-/** The one atom runtime every query and mutation runs on. */
+/**
+ * Starts an Effect with the client's services, outside any atom, and tracks
+ * it. Mutation runs start here: they outlive the atoms that show them.
+ */
+export const forkWithClient = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	effect: Effect.Effect<A, E, QueryClient.Requirements>,
+): Fiber.Fiber<A, E> => {
+	const state = registry.get(StateAtom);
+	const fiber = Effect.runFork(
+		Effect.flatMap(registry.get(ContextAtom), (context) =>
+			Effect.provideContext(effect, context),
+		),
+	);
+	track(state, fiber);
+	return fiber;
+};
+
+/** The one atom runtime every query runs on. */
 export const runtime: Atom.AtomRuntime<QueryClient.Requirements> = Atom.context(
 	{ memoMap: MemoMapAtom },
-)((get) => get(LayerAtom));
+)((get) => Layer.effectContext(get(ContextAtom)));

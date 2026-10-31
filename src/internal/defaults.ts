@@ -65,6 +65,21 @@ export const resolveQueryOptions = <E>(
 	};
 };
 
+/** A mutation's settings: its own, else the client's defaults, else the built-in ones. */
+export interface MutationSettings<E> {
+	readonly retry: Schedule.Schedule<unknown, E> | undefined;
+	readonly concurrent: boolean;
+}
+
+export const resolveMutationOptions = <E>(
+	options: QueryClient.MutationDefaults<E>,
+	defaults: QueryClient.MutationDefaults | undefined,
+): MutationSettings<E> => ({
+	retry: options.retry ?? defaults?.retry,
+	concurrent:
+		options.concurrent ?? defaults?.concurrent ?? mutationDefaults.concurrent,
+});
+
 /** A query's `gcTime`. It's set when the query is defined, so there's no client default. */
 export const resolveGcTime = (
 	options: Pick<Query.Options<never>, "gcTime">,

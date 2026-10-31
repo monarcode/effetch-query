@@ -9,6 +9,7 @@ import type * as Scope from "effect/Scope";
 
 import * as cache from "./internal/cache.js";
 import { matching } from "./internal/keyIndex.js";
+import * as optimistic from "./internal/optimistic.js";
 import * as internal from "./internal/queryAtom.js";
 import { isInUse } from "./internal/usage.js";
 import * as QueryClient from "./QueryClient.js";
@@ -454,7 +455,8 @@ export const get = <A, E>(
  * the query's last value. A query that isn't cached yet is cached with the
  * value, without fetching. The value counts as fresh data: a query
  * invalidated while nothing used it isn't refetched for it until it's older
- * than `staleTime`. The client's `queries` hooks don't run for it.
+ * than `staleTime`. The client's `queries` hooks don't run for it. Made in
+ * a mutation's `optimistic`, the write is undone if the run fails.
  *
  * @example
  * ```ts
@@ -483,13 +485,12 @@ export const set = <A, E>(
 	query: Query<A, E>,
 	value: A,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
-	QueryClient.QueryClient.useSync(({ registry }) => {
-		cache.setValue(registry, query, value);
-	});
+	optimistic.write((registry) => cache.setValue(registry, query, value));
 
 /**
- * Writes a value computed from a query's cached one, as {@link set} does.
- * Does nothing if the query has no value.
+ * Writes a value computed from a query's cached one, as {@link set} does,
+ * and is undone the same way in a mutation's `optimistic`. Does nothing if
+ * the query has no value.
  *
  * @example
  * ```ts
@@ -512,9 +513,7 @@ export const update = <A, E>(
 	query: Query<A, E>,
 	f: (value: A) => A,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
-	QueryClient.QueryClient.useSync(({ registry }) => {
-		cache.updateValue(registry, query, f);
-	});
+	optimistic.write((registry) => cache.updateValue(registry, query, f));
 
 /**
  * Marks the matching queries stale. Those in use (as {@link refetch}
