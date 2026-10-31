@@ -39,6 +39,12 @@ for required in \
 		exit 1
 	fi
 done
+for client_module in "$root"/dist/react/*.js; do
+	if [ "$(head -n 1 "$client_module")" != '"use client";' ]; then
+		echo "✗ ${client_module#"$root"/} doesn't start with \"use client\"" >&2
+		exit 1
+	fi
+done
 forbidden="$(grep -E '^package/src/|\.map$|\.test\.|\.test-d\.' <<<"$contents" || true)"
 if [ -n "$forbidden" ]; then
 	echo "✗ Unexpected files in tarball:" >&2
@@ -52,6 +58,8 @@ dev_version() {
 effect_version="$(dev_version effect)"
 typescript_version="$(dev_version typescript)"
 react_version="$(dev_version react)"
+react_dom_version="$(dev_version react-dom)"
+react_dom_types_version="$(dev_version @types/react-dom)"
 react_types_version="$(dev_version @types/react)"
 atom_react_version="$(dev_version @effect/atom-react)"
 scheduler_version="$(dev_version scheduler)"
@@ -147,14 +155,52 @@ node core.ts
 
 echo "› Installing React (react@$react_version, @effect/atom-react@$atom_react_version)"
 npm install --silent --no-audit --no-fund --no-package-lock \
-	"react@$react_version" "@types/react@$react_types_version" \
+	"react@$react_version" "react-dom@$react_dom_version" \
+	"@types/react@$react_types_version" "@types/react-dom@$react_dom_types_version" \
 	"@effect/atom-react@$atom_react_version" "scheduler@$scheduler_version"
 
 cat >react.ts <<'TS'
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
 import * as React from "@monarcode/effetch-query/react";
 
-if (Object.keys(React).length !== 0) {
-	throw new Error("Unexpected react exports");
+const expected = [
+	"MissingQueryProvider",
+	"QueryFailure",
+	"QueryProvider",
+	"useMutation",
+	"useQuery",
+	"useQueryClient",
+	"useRefetch",
+	"useResetQueryFailure",
+	"useSuspenseQuery",
+];
+if (Object.keys(React).sort().join() !== expected.join()) {
+	throw new Error(`Unexpected react exports: ${Object.keys(React).join()}`);
+}
+
+let fetches = 0;
+const greeting = Query.make({
+	key: ["greeting"],
+	run: Effect.sync(() => `Hello, ${++fetches}`),
+});
+const Greeting = () => {
+	const result = React.useQuery(greeting);
+	return result._tag === "Success" ? result.value : result._tag;
+};
+const client = QueryClient.make({ layer: Layer.empty });
+const html = renderToString(
+	createElement(React.QueryProvider, { client }, createElement(Greeting)),
+);
+await client.dispose();
+
+// A server render reads only the cache.
+if (html !== "Initial" || fetches !== 0) {
+	throw new Error(`Unexpected server render: ${html} after ${fetches} fetches`);
 }
 
 console.log("react: ok");

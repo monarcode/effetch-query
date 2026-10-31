@@ -10,6 +10,7 @@ describe("public entry points", () => {
 			"Mutation",
 			"Query",
 			"QueryClient",
+			"QueryFailure",
 			"Signals",
 		]);
 		expect(Object.keys(Core.Mutation).sort()).toEqual([
@@ -40,7 +41,18 @@ describe("public entry points", () => {
 	});
 
 	it("@monarcode/effetch-query/react exports exactly these values", () => {
-		expect(Object.keys(React).sort()).toEqual([]);
+		expect(Object.keys(React).sort()).toEqual([
+			"MissingQueryProvider",
+			"QueryFailure",
+			"QueryProvider",
+			"useMutation",
+			"useQuery",
+			"useQueryClient",
+			"useRefetch",
+			"useResetQueryFailure",
+			"useSuspenseQuery",
+		]);
+		expect(React.QueryFailure).toBe(Core.QueryFailure);
 	});
 
 	it("@monarcode/effetch-query/react-native exports exactly these values", () => {

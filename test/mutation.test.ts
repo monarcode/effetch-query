@@ -15,6 +15,7 @@ import { StateAtom } from "../src/internal/runtime.js";
 import {
 	dispose,
 	disposeClients,
+	gate,
 	makeClient,
 	record,
 	tracked,
@@ -22,15 +23,6 @@ import {
 import { Greeting } from "./services.js";
 
 afterEach(disposeClients);
-
-/** A promise a test settles by hand, for a run that waits. */
-const gate = () => {
-	let open: () => void = () => {};
-	const promise = new Promise<void>((resolve) => {
-		open = resolve;
-	});
-	return { wait: Effect.promise(() => promise), open: () => open() };
-};
 
 /** Lets forked runs reach their next step. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

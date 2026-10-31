@@ -446,7 +446,7 @@ export const get = <A, E>(
 	query: Query<A, E>,
 ): Effect.Effect<Option.Option<A>, never, QueryClient.QueryClient> =>
 	QueryClient.QueryClient.useSync(({ registry }) =>
-		Option.flatMap(cache.peek(registry, query), AsyncResult.value),
+		Option.flatMap(internal.peek(registry, query), AsyncResult.value),
 	);
 
 /**

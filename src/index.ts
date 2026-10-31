@@ -25,3 +25,4 @@ export * as QueryClient from "./QueryClient.js";
 export * as Signals from "./Signals.js";
 
 export type { Register } from "./QueryClient.js";
+export { QueryFailure } from "./QueryFailure.js";

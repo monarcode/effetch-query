@@ -71,6 +71,15 @@ export const record = (
 	return seen;
 };
 
+/** A promise a test settles by hand, for a run that waits. */
+export const gate = () => {
+	let open: () => void = () => {};
+	const promise = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	return { wait: Effect.promise(() => promise), open: () => open() };
+};
+
 /** A query whose run gets the number of the fetch it is. */
 export const tracked = <A, E = never>(
 	key: Query.QueryKey,
