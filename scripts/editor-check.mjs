@@ -5,10 +5,21 @@ import ts from "typescript";
 
 const dir = process.cwd();
 const probe = path.join(dir, "editor.ts");
-const source = `import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
+const source = `import * as Effect from "effect/Effect";
+
+import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
+import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
+import { /*useQuery*/useQuery } from "@monarcode/effetch-query/react";
+import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
 
 export const key: Query./*QueryKey*/QueryKey = ["todos"];
 export const make = QueryClient./*make*/make;
+const greeting = Query.make({ key: ["greeting"], run: Effect.succeed("hello") });
+export const read = () => {
+	const /*result*/result = useQuery(greeting);
+	return result;
+};
+export { endpoints, reactNativeSignals };
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -96,6 +107,24 @@ for (const [marker, file, signature, docs] of [
 		"const make: (options: QueryClient.Options) => QueryClient.QueryClient",
 		"Nothing is built until",
 	],
+	[
+		"useQuery",
+		"react/hooks.d.ts",
+		"(alias) const useQuery: <A, E>(",
+		"Reads a query and keeps it up to date",
+	],
+	[
+		"reactNativeSignals",
+		"react-native/index.d.ts",
+		"(alias) const reactNativeSignals: (",
+		"Signals for React Native",
+	],
+	[
+		"endpoints",
+		"effetch/index.d.ts",
+		"(alias) const endpoints: <",
+		"Turns `Fetch.endpoint` definitions into queries",
+	],
 ]) {
 	const definitions = service.getDefinitionAtPosition(probe, at(marker)) ?? [];
 	const targets = definitions.map((definition) =>
@@ -122,6 +151,15 @@ for (const [marker, file, signature, docs] of [
 		`Hover on ${marker} lacks @example or @since: ${tags.join(", ")}`,
 	);
 }
+
+// What a component reads is an AsyncResult of the query's types.
+const result = ts.displayPartsToString(
+	service.getQuickInfoAtPosition(probe, at("result"))?.displayParts,
+);
+expect(
+	result === "const result: AsyncResult<string, never>",
+	`Hover on useQuery's result shows ${JSON.stringify(result)}`,
+);
 
 if (failures.length > 0) {
 	console.error(failures.map((failure) => `✗ ${failure}`).join("\n"));

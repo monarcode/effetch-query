@@ -22,7 +22,8 @@ import type * as QueryClient from "../QueryClient.js";
  * A schema whose decoding and encoding need nothing outside your registered
  * services (`Register["services"]`) and the client. The adapter accepts only
  * these, so an endpoint whose schema needs another service is a compile
- * error where its query or mutation is defined.
+ * error where its query or mutation is defined ({@link Endpoints.query},
+ * {@link Endpoints.mutation}).
  *
  * @example
  * ```ts
@@ -151,7 +152,7 @@ export type EndpointQueryArgs<R extends string> = Fetch.ParamsOption<
 /**
  * What a mutation from route `R` takes when run: the endpoint's call
  * options (`params`, `query`, `body`, `headers`, `plugins`), or nothing
- * when none are required.
+ * when none are required. The variables of {@link Endpoints.mutation}.
  *
  * @example
  * ```ts
@@ -176,7 +177,7 @@ export type EndpointVariables<
 
 /**
  * The error schema a bound endpoint decodes error bodies with: its own, or
- * the client's `defaultError`.
+ * the client's `defaultError` (see {@link EndpointsOptions.defaultError}).
  *
  * @example
  * ```ts
@@ -436,12 +437,16 @@ export const endpoints = <
 			members.add(member);
 			return member;
 		});
-		return Object.assign((args?: RouteArgs) => family(canonicalArgs(args)), {
-			key: routeKeyPrefix(prefix, path),
-			[KeyMatcherId]: (query: Query.Query<any, any>) => members.has(query),
-			endpoint,
-			error: endpoint.error ?? options?.defaultError,
-		});
+		return Object.assign(
+			(args?: RouteArgs) => family(canonicalArgs(path, args)),
+			{
+				key: routeKeyPrefix(prefix, path),
+				[KeyMatcherId]: (query: Query.Query<any, any>) =>
+					members.has(query),
+				endpoint,
+				error: endpoint.error ?? options?.defaultError,
+			},
+		);
 	};
 	const mutation = (
 		endpoint: AnyEndpoint,

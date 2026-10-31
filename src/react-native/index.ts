@@ -87,7 +87,8 @@ export interface ReactNativeSignalsOptions {
  * (`AppState` changing to `"active"` from anything else), and online follows
  * NetInfo's `isConnected`, where `null` (not known yet) counts as online.
  * Pass them as the `signals` option of `QueryClient.make`, in place of the
- * default `Signals.browser`, which never changes without a DOM.
+ * default {@link Signals.browser}, which never changes without a DOM. The
+ * parameters are {@link AppStateLike} and {@link NetInfoLike}.
  *
  * The listeners start when a client first needs them and stop when it's
  * disposed, so one set of signals can serve several clients.

@@ -98,7 +98,8 @@ export const browser: Signals = {
 };
 
 /**
- * Signals that never change: no query refetches on focus or reconnect.
+ * Signals that never change: no query refetches on focus or reconnect. The
+ * default is {@link browser}.
  *
  * @example
  * ```ts

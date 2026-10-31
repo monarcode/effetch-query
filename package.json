@@ -1,8 +1,10 @@
 {
 	"name": "@monarcode/effetch-query",
-	"version": "0.0.0",
-	"description": "TanStack-Query-style server state for Effect: cached queries, mutations and invalidation on effect/reactivity",
+	"version": "0.1.0-alpha.0",
+	"description": "Effectful queries and mutations for Effect 4, inspired by TanStack Query. Cached, kept fresh, typed end to end, and made to pair with effetch.",
 	"keywords": [
+		"TanStack",
+		"TanStack Query",
 		"cache",
 		"effect",
 		"effect-ts",
@@ -11,7 +13,8 @@
 		"query",
 		"react",
 		"react-native",
-		"server-state"
+		"server-state",
+		"tanstack-query"
 	],
 	"homepage": "https://github.com/monarcode/effetch-query#readme",
 	"bugs": {
@@ -59,12 +62,12 @@
 		"prepare": "husky",
 		"lint": "oxlint .",
 		"lint:fix": "oxlint --fix .",
-		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --format text",
+		"lint:effect": "effect-language-service diagnostics --project tsconfig.json --format text && effect-language-service diagnostics --project examples/effect-only/tsconfig.json --format text && effect-language-service diagnostics --project examples/todos/tsconfig.json --format text",
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",
 		"build": "node scripts/build.mjs",
 		"dev": "tsc -p tsconfig.build.json --watch",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc --noEmit && tsc -p examples/effect-only && tsc -p examples/todos",
 		"check:docs": "node scripts/check-docs.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",

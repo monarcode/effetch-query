@@ -66,7 +66,10 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   so readers can navigate. Non-obvious behaviour, such as rollback order or
   when a hook doesn't run, belongs there too. An example that augments
   `Register` (`declare module`) compiles on its own; the rest share one
-  program, where `Register` isn't augmented.
+  program, where `Register` isn't augmented. `tsx` blocks compile as TSX.
+  In the README, a fence can name its block (` ```ts todos.ts `): other
+  blocks import it as `"./todos.js"`, and those blocks share one program
+  with the named files' `Register`.
 - `src/internal/` isn't public: document only what's non-obvious.
 - Pass `useEffect` (and `useLayoutEffect`) a named function, not an arrow,
   and name its cleanup too:
@@ -116,6 +119,7 @@ The maintainer handles commits, pull requests, CI and npm.
 
 Run `pnpm run check` and make sure it passes. It runs lint, the format check,
 typecheck, the docs check (every public export has a description, `@example`
-and `@since`, and every `ts` example in the JSDoc and the README compiles),
+and `@since`, and every `ts` and `tsx` example in the JSDoc and the README
+compiles),
 the Effect language service diagnostics, the tests (including type tests),
 the build, publint, attw and the tarball smoke test.

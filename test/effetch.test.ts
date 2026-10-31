@@ -104,6 +104,25 @@ describe("keys", () => {
 		expect(todo({ params: { id: 1 } })).toBe(todo({ params: { id: 1 } }));
 	});
 
+	it("take only the route's params, so a whole record can be the params", () => {
+		const record = { id: 1, title: "Write tests" };
+
+		expect(todo({ params: record })).toBe(todo({ params: { id: 1 } }));
+	});
+
+	it("leave a missing param missing, so effetch reports it", async () => {
+		const client = await serve();
+		const untyped = todo as unknown as (
+			args: object,
+		) => Query.Query<unknown, unknown>;
+
+		const exit = await client.runPromiseExit(
+			Query.fetch(untyped({ params: {} })),
+		);
+
+		expect(Exit.hasDies(exit)).toBe(true);
+	});
+
 	it("drop a full URL's scheme and host, and take the builder's prefix", () => {
 		const wallet = endpoints(TestApi, { key: ["wallet"] });
 		const account = wallet.query(

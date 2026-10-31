@@ -21,7 +21,9 @@ const isLiteral = (segment: Segment): segment is Literal =>
 
 /** What a key is built from: the call's path params and query object. */
 export interface RouteArgs {
-	readonly params?: { readonly [name: string]: string | number } | undefined;
+	readonly params?:
+		| { readonly [name: string]: string | number | undefined }
+		| undefined;
 	readonly query?: { readonly [name: string]: unknown } | undefined;
 }
 
@@ -62,13 +64,25 @@ const sentQuery = (
 };
 
 /**
- * A call's arguments as a family member's: only `params` and the sent
- * query, so calls that send the same request share a query.
+ * A call's arguments as a family member's: only the route's params and the
+ * sent query, so calls that send the same request share a query, even when
+ * `params` is a bigger object such as the todo itself.
  */
-export const canonicalArgs = (args: RouteArgs | undefined): RouteArgs => {
+export const canonicalArgs = (
+	path: ReadonlyArray<Segment>,
+	args: RouteArgs | undefined,
+): RouteArgs => {
+	// A missing param stays missing, so effetch reports it.
+	const params = path.flatMap((segment) => {
+		if (segment._tag === "Literal") {
+			return [];
+		}
+		const value = args?.params?.[segment.name];
+		return value === undefined ? [] : [[segment.name, value] as const];
+	});
 	const query = sentQuery(args?.query);
 	return {
-		...(args?.params === undefined ? {} : { params: args.params }),
+		...(params.length === 0 ? {} : { params: Object.fromEntries(params) }),
 		...(query === undefined ? {} : { query }),
 	};
 };
