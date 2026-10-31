@@ -8,11 +8,20 @@ import * as React from "../src/react/index.js";
 describe("public entry points", () => {
 	it("@monarcode/effetch-query exports exactly these values", () => {
 		expect(Object.keys(Core).sort()).toEqual([
+			"InfiniteQuery",
 			"Mutation",
 			"Query",
 			"QueryClient",
 			"QueryFailure",
 			"Signals",
+		]);
+		expect(Object.keys(Core.InfiniteQuery).sort()).toEqual([
+			"InfiniteQueryTypeId",
+			"family",
+			"fetchNextPage",
+			"fetchPreviousPage",
+			"isInfiniteQuery",
+			"make",
 		]);
 		expect(Object.keys(Core.Mutation).sort()).toEqual([
 			"MutationTypeId",

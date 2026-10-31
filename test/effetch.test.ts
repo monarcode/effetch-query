@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
@@ -201,6 +202,28 @@ describe("queries", () => {
 
 		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(5));
 		expect(mirror({ params: { id: 1 } }).key).toEqual(["mirror", "todos", 1]);
+	});
+
+	it("Query.update writes the endpoint's own cached queries, with their arguments", async () => {
+		const client = await serve();
+		await client.runPromise(Query.fetch(todo({ params: { id: 1 } })));
+		await client.runPromise(Query.fetch(comments({ params: { id: 1 } })));
+		const seen: Array<unknown> = [];
+
+		await client.runPromise(
+			Query.update(todo, (value, args) => {
+				seen.push(args);
+				return { ...value, title: "Renamed" };
+			}),
+		);
+
+		expect(seen).toEqual([{ params: { id: 1 } }]);
+		expect(
+			await client.runPromise(Query.get(todo({ params: { id: 1 } }))),
+		).toEqual(Option.some({ id: 1, title: "Renamed" }));
+		expect(
+			await client.runPromise(Query.get(comments({ params: { id: 1 } }))),
+		).not.toEqual(Option.none());
 	});
 
 	it("bind the endpoint once per client", async () => {

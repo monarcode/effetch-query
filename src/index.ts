@@ -1,4 +1,11 @@
 /**
+ * Infinite queries: pages loaded one at a time, for "load more" lists and
+ * infinite scroll.
+ *
+ * @since 0.1.0
+ */
+export * as InfiniteQuery from "./InfiniteQuery.js";
+/**
  * Mutations: changes to server state, with optimistic cache writes.
  *
  * @since 0.1.0

@@ -331,7 +331,7 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
 export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
 	internal.makeQuery({
 		key: options.key,
-		run: internal.toRun(options.run),
+		fetch: internal.runOnce(internal.toRun(options.run)),
 		options,
 	});
 
@@ -371,17 +371,20 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
  */
 export const family = <Args, A, E>(
 	options: FamilyOptions<Args, A, E>,
-): QueryFamily<Args, A, E> =>
-	Object.assign(
+): QueryFamily<Args, A, E> => {
+	const self: QueryFamily<Args, A, E> = Object.assign(
 		Atom.family((args: Args) =>
 			internal.makeQuery({
 				key: [...options.key, args],
-				run: (ctx) => options.run(args, ctx),
+				fetch: internal.runOnce((ctx) => options.run(args, ctx)),
 				options,
+				member: { family: self, args },
 			}),
 		),
 		{ key: options.key },
 	);
+	return self;
+};
 
 /**
  * Returns a query's value: the cached one if it's fresh (younger than
@@ -505,28 +508,58 @@ export const set = <A, E>(
  * and is undone the same way in a mutation's `optimistic`. Does nothing if
  * the query has no value.
  *
+ * Given a {@link QueryFamily}, it writes every cached member, as
+ * TanStack's `setQueriesData` does: `f` gets each member's value and its
+ * argument. Members are the family's own queries, not every query under
+ * its key, and only those with a value are written: none is created. In a
+ * mutation's `optimistic`, a failed run puts each member back.
+ *
  * @example
  * ```ts
  * import * as Effect from "effect/Effect";
  *
  * import { Query } from "@monarcode/effetch-query";
  *
- * const todos = Query.make({
- *   key: ["todos"],
- *   run: Effect.succeed<ReadonlyArray<string>>(["Buy milk"]),
+ * interface Todo {
+ *   readonly id: number;
+ *   readonly done: boolean;
+ * }
+ *
+ * const todos = Query.family({
+ *   key: ["todos", "list"],
+ *   run: (params: { readonly limit: number }): Effect.Effect<ReadonlyArray<Todo>> =>
+ *     Effect.succeed([]),
  * });
  *
- * export const add = (title: string) =>
- *   Query.update(todos, (list) => [...list, title]);
+ * // Every cached list shows the todo as done.
+ * export const markDone = (id: number) =>
+ *   Query.update(todos, (list) =>
+ *     list.map((todo) => (todo.id === id ? { ...todo, done: true } : todo)),
+ *   );
  * ```
  *
  * @since 0.1.0
  */
-export const update = <A, E>(
-	query: Query<A, E>,
-	f: (value: A) => A,
+export const update: {
+	<A, E>(
+		query: Query<A, E>,
+		f: (value: A) => A,
+	): Effect.Effect<void, never, QueryClient.QueryClient>;
+	<Args, A, E>(
+		family: QueryFamily<Args, A, E>,
+		f: (value: A, args: Args) => A,
+	): Effect.Effect<void, never, QueryClient.QueryClient>;
+} = <Args, A, E>(
+	target: Query<A, E> | QueryFamily<Args, A, E>,
+	f: (value: A, args: Args) => A,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
-	optimistic.write((registry) => cache.updateValue(registry, query, f));
+	optimistic.write((registry) =>
+		internal.isQuery(target)
+			? cache.updateValue(registry, target as Query<A, E>, (value) =>
+					f(value, undefined as Args),
+				)
+			: cache.updateMembers(registry, target, f),
+	);
 
 /**
  * Marks the matching queries stale. Those in use (as {@link refetch}

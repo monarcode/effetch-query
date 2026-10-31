@@ -6,7 +6,7 @@ import * as Atom from "effect/reactivity/Atom";
 import type * as Fetch from "@monarcode/effetch";
 
 import { KeyMatcherId } from "../internal/keyIndex.js";
-import { makeQuery } from "../internal/queryAtom.js";
+import { isMember, makeQuery, runOnce } from "../internal/queryAtom.js";
 import {
 	canonicalArgs,
 	type RouteArgs,
@@ -425,28 +425,27 @@ export const endpoints = <
 		const { headers, plugins, ...rest } = queryOptions ?? {};
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
-		// Keys can't tell `/todos/:id` from `/todos/comments`, so a family
-		// matches the queries it made.
-		const members = new WeakSet<Query.Query<any, any>>();
-		const family = Atom.family((args: RouteArgs) => {
-			const member = makeQuery({
+		const family = Atom.family((args: RouteArgs) =>
+			makeQuery({
 				key: routeKey(prefix, path, args),
-				run: () => fetch(args),
+				fetch: runOnce(() => fetch(args)),
 				options: rest,
-			});
-			members.add(member);
-			return member;
-		});
-		return Object.assign(
+				member: { family: self, args },
+			}),
+		);
+		const self = Object.assign(
 			(args?: RouteArgs) => family(canonicalArgs(path, args)),
 			{
 				key: routeKeyPrefix(prefix, path),
+				// Keys can't tell `/todos/:id` from `/todos/comments`, so a family
+				// matches the queries it made.
 				[KeyMatcherId]: (query: Query.Query<any, any>) =>
-					members.has(query),
+					isMember(query, self),
 				endpoint,
 				error: endpoint.error ?? options?.defaultError,
 			},
 		);
+		return self;
 	};
 	const mutation = (
 		endpoint: AnyEndpoint,
