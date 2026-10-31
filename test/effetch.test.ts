@@ -7,7 +7,12 @@ import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
-import { Mutation, Query, type QueryClient } from "../src/index.js";
+import {
+	InfiniteQuery,
+	Mutation,
+	Query,
+	type QueryClient,
+} from "../src/index.js";
 import { segments } from "../src/internal/routeKey.js";
 import { disposeClients, makeClient, use } from "./helpers.js";
 import {
@@ -278,6 +283,98 @@ describe("errors", () => {
 		expect(todo.error).toBe(ApiError);
 		expect(withOwn.error).toBe(Own);
 		expect(endpoints(TestApi).query(getTodo).error).toBeUndefined();
+	});
+});
+
+describe("infinite queries", () => {
+	const Page = Schema.Struct({
+		items: Schema.Array(Schema.Finite),
+		skip: Schema.Finite,
+		total: Schema.Finite,
+	});
+	const listNumbers = Fetch.endpoint("GET /numbers", { output: Page });
+	const numberPages = api.infiniteQuery(listNumbers, {
+		pageParam: "skip",
+		initialPageParam: 0,
+		nextPageParam: (last) =>
+			last.skip + last.items.length < last.total
+				? last.skip + last.items.length
+				: undefined,
+	});
+
+	/** Serves 0..total in pages of `limit` (default 2), and records each request's query. */
+	const numbersServer = (total = 5) => {
+		const requests: Array<string> = [];
+		const handle = ({ method, url }: ApiRequest) => {
+			if (method !== "GET" || url.pathname !== "/numbers") {
+				return undefined;
+			}
+			requests.push(url.search);
+			const skip = Number(url.searchParams.get("skip") ?? 0);
+			const limit = Number(url.searchParams.get("limit") ?? 2);
+			const items = Array.from(
+				{ length: Math.max(0, Math.min(limit, total - skip)) },
+				(_, i) => skip + i,
+			);
+			return Response.json({ items, skip, total });
+		};
+		return { handle, requests };
+	};
+
+	it("send each page's param in the page field, keyed without it", async () => {
+		const server = numbersServer();
+		const client = await serve(server.handle);
+		const pages = numberPages({ query: { limit: 2 } });
+
+		await client.runPromise(Query.fetch(pages));
+		const data = await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+
+		expect(data.pages.flatMap((page) => page.items)).toEqual([0, 1, 2, 3]);
+		expect(data.pageParams).toEqual([0, 2]);
+		expect(server.requests).toEqual(["?limit=2&skip=0", "?limit=2&skip=2"]);
+		expect(pages.key).toEqual(["numbers", { limit: 2 }]);
+	});
+
+	it("leave the call's own page field out of the key, and send their own", async () => {
+		const server = numbersServer();
+		const client = await serve(server.handle);
+
+		expect(numberPages({ query: { skip: 4 } })).toBe(numberPages());
+		await client.runPromise(Query.fetch(numberPages({ query: { skip: 4 } })));
+
+		expect(server.requests).toEqual(["?skip=0"]);
+	});
+
+	it("are matched and updated as their family's members", async () => {
+		const server = numbersServer();
+		const client = await serve(server.handle);
+		await client.runPromise(Query.fetch(numberPages()));
+		await client.runPromise(
+			Query.fetch(numberPages({ query: { limit: 3 } })),
+		);
+		server.requests.length = 0;
+
+		await client.runPromise(
+			Query.update(numberPages, (data, args) => ({
+				...data,
+				pages: data.pages.map((page) => ({
+					...page,
+					items: [args?.query === undefined ? -1 : -3],
+				})),
+			})),
+		);
+		client.registry.mount(numberPages());
+		await client.runPromise(Query.refetch(numberPages));
+
+		expect(server.requests).toEqual(["?skip=0"]);
+		expect(
+			Option.map(
+				await client.runPromise(
+					Query.get(numberPages({ query: { limit: 3 } })),
+				),
+				(data) => data.pages[0]?.items,
+			),
+		).toEqual(Option.some([-3]));
 	});
 });
 

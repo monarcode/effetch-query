@@ -5,11 +5,14 @@ import * as Atom from "effect/reactivity/Atom";
 
 import type * as Fetch from "@monarcode/effetch";
 
+import type * as InfiniteQuery from "../InfiniteQuery.js";
+import { makeInfiniteQuery } from "../internal/infiniteQuery.js";
 import { KeyMatcherId } from "../internal/keyIndex.js";
 import { isMember, makeQuery, runOnce } from "../internal/queryAtom.js";
 import {
 	canonicalArgs,
 	type RouteArgs,
+	withoutQueryField,
 	routeKey,
 	routeKeyPrefix,
 	segments,
@@ -101,6 +104,50 @@ export interface EndpointQueryOptions<
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
 >
 	extends Query.Options<E>, Fetch.BindOptions<Ps> {}
+
+/**
+ * Options for {@link Endpoints.infiniteQuery}: an infinite query's page
+ * options and query options, the query field each page's param is sent in,
+ * and the headers and plugin overrides `client.bind` takes.
+ *
+ * @example
+ * ```ts
+ * import type { EndpointInfiniteQueryOptions } from "@monarcode/effetch-query/effetch";
+ *
+ * interface Page {
+ *   readonly skip: number;
+ *   readonly limit: number;
+ *   readonly total: number;
+ * }
+ *
+ * export const options: EndpointInfiniteQueryOptions<Page, never, number, []> = {
+ *   pageParam: "skip",
+ *   initialPageParam: 0,
+ *   nextPageParam: (last) =>
+ *     last.skip + last.limit < last.total ? last.skip + last.limit : undefined,
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface EndpointInfiniteQueryOptions<
+	A,
+	E,
+	P,
+	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+>
+	extends
+		Query.Options<E>,
+		InfiniteQuery.PageOptions<A, P>,
+		Fetch.BindOptions<Ps> {
+	/**
+	 * The query field each page's param is sent in, such as `"cursor"` or
+	 * `"skip"`. It's set on every page's request, over the call's own value,
+	 * and left out of the key. The param must be a value a query field takes
+	 * (a string, number, boolean, `null` or `undefined`).
+	 */
+	readonly pageParam: P extends Fetch.QueryValue ? string : never;
+}
 
 /**
  * Options for {@link Endpoints.mutation}: a mutation's options without
@@ -252,6 +299,45 @@ export interface EndpointQuery<R extends string, A, E> {
 }
 
 /**
+ * A family of infinite queries, one per call of an effetch endpoint, made by
+ * {@link Endpoints.infiniteQuery}. Call it with the endpoint's `params` and
+ * `query`, without the page field, to get the {@link InfiniteQuery.InfiniteQuery}
+ * for that call. Keys and matching are as for {@link EndpointQuery}.
+ *
+ * @example
+ * ```ts
+ * import type { EndpointInfiniteQuery } from "@monarcode/effetch-query/effetch";
+ *
+ * declare const todoPages: EndpointInfiniteQuery<
+ *   "GET /todos",
+ *   { readonly todos: ReadonlyArray<string>; readonly skip: number },
+ *   never,
+ *   number
+ * >;
+ *
+ * export const pages = todoPages({ query: { limit: 20 } }); // key ["todos", { limit: 20 }]
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface EndpointInfiniteQuery<R extends string, A, E, P> {
+	(
+		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R>>
+	): InfiniteQuery.InfiniteQuery<A, E, P>;
+	/** The start every one of its keys has: the prefix and the path up to its first param. */
+	readonly key: Query.QueryKey;
+	/** The endpoint definition it calls. */
+	readonly endpoint: Fetch.UnboundEndpoint<
+		R,
+		Fetch.AnySchema | undefined,
+		Fetch.AnySchema | undefined,
+		Fetch.AnySchema | undefined
+	>;
+	/** The schema error bodies are decoded with, as {@link EndpointQuery.error}. */
+	readonly error: Fetch.AnySchema | undefined;
+}
+
+/**
  * Queries and mutations for one effetch client, made by {@link endpoints}.
  *
  * @example
@@ -303,6 +389,33 @@ export interface Endpoints<
 		R,
 		Fetch.Success<O>,
 		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>
+	>;
+	/**
+	 * A family of infinite queries that call an endpoint page by page, one
+	 * query per `params` and `query`, as {@link Endpoints.query} makes
+	 * queries. Each page's param is sent in the query field `pageParam`
+	 * names; the value is an {@link InfiniteQuery.InfiniteData} of the
+	 * endpoint's `output`. Only endpoints without a body.
+	 */
+	readonly infiniteQuery: <
+		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
+		O extends RegisteredSchema | undefined,
+		Own extends RegisteredSchema | undefined,
+		I extends RegisteredSchema | undefined,
+		P,
+	>(
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I>,
+		options: EndpointInfiniteQueryOptions<
+			Fetch.Success<O>,
+			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>,
+			P,
+			Ps
+		>,
+	) => EndpointInfiniteQuery<
+		R,
+		Fetch.Success<O>,
+		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>,
+		P
 	>;
 	/**
 	 * A mutation that calls an endpoint defined with `Fetch.endpoint`. Its
@@ -447,6 +560,51 @@ export const endpoints = <
 		);
 		return self;
 	};
+	const infiniteQuery = (
+		endpoint: AnyEndpoint,
+		queryOptions: EndpointInfiniteQueryOptions<unknown, unknown, unknown, Ps>,
+	) => {
+		const {
+			headers,
+			plugins,
+			pageParam: field,
+			initialPageParam,
+			nextPageParam,
+			previousPageParam,
+			maxPages,
+			...rest
+		} = queryOptions;
+		const fetch = call(endpoint, { headers, plugins });
+		const path = segments(endpoint.path);
+		const pages = {
+			initialPageParam,
+			nextPageParam,
+			previousPageParam,
+			maxPages,
+		};
+		const family = Atom.family((args: RouteArgs) =>
+			makeInfiniteQuery({
+				key: routeKey(prefix, path, args),
+				run: (page: unknown) =>
+					fetch({ ...args, query: { ...args.query, [field]: page } }),
+				pages,
+				options: rest,
+				member: { family: self, args },
+			}),
+		);
+		const self = Object.assign(
+			(args?: RouteArgs) =>
+				family(withoutQueryField(canonicalArgs(path, args), field)),
+			{
+				key: routeKeyPrefix(prefix, path),
+				[KeyMatcherId]: (query: Query.Query<any, any>) =>
+					isMember(query, self),
+				endpoint,
+				error: endpoint.error ?? options?.defaultError,
+			},
+		);
+		return self;
+	};
 	const mutation = (
 		endpoint: AnyEndpoint,
 		mutationOptions?: EndpointMutationOptions<unknown, unknown, unknown, Ps>,
@@ -457,5 +615,5 @@ export const endpoints = <
 			run: call(endpoint, { headers, plugins }),
 		});
 	};
-	return { query, mutation } as unknown as Endpoints<Ps, EB>;
+	return { query, infiniteQuery, mutation } as unknown as Endpoints<Ps, EB>;
 };
