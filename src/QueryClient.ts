@@ -17,10 +17,10 @@ import * as hydration from "./internal/dehydrate.js";
 import * as disposal from "./internal/disposeAfter.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
 import type { Mutation } from "./Mutation.js";
-import type { QueryKey, QueryTarget } from "./Query.js";
+import type * as Query from "./Query.js";
 import type { Signals } from "./Signals.js";
 
-export { DuplicateQueryKey, NonJsonKey } from "./HydrationError.js";
+export { DuplicateQueryKeyError, NonJsonKeyError } from "./HydrationError.js";
 
 /**
  * Declares the services your queries and mutations run with. Augment it once,
@@ -126,8 +126,9 @@ export type Hook<Event> = (
 /**
  * A query cache with its own {@link AtomRegistry.AtomRegistry}, and your
  * services from its own build of your layer or from your runtime. Create one
- * with {@link make} (or {@link layer} in Effect programs). Every query, mutation and Effect-side cache function runs
- * with it, as the {@link QueryClient} service.
+ * with {@link make} (or {@link layer} in Effect programs). Every query,
+ * mutation and Effect-side cache function runs with it, as the
+ * {@link QueryClient} service.
  *
  * A client is cheap to create. On a server, create one per request from
  * your process's runtime ({@link RuntimeOptions}) and
@@ -453,7 +454,7 @@ export interface QueryDefaults<E = unknown> {
  */
 export interface QuerySucceeded {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** The fetched value. */
 	readonly value: unknown;
 }
@@ -476,7 +477,7 @@ export interface QuerySucceeded {
  */
 export interface QueryFailed {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** Why the fetch failed, after `retry`. */
 	readonly cause: Cause.Cause<unknown>;
 }
@@ -499,7 +500,7 @@ export interface QueryFailed {
  */
 export interface QuerySettled {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** How the fetch ended, after `retry`. */
 	readonly exit: Exit.Exit<unknown, unknown>;
 }
@@ -871,7 +872,7 @@ export type DehydratedState = ReadonlyArray<Hydration.DehydratedAtom>;
  */
 export interface DehydrateOptions {
 	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
-	readonly queries?: QueryTarget | undefined;
+	readonly queries?: Query.Target | undefined;
 	/**
 	 * A query still fetching, with nothing to show yet: `"promise"` sends a
 	 * promise of its result, for streaming server rendering, and the browser
@@ -900,8 +901,8 @@ export interface DehydrateOptions {
  * the server. It reads without fetching: a stale query is sent as it is.
  * Values a schema can't encode are left out.
  *
- * Throws {@link NonJsonKey} for a key that isn't JSON, and
- * {@link DuplicateQueryKey} when two queries it sends have one key.
+ * Throws {@link NonJsonKeyError} for a key that isn't JSON, and
+ * {@link DuplicateQueryKeyError} when two queries it sends have one key.
  *
  * @example
  * ```ts
@@ -937,8 +938,8 @@ export const dehydrate = (
  * Loads a cache {@link dehydrate} sent into a client, as TanStack's
  * `hydrate`. A query that isn't cached shows its value the first time it's
  * read, without fetching, and refetches once it's stale. A cached query
- * takes it only if it's newer than the last data it has. A query the server was
- * still loading waits for its result instead of fetching.
+ * takes it only if it's newer than the last data it has. A query the server
+ * was still loading waits for its result instead of fetching.
  *
  * Values its schema can't decode are dropped, and the query fetches. State
  * from Effect's own `Hydration.dehydrate`, for other atoms, is loaded too.
@@ -978,6 +979,7 @@ export const hydrate = (
  * runtime would have sent. A body already read or locked throws, after the
  * client is disposed. A failed {@link QueryClient.dispose} is logged with
  * `console.error`, not thrown.
+ *
  * The core uses `ReadableStream` and `Response` only when this is called,
  * so it still loads where they don't exist, such as React Native.
  *

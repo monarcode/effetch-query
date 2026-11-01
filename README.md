@@ -1070,7 +1070,8 @@ export async function renderPage(): Promise<string> {
   browser as it was on the server. `dehydrate` never fetches: a stale query
   is sent stale, and refetches in the browser.
 - **Keys must be JSON**, as [Keys](#keys) says. A key that isn't throws
-  `NonJsonKey`, and two queries with one key throw `DuplicateQueryKey`.
+  `NonJsonKeyError`, and two queries with one key throw
+  `DuplicateQueryKeyError`.
 - **Failures stay on the server.** A failed query is left out and fetched
   again in the browser, so server errors never reach the page. To send
   them, pass `failures: "include"` and give the query a `schema.error`.
@@ -1697,13 +1698,13 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ### API
 
-| Import                                           | Exports                                                                                                                                                                                                                             |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                          |
-| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProvider` |
-| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                |
-| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                |
-| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                         |
+| Import                                           | Exports                                                                                                                                                                                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                               |
+| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                     |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                     |
+| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                              |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.

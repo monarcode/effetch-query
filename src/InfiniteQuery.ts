@@ -1,6 +1,6 @@
 import type * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
-import type * as Schema from "effect/Schema";
+import type * as EffectSchema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
 import { infiniteSchema, makeCodec } from "./internal/hydration.js";
@@ -9,20 +9,19 @@ import type * as Query from "./Query.js";
 import * as QueryClient from "./QueryClient.js";
 
 /**
- * The type of {@link InfiniteQueryTypeId}, the property that marks an
+ * The type of {@link TypeId}, the property that marks an
  * {@link InfiniteQuery}.
  *
  * @example
  * ```ts
  * import { InfiniteQuery } from "@monarcode/effetch-query";
  *
- * export const id: InfiniteQuery.InfiniteQueryTypeId =
- *   InfiniteQuery.InfiniteQueryTypeId;
+ * export const id: InfiniteQuery.TypeId = InfiniteQuery.TypeId;
  * ```
  *
  * @since 0.1.0
  */
-export type InfiniteQueryTypeId = internal.InfiniteQueryTypeId;
+export type TypeId = internal.InfiniteQueryTypeId;
 
 /**
  * The property that marks an {@link InfiniteQuery}, so it can be told apart
@@ -41,15 +40,14 @@ export type InfiniteQueryTypeId = internal.InfiniteQueryTypeId;
  *   nextPageParam: (_, __, page) => page + 1,
  * });
  *
- * console.log(InfiniteQuery.InfiniteQueryTypeId in pages); // true
+ * console.log(InfiniteQuery.TypeId in pages); // true
  * ```
  *
  * @see {@link isInfiniteQuery} to check a value
  *
  * @since 0.1.0
  */
-export const InfiniteQueryTypeId: InfiniteQueryTypeId =
-	internal.InfiniteQueryTypeId;
+export const TypeId: TypeId = internal.InfiniteQueryTypeId;
 
 /**
  * Whether a value is an {@link InfiniteQuery}, as opposed to a plain query
@@ -144,13 +142,13 @@ export interface InfiniteQuery<A, E, P> extends Query.Query<
 	E
 > {
 	/** Marks the query as an infinite query. */
-	readonly [InfiniteQueryTypeId]: InfiniteQueryTypeId;
+	readonly [TypeId]: TypeId;
 }
 
 /**
  * Makes one {@link InfiniteQuery} per argument, as {@link Query.family}
  * does: the same query for arguments that are `Equal.equals`, keyed by the
- * family's key with the argument appended. It's a {@link Query.QueryFamily},
+ * family's key with the argument appended. It's a {@link Query.Family},
  * so it's a target for {@link Query.invalidate}, and {@link Query.update}
  * writes every cached member.
  *
@@ -160,7 +158,7 @@ export interface InfiniteQuery<A, E, P> extends Query.Query<
  *
  * import type { InfiniteQuery } from "@monarcode/effetch-query";
  *
- * declare const pages: InfiniteQuery.InfiniteQueryFamily<
+ * declare const pages: InfiniteQuery.Family<
  *   { readonly limit: number },
  *   ReadonlyArray<string>,
  *   never,
@@ -172,7 +170,7 @@ export interface InfiniteQuery<A, E, P> extends Query.Query<
  *
  * @since 0.1.0
  */
-export interface InfiniteQueryFamily<Args, A, E, P> extends Query.QueryFamily<
+export interface Family<Args, A, E, P> extends Query.Family<
 	Args,
 	InfiniteData<A, P>,
 	E
@@ -256,7 +254,7 @@ export interface PageOptions<A, P> {
 
 /**
  * How an infinite query's pages are sent from the server to the browser, as
- * {@link Query.QuerySchema} for a query: Schemas for a page and, to send
+ * {@link Query.Schema} for a query: Schemas for a page and, to send
  * failures too, the error. The page params go as they are, so they must be
  * JSON values (strings, numbers, booleans, `null`), unless `pageParam`
  * names their schema; a query whose params don't fit isn't sent.
@@ -272,20 +270,20 @@ export interface PageOptions<A, P> {
  *   nextCursor: Schema.NullOr(Schema.String),
  * });
  *
- * export const schema: InfiniteQuery.PageSchema<typeof Page.Type, never, string | null> = {
+ * export const schema: InfiniteQuery.Schema<typeof Page.Type, never, string | null> = {
  *   page: Page,
  * };
  * ```
  *
  * @since 0.1.0
  */
-export interface PageSchema<A, E, P> {
+export interface Schema<A, E, P> {
 	/** A page's schema. */
-	readonly page: Schema.Codec<A, unknown>;
+	readonly page: EffectSchema.Codec<A, unknown>;
 	/** The page params' schema, for params that aren't JSON values. */
-	readonly pageParam?: Schema.Codec<P, unknown> | undefined;
+	readonly pageParam?: EffectSchema.Codec<P, unknown> | undefined;
 	/** The error's schema, needed only to send failures. */
-	readonly error?: Schema.Codec<E, unknown> | undefined;
+	readonly error?: EffectSchema.Codec<E, unknown> | undefined;
 }
 
 /**
@@ -310,7 +308,7 @@ export interface PageSchema<A, E, P> {
 export interface MakeOptions<A, E, P>
 	extends Query.Options<E>, PageOptions<A, P> {
 	/** The query's key. */
-	readonly key: Query.QueryKey;
+	readonly key: Query.Key;
 	/**
 	 * Fetches one page from its param. It runs with your services and the
 	 * client, and its `Scope` closes when the page settles.
@@ -320,7 +318,7 @@ export interface MakeOptions<A, E, P>
 		ctx: Query.RunContext,
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
 	/** How the pages cross from server to browser; without one, they fetch in the browser. */
-	readonly schema?: PageSchema<A, E, P> | undefined;
+	readonly schema?: Schema<A, E, P> | undefined;
 }
 
 /**
@@ -350,7 +348,7 @@ export interface MakeOptions<A, E, P>
 export interface FamilyOptions<Args, A, E, P>
 	extends Query.Options<E>, PageOptions<A, P> {
 	/** The family's key. Each member appends its argument. */
-	readonly key: Query.QueryKey;
+	readonly key: Query.Key;
 	/**
 	 * Fetches one page of one member from its argument and the page's param.
 	 * It runs with your services and the client, and its `Scope` closes when
@@ -362,10 +360,10 @@ export interface FamilyOptions<Args, A, E, P>
 		ctx: Query.RunContext,
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
 	/** How each member's pages cross from server to browser, as {@link MakeOptions.schema}. */
-	readonly schema?: PageSchema<A, E, P> | undefined;
+	readonly schema?: Schema<A, E, P> | undefined;
 }
 
-const hydrationOf = <A, E, P>(schema: PageSchema<A, E, P> | undefined) =>
+const hydrationOf = <A, E, P>(schema: Schema<A, E, P> | undefined) =>
 	schema && { codec: makeCodec(infiniteSchema(schema)) };
 
 const pageOptions = <A, P>(
@@ -418,7 +416,7 @@ export const make = <A, E, P>(
 	});
 
 /**
- * Defines an {@link InfiniteQueryFamily}: one {@link InfiniteQuery} per
+ * Defines a {@link Family}: one {@link InfiniteQuery} per
  * argument, each with its own pages.
  *
  * @example
@@ -453,10 +451,10 @@ export const make = <A, E, P>(
  */
 export const family = <Args, A, E, P>(
 	options: FamilyOptions<Args, A, E, P>,
-): InfiniteQueryFamily<Args, A, E, P> => {
+): Family<Args, A, E, P> => {
 	const pages = pageOptions(options);
 	const hydration = hydrationOf(options.schema);
-	const self: InfiniteQueryFamily<Args, A, E, P> = Object.assign(
+	const self: Family<Args, A, E, P> = Object.assign(
 		Atom.family((args: Args) =>
 			internal.makeInfiniteQuery({
 				key: [...options.key, args],

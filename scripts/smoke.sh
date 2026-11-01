@@ -136,7 +136,7 @@ declare module "@monarcode/effetch-query" {
 	}
 }
 
-const key: Query.QueryKey = ["todos", "detail", 1];
+const key: Query.Key = ["todos", "detail", 1];
 let listening = 0;
 // The React Native entry imports cleanly without react-native installed.
 const signals = ReactNative.reactNativeSignals({
@@ -301,7 +301,7 @@ import * as React from "@monarcode/effetch-query/react";
 
 const expected = [
 	"HydrationBoundary",
-	"MissingQueryProvider",
+	"MissingQueryProviderError",
 	"QueryFailure",
 	"QueryProvider",
 	"useInfiniteQuery",

@@ -11,8 +11,8 @@ import * as Fetch from "@monarcode/effetch";
  * issue. So each goes as a struct of what is, and comes back as the class:
  * an `HttpError` without headers, so `set-cookie` and the like never reach
  * the page, its body encoded with the endpoint's error schema; the others
- * without `cause` or `issue`. URLs and response text do go. A plugin's own error has no schema here, so a
- * query failing with one isn't sent.
+ * without `cause` or `issue`. URLs and response text do go. A plugin's own
+ * error has no schema here, so a query failing with one isn't sent.
  */
 export const wireErrors = (
 	body: Schema.Codec<unknown, unknown> | undefined,

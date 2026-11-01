@@ -17,7 +17,7 @@ describe("public entry points", () => {
 			"Signals",
 		]);
 		expect(Object.keys(Core.InfiniteQuery).sort()).toEqual([
-			"InfiniteQueryTypeId",
+			"TypeId",
 			"family",
 			"fetchNextPage",
 			"fetchPreviousPage",
@@ -25,12 +25,13 @@ describe("public entry points", () => {
 			"make",
 		]);
 		expect(Object.keys(Core.Mutation).sort()).toEqual([
-			"MutationTypeId",
+			"TypeId",
+			"isMutation",
 			"make",
 			"run",
 		]);
 		expect(Object.keys(Core.Query).sort()).toEqual([
-			"QueryTypeId",
+			"TypeId",
 			"family",
 			"fetch",
 			"get",
@@ -44,8 +45,8 @@ describe("public entry points", () => {
 			"update",
 		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([
-			"DuplicateQueryKey",
-			"NonJsonKey",
+			"DuplicateQueryKeyError",
+			"NonJsonKeyError",
 			"QueryClient",
 			"dehydrate",
 			"disposeAfter",
@@ -59,7 +60,7 @@ describe("public entry points", () => {
 	it("@monarcode/effetch-query/react exports exactly these values", () => {
 		expect(Object.keys(React).sort()).toEqual([
 			"HydrationBoundary",
-			"MissingQueryProvider",
+			"MissingQueryProviderError",
 			"QueryFailure",
 			"QueryProvider",
 			"useInfiniteQuery",

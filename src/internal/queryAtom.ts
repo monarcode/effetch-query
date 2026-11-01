@@ -100,7 +100,7 @@ export interface Internals<A, E> {
 
 export interface QueryHydration<A, E> {
 	readonly codec: Codec<A, E>;
-	/** The string the query is found by; throws `NonJsonKey`. */
+	/** The string the query is found by; throws `NonJsonKeyError`. */
 	readonly hash: () => string;
 }
 
@@ -334,7 +334,7 @@ const fromServer = <A, E, R>(
 
 /** Builds a query atom (DESIGN.md §5.2). */
 export const makeQuery = <A, E>(definition: {
-	readonly key: Query.QueryKey;
+	readonly key: Query.Key;
 	readonly fetch: Fetch<A, E>;
 	readonly options: Query.Options<E>;
 	readonly member?: Member | undefined;

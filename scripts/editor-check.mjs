@@ -13,7 +13,7 @@ import { /*useQuery*/useQuery } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
 import { /*connectQueryClient*/connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 
-export const key: Query./*QueryKey*/QueryKey = ["todos"];
+export const key: Query./*Key*/Key = ["todos"];
 export const make = QueryClient./*make*/make;
 const greeting = Query.make({ key: ["greeting"], run: Effect.succeed("hello") });
 export const read = () => {
@@ -97,9 +97,9 @@ for (const [marker, file] of [
 // signature, the start of its docs]
 for (const [marker, file, signature, docs] of [
 	[
-		"QueryKey",
+		"Key",
 		"Query.d.ts",
-		"type QueryKey = readonly unknown[]",
+		"type Key = readonly unknown[]",
 		"Identifies a query in the cache",
 	],
 	[

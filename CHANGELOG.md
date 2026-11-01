@@ -37,6 +37,8 @@ recipes, and clients made from an existing `ManagedRuntime`.
 - `QueryClient.LayerOptions`, `QueryClient.RuntimeOptions` and
   `QueryClient.CommonOptions`: the two ways to give a client its services,
   and the options both take.
+- `Mutation.isMutation`, to match `Query.isQuery` and
+  `InfiniteQuery.isInfiniteQuery`.
 - The README's "TanStack Router and Start" guide, and
   `examples/tanstack-start`: a Start app with loaders, a streamed detail
   page and a redirect, built and served by its tests.
@@ -53,6 +55,17 @@ recipes, and clients made from an existing `ManagedRuntime`.
 
 ### Changed
 
+- **Breaking:** names follow Effect 4's conventions, ahead of the API
+  freeze. Types drop their namespace's prefix: `Query.QueryKey` is
+  `Query.Key`, `Query.QueryTarget` is `Query.Target`, `Query.QueryFamily`
+  is `Query.Family`, `Query.QuerySchema` is `Query.Schema`,
+  `InfiniteQuery.InfiniteQueryFamily` is `InfiniteQuery.Family` and
+  `InfiniteQuery.PageSchema` is `InfiniteQuery.Schema`. Type ids are
+  `TypeId`, as `Atom.TypeId` is: `Query.TypeId`, `Mutation.TypeId` and
+  `InfiniteQuery.TypeId`. Defects end in `Error`, as effetch's errors do:
+  `QueryClient.NonJsonKeyError`, `QueryClient.DuplicateQueryKeyError` and
+  `MissingQueryProviderError`, `_tag` included. `QueryFailure` keeps its
+  name.
 - `QueryClient.Options` is now a union, `LayerOptions | RuntimeOptions`,
   rather than an interface. Passing `runtime` with `layer` or `memoMap` is
   a compile error.

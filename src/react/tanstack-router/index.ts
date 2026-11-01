@@ -26,7 +26,7 @@ import { QueryProvider } from "../QueryProvider.js";
  */
 export interface ConnectDehydrateOptions {
 	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
-	readonly queries?: Query.QueryTarget | undefined;
+	readonly queries?: Query.Target | undefined;
 	/**
 	 * A failed query: `"include"` sends it with its error, encoded with the
 	 * query's `schema.error`; `"omit"` leaves it out, so the browser fetches

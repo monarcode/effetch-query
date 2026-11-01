@@ -140,7 +140,7 @@ type RunPage<A, E, P> = (
  * when one is requested, and otherwise every loaded page again.
  */
 export const makeInfiniteQuery = <A, E, P>(definition: {
-	readonly key: Query.QueryKey;
+	readonly key: Query.Key;
 	readonly run: RunPage<A, E, P>;
 	readonly pages: Pages<A, P>;
 	readonly options: Query.Options<E>;

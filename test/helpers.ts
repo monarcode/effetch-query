@@ -84,7 +84,7 @@ export const gate = () => {
 
 /** A query whose run gets the number of the fetch it is. */
 export const tracked = <A, E = never>(
-	key: Query.QueryKey,
+	key: Query.Key,
 	run: (fetch: number) => Effect.Effect<A, E>,
 	options?: Query.Options<E>,
 ) => {
@@ -98,7 +98,7 @@ export const tracked = <A, E = never>(
 };
 
 /** A family whose members count their fetches, by argument. */
-export const trackedFamily = <Args>(key: Query.QueryKey) => {
+export const trackedFamily = <Args>(key: Query.Key) => {
 	const counts = new Map<string, number>();
 	const family = Query.family({
 		key,

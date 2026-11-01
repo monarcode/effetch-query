@@ -1,7 +1,11 @@
 import * as Equal from "effect/Equal";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
-import type { Query, QueryKey, QueryTarget } from "../Query.js";
+import type {
+	Query,
+	Key as QueryKey,
+	Target as QueryTarget,
+} from "../Query.js";
 import { isQuery } from "./queryAtom.js";
 import { StateAtom } from "./runtime.js";
 

@@ -41,7 +41,7 @@ export interface QueryProviderProps {
  * also provides the client's registry as `@effect/atom-react`'s
  * `RegistryContext`, so atom-react's own hooks (`useAtomValue` and the rest)
  * share the cache. The hooks of `@monarcode/effetch-query/react` throw a
- * {@link MissingQueryProvider} outside one.
+ * {@link MissingQueryProviderError} outside one.
  *
  * @example
  * ```ts
@@ -86,22 +86,22 @@ export const QueryProvider = ({
  *
  * @example
  * ```ts
- * import { MissingQueryProvider } from "@monarcode/effetch-query/react";
+ * import { MissingQueryProviderError } from "@monarcode/effetch-query/react";
  *
  * export const isMissingProvider = (error: unknown) =>
- *   error instanceof MissingQueryProvider;
+ *   error instanceof MissingQueryProviderError;
  * ```
  *
  * @since 0.1.0
  */
-export class MissingQueryProvider extends Data.TaggedError(
-	"MissingQueryProvider",
+export class MissingQueryProviderError extends Data.TaggedError(
+	"MissingQueryProviderError",
 )<{ readonly message: string }> {}
 
 /**
  * Returns the {@link QueryClient.QueryClient} of the nearest
  * {@link QueryProvider}, for running Effects from event handlers. Throws a
- * {@link MissingQueryProvider} outside one.
+ * {@link MissingQueryProviderError} outside one.
  *
  * @example
  * ```ts
@@ -119,7 +119,7 @@ export class MissingQueryProvider extends Data.TaggedError(
 export const useQueryClient = (): QueryClient.QueryClient => {
 	const client = React.useContext(ClientContext);
 	if (client === null) {
-		throw new MissingQueryProvider({
+		throw new MissingQueryProviderError({
 			message:
 				"No QueryClient: a hook from @monarcode/effetch-query/react was called outside a <QueryProvider client={queryClient}>.",
 		});

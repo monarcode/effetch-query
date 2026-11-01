@@ -1,7 +1,7 @@
 import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 
-import type { QueryKey } from "../Query.js";
+import type { Key as QueryKey } from "../Query.js";
 
 /** One segment of a route's path: fixed text, or a `:param`'s name. */
 export type Segment = Literal | Param;

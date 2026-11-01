@@ -89,7 +89,7 @@ describe("Endpoints.query", () => {
 			Fetch.endpoint("GET /todos/:id", { output: Todo }),
 		);
 
-		expectTypeOf(todo).toExtend<Query.QueryTarget>();
+		expectTypeOf(todo).toExtend<Query.Target>();
 	});
 });
 
@@ -115,7 +115,7 @@ describe("Endpoints.infiniteQuery", () => {
 				string | null
 			>
 		>();
-		expectTypeOf(todoPages).toExtend<Query.QueryTarget>();
+		expectTypeOf(todoPages).toExtend<Query.Target>();
 	});
 
 	it("needs a page param a query field takes", () => {

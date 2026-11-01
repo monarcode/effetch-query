@@ -75,15 +75,17 @@ describe("hashKey", () => {
 		["a function", () => 1],
 		["a class instance", new (class Filter {})()],
 		["a symbol", Symbol("todos")],
-	])("fails with NonJsonKey for %s", (_, segment) => {
+	])("fails with NonJsonKeyError for %s", (_, segment) => {
 		const key = ["todos", { segment }];
 		try {
 			hashKey(key);
 			expect.unreachable();
 		} catch (error) {
-			expect(error).toBeInstanceOf(QueryClient.NonJsonKey);
-			expect(error).toMatchObject({ _tag: "NonJsonKey", key });
-			expect((error as QueryClient.NonJsonKey).message).toContain("todos");
+			expect(error).toBeInstanceOf(QueryClient.NonJsonKeyError);
+			expect(error).toMatchObject({ _tag: "NonJsonKeyError", key });
+			expect((error as QueryClient.NonJsonKeyError).message).toContain(
+				"todos",
+			);
 		}
 	});
 });
@@ -165,7 +167,9 @@ describe("schema", () => {
 		});
 		const query = at(new Date(0));
 
-		expect(() => hydrationOf(query).hash()).toThrow(QueryClient.NonJsonKey);
+		expect(() => hydrationOf(query).hash()).toThrow(
+			QueryClient.NonJsonKeyError,
+		);
 	});
 });
 
@@ -521,7 +525,7 @@ describe("dehydrate and hydrate", () => {
 		);
 
 		expect(() => QueryClient.dehydrate(server)).toThrow(
-			QueryClient.DuplicateQueryKey,
+			QueryClient.DuplicateQueryKeyError,
 		);
 	});
 
@@ -553,7 +557,7 @@ describe("dehydrate and hydrate", () => {
 		await server.runPromise(Query.prefetch(at(new Date(0))));
 
 		expect(() => QueryClient.dehydrate(server)).toThrow(
-			QueryClient.NonJsonKey,
+			QueryClient.NonJsonKeyError,
 		);
 		expect(QueryClient.dehydrate(server, { queries: ["todos"] })).toEqual([]);
 	});

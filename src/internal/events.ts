@@ -1,7 +1,7 @@
 import type * as Exit from "effect/Exit";
 
 import type { Mutation } from "../Mutation.js";
-import type { QueryKey } from "../Query.js";
+import type { Key as QueryKey } from "../Query.js";
 import type { ClientState } from "./runtime.js";
 
 /**

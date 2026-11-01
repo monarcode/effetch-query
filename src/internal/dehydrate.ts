@@ -4,7 +4,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Hydration from "effect/reactivity/Hydration";
 import type * as Schema from "effect/Schema";
 
-import { DuplicateQueryKey } from "../HydrationError.js";
+import { DuplicateQueryKeyError } from "../HydrationError.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { hydrateValue } from "./cache.js";
@@ -126,7 +126,7 @@ export const dehydrate = (
 		// One sent in an earlier batch counts only while it's still cached: a
 		// query that replaced it is sent too, and loads over it.
 		if (earlier !== undefined && index.has(earlier)) {
-			throw new DuplicateQueryKey({
+			throw new DuplicateQueryKeyError({
 				key: query.key,
 				message: `Two cached queries have the key ${key}, so the browser can't tell them apart`,
 			});
