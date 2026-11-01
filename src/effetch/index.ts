@@ -2,10 +2,12 @@ import type * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as HttpMethod from "effect/http/HttpMethod";
 import * as Atom from "effect/reactivity/Atom";
+import type * as Schema from "effect/Schema";
 
 import type * as Fetch from "@monarcode/effetch";
 
 import type * as InfiniteQuery from "../InfiniteQuery.js";
+import { infiniteSchema, makeCodec } from "../internal/hydration.js";
 import { makeInfiniteQuery } from "../internal/infiniteQuery.js";
 import { KeyMatcherId } from "../internal/keyIndex.js";
 import { isMember, makeQuery, runOnce } from "../internal/queryAtom.js";
@@ -21,6 +23,7 @@ import {
 import * as Mutation from "../Mutation.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
+import { wireErrors } from "./wireErrors.js";
 
 /**
  * A schema whose decoding and encoding need nothing outside your registered
@@ -374,6 +377,13 @@ export interface Endpoints<
 	 *
 	 * Only `GET`, `HEAD`, `OPTIONS` and `TRACE` endpoints: a call with a body
 	 * is a {@link Endpoints.mutation}, or a {@link Query.family} of your own.
+	 *
+	 * With an `output`, its queries cross from server to browser with no
+	 * `schema` to write (`QueryClient.dehydrate`): the value with `output`,
+	 * and, with `failures: "include"`, effetch's errors: an `HttpError`
+	 * without its headers, though with its request URL and response text,
+	 * so keep secrets out of the URLs your server calls. A query that failed
+	 * with a plugin's error isn't sent.
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -396,7 +406,9 @@ export interface Endpoints<
 	 * query per `params` and `query`, as {@link Endpoints.query} makes
 	 * queries. Each page's param is sent in the query field `pageParam`
 	 * names; the value is an {@link InfiniteQuery.InfiniteData} of the
-	 * endpoint's `output`. Only endpoints without a body.
+	 * endpoint's `output`. Only endpoints without a body. Its queries cross
+	 * from server to browser as {@link Endpoints.query}'s do, the page
+	 * params as JSON.
 	 */
 	readonly infiniteQuery: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -446,7 +458,9 @@ export interface Endpoints<
 
 /** A definition or bound endpoint as the adapter uses it, whatever its types. */
 interface AnyEndpoint {
+	readonly method: string;
 	readonly path: string;
+	readonly output: Fetch.AnySchema | undefined;
 	readonly error: Fetch.AnySchema | undefined;
 }
 
@@ -551,6 +565,30 @@ export const endpoints = <
 		});
 		return self;
 	};
+	// An endpoint's queries cross the wire with its `output` and effetch's
+	// errors, keyed apart by method: `GET` and `HEAD` of one path share keys.
+	const hydrationOf = (
+		endpoint: AnyEndpoint,
+		schema: (
+			output: Schema.Codec<unknown, unknown>,
+			error: Schema.Codec<unknown, unknown>,
+		) => Query.QuerySchema<any, any>,
+	) =>
+		endpoint.output === undefined
+			? undefined
+			: {
+					codec: makeCodec(
+						schema(
+							endpoint.output as Schema.Codec<unknown, unknown>,
+							wireErrors(
+								(endpoint.error ?? options?.defaultError) as
+									| Schema.Codec<unknown, unknown>
+									| undefined,
+							),
+						),
+					),
+					kind: endpoint.method === "GET" ? undefined : endpoint.method,
+				};
 	const query = (
 		endpoint: AnyEndpoint,
 		queryOptions?: EndpointQueryOptions<unknown, Ps>,
@@ -558,6 +596,10 @@ export const endpoints = <
 		const { headers, plugins, ...rest } = queryOptions ?? {};
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
+		const hydration = hydrationOf(endpoint, (success, error) => ({
+			success,
+			error,
+		}));
 		return endpointFamily(
 			endpoint,
 			path,
@@ -568,6 +610,7 @@ export const endpoints = <
 					fetch: runOnce(() => fetch(args)),
 					options: rest,
 					member: { family, args },
+					hydration,
 				}),
 		);
 	};
@@ -593,6 +636,9 @@ export const endpoints = <
 			previousPageParam,
 			maxPages,
 		};
+		const hydration = hydrationOf(endpoint, (page, error) =>
+			infiniteSchema({ page, error }),
+		);
 		return endpointFamily(
 			endpoint,
 			path,
@@ -605,6 +651,7 @@ export const endpoints = <
 					pages,
 					options: rest,
 					member: { family, args },
+					hydration,
 				}),
 		);
 	};

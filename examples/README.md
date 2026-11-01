@@ -9,6 +9,7 @@ because each registers its own services (`Register`).
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | [`effect-only/`](effect-only) | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched, what's written.       |
 | [`todos/`](todos)             | A React app over effetch endpoints: a paged list, a detail, an optimistic toggle, a missing todo and a refresh button. |
+| [`ssr/`](ssr)                 | Server rendering: a client per request, the cache sent with the HTML, and the page hydrated without a fetch.           |
 
 ## `effect-only/`
 
@@ -68,3 +69,41 @@ todos/
 To run it against a real server, serve `main.tsx` with any bundler (Vite,
 for example) and an API at `https://todos.example`, or change `baseUrl` in
 `api.ts`.
+
+## `ssr/`
+
+A page rendered on the server and picked up in the browser, with plain
+React (`renderToString` and `hydrateRoot`), so it carries over to any
+server or framework:
+
+```text
+ssr/
+├── services.ts      the services: a product catalog and the signed-in viewer
+├── app.tsx          two queries with a schema, and the components
+├── page.tsx         the tree both sides render, under a HydrationBoundary
+├── server.tsx       renders a page per request
+├── browser.tsx      hydrates the server's page
+├── main.tsx         the browser entry: the catalog over the server's API
+└── ssr.test.tsx     tests that render on the server and hydrate the HTML
+```
+
+- **[`app.tsx`](ssr/app.tsx)** defines `products` and `greeting`. Each has a
+  `schema`, which is what lets it cross to the browser, and a `staleTime`,
+  so the browser doesn't refetch what the server just loaded.
+- **[`server.tsx`](ssr/server.tsx)** makes a client per request, with that
+  request's viewer, sharing one memo map so the catalog is built once per
+  process. It prefetches both queries, renders the page, embeds
+  `QueryClient.dehydrate`'s result (escaped, so a value can't close its
+  script tag) and disposes the client.
+- **[`browser.tsx`](ssr/browser.tsx)** reads the embedded data, makes the
+  app's client and hydrates the same tree, whose `HydrationBoundary` loads
+  the server's cache before the first render.
+- **[`ssr.test.tsx`](ssr/ssr.test.tsx)** renders on the "server", loads the
+  HTML into the page and hydrates it. It checks the HTML has the data, that
+  hydrating changes nothing in the page, logs no mismatch and reads nothing
+  from the catalog, that two requests at once each get their own viewer,
+  and that a product named `</script>` can't break out of the embedded
+  data.
+
+To run it for real, serve `server.tsx`'s pages from any server, bundle
+`main.tsx` as `/main.js`, and serve the catalog as JSON at `/api/products`.

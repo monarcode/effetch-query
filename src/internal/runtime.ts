@@ -41,6 +41,14 @@ export interface ClientState {
 	fetchCount: number;
 	/** Each query's latest fetch, by its place in `fetchCount`. */
 	readonly fetchedAt: WeakMap<Query<any, any>, number>;
+	/**
+	 * Results the server was still loading when it sent the cache, by hash:
+	 * the query's next fetch waits for one instead of fetching (see
+	 * `dehydrate.ts`).
+	 */
+	readonly streamed: Map<string, Promise<unknown>>;
+	/** Run by `dispose()`: settles the promises `dehydrate` handed out. */
+	readonly onDispose: Set<() => void>;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -51,6 +59,8 @@ export const makeClientState = (): ClientState => ({
 	suspensions: new Map(),
 	fetchCount: 0,
 	fetchedAt: new WeakMap(),
+	streamed: new Map(),
+	onDispose: new Set(),
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */

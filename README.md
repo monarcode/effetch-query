@@ -21,8 +21,7 @@ sibling of [`@monarcode/effetch`](https://github.com/monarcode/effetch), whose
 endpoints turn into queries and mutations in one line.
 
 > **Alpha.** effetch-query is in its `0.1.0-alpha.N` series: the API can
-> still change before `0.1.0-rc.0`. Server rendering and hydration land
-> during the alpha series.
+> still change before `0.1.0-rc.0`.
 
 ## Contents
 
@@ -57,6 +56,10 @@ endpoints turn into queries and mutations in one line.
   - [Atoms](#atoms)
 - [React Native](#react-native)
 - [With effetch](#with-effetch)
+- [Server rendering](#server-rendering)
+  - [Sending the cache](#sending-the-cache)
+  - [Loading it in the browser](#loading-it-in-the-browser)
+  - [Streaming](#streaming)
 - [The client](#the-client)
   - [Client options](#client-options)
   - [App-wide hooks](#app-wide-hooks)
@@ -161,8 +164,9 @@ export function Todos() {
   a runtime one.
 - **Effect first, React second.** Everything works from Effect code (`Query.fetch`,
   `Mutation.run`, `Query.invalidate`); the React hooks only subscribe.
-- **Server-safe.** No global state: each client owns its cache and its
-  layer, so one server process can make one per request.
+- **Server rendering.** Render with data on the server, then pick up its
+  cache in the browser, streamed or not. No global state: each client owns
+  its cache and its layer, so one server process can make one per request.
 
 ## Getting started
 
@@ -282,8 +286,9 @@ export const queryClient = QueryClient.make({
 });
 ```
 
-On a server, make one per request and `dispose()` it when the request ends.
-[The client](#the-client) has every option.
+On a server, make one per request and `dispose()` it when the request ends
+([Server rendering](#server-rendering)). [The client](#the-client) has
+every option.
 
 ## Queries
 
@@ -354,7 +359,7 @@ Keys are hierarchical. Invalidating `["todos"]` reaches every key that starts
 with it, so put the broadest segment first. Segments are compared by value
 (`Equal.equals`), so plain objects and arrays match by structure. Keep them
 JSON-compatible (strings, numbers, booleans, `null`, arrays and plain
-objects): server rendering will send them to the browser.
+objects): [server rendering](#server-rendering) sends them to the browser.
 
 ### Query options
 
@@ -957,8 +962,175 @@ export const refreshTodo = Query.refetch(todo);
   options. A mutation invalidates nothing unless you say so.
 - **`infiniteQuery` pages through an endpoint without a body:**
   `pageParam` names the query field each page's param is sent in.
+- **Endpoint queries render on the server** with no `schema` to write,
+  when the endpoint has an `output`: it encodes the value, and effetch's
+  errors are sent with `failures: "include"`: an `HttpError` without its
+  headers, but with its request URL and response text, so keep secrets out
+  of the URLs your server calls. A query that failed with a plugin's error
+  isn't sent.
 - Pass `headers` and `plugins` as options of `query`, `infiniteQuery` and
   `mutation`, as with `client.bind`.
+
+## Server rendering
+
+Render a page on the server with its data, then pick it up in the browser
+without fetching that data again. It works with any React server renderer
+(`renderToString`, `renderToPipeableStream`, a framework's), and without
+React through `QueryClient.hydrate`.
+
+### Sending the cache
+
+A query crosses from server to browser when it has a `schema`: it encodes
+the value for the page and decodes it in the browser. Give it a
+`staleTime` too, so the browser doesn't refetch what the server just
+loaded:
+
+```tsx todo-list.tsx
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+import { useSuspenseQuery } from "@monarcode/effetch-query/react";
+
+import { TodoApi } from "./todo-api.js";
+
+const Todo = Schema.Struct({
+  id: Schema.Finite,
+  title: Schema.String,
+  done: Schema.Boolean,
+});
+
+export const todoList = Query.make({
+  key: ["todos", "list"],
+  run: TodoApi.use((api) => api.list({})),
+  schema: { success: Schema.Array(Todo) },
+  staleTime: "1 minute",
+});
+
+export function TodoList() {
+  const { value } = useSuspenseQuery(todoList);
+  return (
+    <ul>
+      {value.map((todo) => (
+        <li key={todo.id}>{todo.title}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+On the server, make a client per request, load what the page needs, and
+send `QueryClient.dehydrate`'s result with the HTML:
+
+```tsx
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import {
+  HydrationBoundary,
+  QueryProvider,
+} from "@monarcode/effetch-query/react";
+import { renderToString } from "react-dom/server";
+
+import { TodoApiLive } from "./todo-api.js";
+import { TodoList, todoList } from "./todo-list.js";
+
+export async function renderPage(): Promise<string> {
+  // One client per request, so one user's data never reaches another's page.
+  const client = QueryClient.make({ layer: TodoApiLive });
+  try {
+    await client.runPromise(Query.prefetch(todoList));
+    const state = QueryClient.dehydrate(client);
+    const html = renderToString(
+      <QueryProvider client={client}>
+        <HydrationBoundary state={state}>
+          <TodoList />
+        </HydrationBoundary>
+      </QueryProvider>,
+    );
+    // `<` is escaped so a value can't close the script tag.
+    const json = JSON.stringify(state).replace(/</g, "\\u003c");
+    return `<div id="root">${html}</div>
+<script id="query-state" type="application/json">${json}</script>`;
+  } finally {
+    await client.dispose();
+  }
+}
+```
+
+- **Only queries with a `schema` are sent.** An effetch endpoint with an
+  `output` needs none: its `output` is its schema
+  ([With effetch](#with-effetch)).
+- **Values are sent with their timestamp,** so a query is as fresh in the
+  browser as it was on the server. `dehydrate` never fetches: a stale query
+  is sent stale, and refetches in the browser.
+- **Keys must be JSON**, as [Keys](#keys) says. A key that isn't throws
+  `NonJsonKey`, and two queries with one key throw `DuplicateQueryKey`.
+- **Failures stay on the server.** A failed query is left out and fetched
+  again in the browser, so server errors never reach the page. To send
+  them, pass `failures: "include"` and give the query a `schema.error`.
+- `queries: ["todos"]` sends only the queries under a key prefix, as
+  `Query.invalidate` matches them.
+
+### Loading it in the browser
+
+Render the same tree, under a `HydrationBoundary` given what the server
+sent:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import {
+  HydrationBoundary,
+  QueryProvider,
+} from "@monarcode/effetch-query/react";
+import { hydrateRoot } from "react-dom/client";
+
+import { TodoApiLive } from "./todo-api.js";
+import { TodoList } from "./todo-list.js";
+
+const state = JSON.parse(
+  document.getElementById("query-state")?.textContent ?? "[]",
+) as QueryClient.DehydratedState;
+
+const queryClient = QueryClient.make({ layer: TodoApiLive });
+
+const root = document.getElementById("root");
+if (root !== null) {
+  hydrateRoot(
+    root,
+    <QueryProvider client={queryClient}>
+      <HydrationBoundary state={state}>
+        <TodoList />
+      </HydrationBoundary>
+    </QueryProvider>,
+  );
+}
+```
+
+The first render shows the server's values, so it matches the server's
+HTML, and nothing is fetched until they're stale. A boundary can sit
+anywhere in the tree, such as one per route, given each page's state as
+you navigate: a query already cached takes the new value only if it's
+newer, after React commits the page that brought it.
+
+Without React, call `QueryClient.hydrate(client, state)` before reading the
+queries.
+
+### Streaming
+
+With `pending: "promise"`, a query the server is still loading is sent as
+a promise of its result. The browser waits for that promise instead of
+fetching, and Suspense shows the query when it arrives:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+declare const client: QueryClient.QueryClient;
+
+export const state = QueryClient.dehydrate(client, { pending: "promise" });
+```
+
+A promise doesn't survive `JSON.stringify`: use it where your framework
+sends promises to the browser, such as React Server Components' props.
+Dispose the client once its promises settle; a promise still pending at
+`dispose()` resolves to nothing, and the browser fetches that query.
 
 ## The client
 
@@ -1071,40 +1243,40 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ## Coming from TanStack Query
 
-| TanStack Query                                        | effetch-query                                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `queryOptions({ queryKey, queryFn })`                 | `Query.make` / `Query.family({ key, run })`                                           |
-| `useQuery`, `useSuspenseQuery`                        | Same names; they return an `AsyncResult`                                              |
-| `useMutation`, `mutationOptions`                      | `useMutation(Mutation.make({ … }))`                                                   |
-| `getQueryData`, `setQueryData`                        | `Query.get`, `Query.set` / `Query.update` (Effects)                                   |
-| `ensureQueryData`, `prefetchQuery`                    | `Query.fetch`, `Query.prefetch`                                                       |
-| `invalidateQueries`, `refetchQueries`, `resetQueries` | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix |
-| `useQueryErrorResetBoundary`                          | `useResetQueryFailure`                                                                |
-| `focusManager`, `onlineManager`                       | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                      |
-| `new QueryClient({ defaultOptions })`                 | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                |
-| `QueryCache({ onError, onSuccess, onSettled })`       | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                         |
-| `MutationCache({ onMutate, onError, … })`             | `mutations.onMutate`, `mutations.onFailure`, …                                        |
-| `select`                                              | `Atom.map`, `AsyncResult.map`                                                         |
-| `enabled: false`                                      | `useQuery(null)`                                                                      |
-| `placeholderData: keepPreviousData`                   | `useQuery(query, { keepPrevious: true })`                                             |
-| `retry: 3`                                            | `retry: Schedule` (default none)                                                      |
-| `onMutate` returning a rollback context               | `optimistic`, undone automatically                                                    |
-| `dehydrate`, `hydrate`, `HydrationBoundary`           | Coming during the alpha series                                                        |
-| `useInfiniteQuery`, `fetchNextPage`                   | `InfiniteQuery.family`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`             |
-| `getNextPageParam`, `getPreviousPageParam`            | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)           |
-| `setQueriesData`                                      | `Query.update(family, (value, args) => …)`                                            |
-| `cancelQueries`, devtools                             | Not in 0.1                                                                            |
+| TanStack Query                                        | effetch-query                                                                                |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `queryOptions({ queryKey, queryFn })`                 | `Query.make` / `Query.family({ key, run })`                                                  |
+| `useQuery`, `useSuspenseQuery`                        | Same names; they return an `AsyncResult`                                                     |
+| `useMutation`, `mutationOptions`                      | `useMutation(Mutation.make({ … }))`                                                          |
+| `getQueryData`, `setQueryData`                        | `Query.get`, `Query.set` / `Query.update` (Effects)                                          |
+| `ensureQueryData`, `prefetchQuery`                    | `Query.fetch`, `Query.prefetch`                                                              |
+| `invalidateQueries`, `refetchQueries`, `resetQueries` | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
+| `useQueryErrorResetBoundary`                          | `useResetQueryFailure`                                                                       |
+| `focusManager`, `onlineManager`                       | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                             |
+| `new QueryClient({ defaultOptions })`                 | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                       |
+| `QueryCache({ onError, onSuccess, onSettled })`       | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                |
+| `MutationCache({ onMutate, onError, … })`             | `mutations.onMutate`, `mutations.onFailure`, …                                               |
+| `select`                                              | `Atom.map`, `AsyncResult.map`                                                                |
+| `enabled: false`                                      | `useQuery(null)`                                                                             |
+| `placeholderData: keepPreviousData`                   | `useQuery(query, { keepPrevious: true })`                                                    |
+| `retry: 3`                                            | `retry: Schedule` (default none)                                                             |
+| `onMutate` returning a rollback context               | `optimistic`, undone automatically                                                           |
+| `dehydrate`, `hydrate`, `HydrationBoundary`           | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema` |
+| `useInfiniteQuery`, `fetchNextPage`                   | `InfiniteQuery.family`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                    |
+| `getNextPageParam`, `getPreviousPageParam`            | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
+| `setQueriesData`                                      | `Query.update(family, (value, args) => …)`                                                   |
+| `cancelQueries`, devtools                             | Not in 0.1                                                                                   |
 
 ## Reference
 
 ### API
 
-| Import                                  | Exports                                                                                                                                                                                                        |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`              | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                     |
-| `@monarcode/effetch-query/react`        | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `QueryFailure`, `MissingQueryProvider` |
-| `@monarcode/effetch-query/react-native` | `reactNativeSignals`                                                                                                                                                                                           |
-| `@monarcode/effetch-query/effetch`      | `endpoints`                                                                                                                                                                                                    |
+| Import                                  | Exports                                                                                                                                                                                                                             |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`              | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                          |
+| `@monarcode/effetch-query/react`        | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProvider` |
+| `@monarcode/effetch-query/react-native` | `reactNativeSignals`                                                                                                                                                                                                                |
+| `@monarcode/effetch-query/effetch`      | `endpoints`                                                                                                                                                                                                                         |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.
@@ -1113,7 +1285,6 @@ editor's hover and "Go to Definition" show it.
 
 - `effect/reactivity` is marked unstable in Effect 4, so effetch-query
   follows its changes. It's tested against Effect 4.1 and the newest 4.x.
-- No server rendering or hydration yet: they land during the alpha series.
 - No `cancelQueries` and no devtools in 0.1.
 - `gcTime` is per query, not per client: a query's atom is shared by every
   client.
@@ -1129,6 +1300,8 @@ the package:
   with "load more", a detail view, an optimistic toggle that updates every
   page, a missing todo with a retry button and a refresh button, with tests
   that drive it.
+- [`ssr/`](examples/ssr): a page rendered on the server with a client per
+  request, then hydrated in the browser without a fetch.
 
 Its [README](examples/README.md) walks through each one.
 

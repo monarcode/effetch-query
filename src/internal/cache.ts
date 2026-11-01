@@ -1,7 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import type * as Atom from "effect/reactivity/Atom";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
@@ -15,6 +14,7 @@ import {
 	localValue,
 	nodeValue,
 	peek,
+	seed,
 	written,
 } from "./queryAtom.js";
 import { type ClientState, ConfigAtom, StateAtom } from "./runtime.js";
@@ -56,19 +56,6 @@ export const settings = <E>(
 			),
 	});
 };
-
-// The node takes `skipInitialRun` as `initialValues` does, though its
-// interface leaves the parameter out.
-const seed = <A>(
-	registry: AtomRegistry.AtomRegistry,
-	atom: Atom.Atom<A>,
-	value: A,
-): void =>
-	(
-		registry.ensureNode(atom) as unknown as {
-			setInitialValue(value: A, skipInitialRun: boolean): void;
-		}
-	).setInitialValue(value, true);
 
 /**
  * Writes a value. A query whose fetch atom is up to date takes it as a
@@ -119,6 +106,48 @@ export const setValue = <A, E>(
 		},
 	});
 };
+
+/**
+ * Puts a value from the server into a cached query (DESIGN.md §3.12),
+ * unless it has newer data: a success newer than its own (or its failure's
+ * last one), or anything over a query that has never succeeded. The query
+ * moves to a fetch atom seeded with it, as `setValue` seeds, so it shows
+ * without fetching, its freshness is the server's, and a fetch it was
+ * running is dropped.
+ */
+export const hydrateValue = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	result: AsyncResult.AsyncResult<A, E>,
+): void => {
+	const shown = Option.flatMap(peek(registry, query), lastSuccess);
+	if (
+		Option.isSome(shown) &&
+		!(
+			AsyncResult.isSuccess(result) &&
+			result.timestamp > shown.value.timestamp
+		)
+	) {
+		return;
+	}
+	const { local, fetchAtom } = internals(query);
+	const { generation } = localValue(registry, query);
+	const target = Option.isSome(nodeValue(registry, fetchAtom(generation)))
+		? generation + 1
+		: generation;
+	seed(registry, fetchAtom(target), result);
+	registry.set(local, { generation: target, written: Option.none() });
+	registry.get(query);
+};
+
+const lastSuccess = <A, E>(
+	result: AsyncResult.AsyncResult<A, E>,
+): Option.Option<AsyncResult.Success<A, E>> =>
+	AsyncResult.isSuccess(result)
+		? Option.some(result)
+		: AsyncResult.isFailure(result)
+			? result.previousSuccess
+			: Option.none();
 
 /** Writes a value computed from the cached one, as `setValue` does, if there is one. */
 export const updateValue = <A, E>(
@@ -184,20 +213,21 @@ export const fetchValue = <A, E>(
 	query: Query.Query<A, E>,
 ): Effect.Effect<A, E> =>
 	Effect.suspend(() => {
-		if (Option.isSome(peek(registry, query))) {
-			const { fetchedAt } = registry.get(StateAtom);
-			const before = fetchedAt.get(query);
-			// Reading a query invalidated while unused refetches it, and a fetch
-			// that settles at once leaves nothing waiting to tell it by.
-			const current = registry.get(query);
+		const { fetchedAt } = registry.get(StateAtom);
+		const before = fetchedAt.get(query);
+		// Reading a query that isn't cached, or was invalidated while unused,
+		// fetches it, and a fetch that settles at once leaves nothing waiting
+		// to tell it by. A read that doesn't fetch shows a cached value or one
+		// `hydrate` left, which may be stale.
+		const current = registry.get(query);
+		if (fetchedAt.get(query) === before) {
 			if (isFresh(current, settings(registry, query).staleTime)) {
 				return Effect.succeed(current.value);
 			}
-			if (!current.waiting && fetchedAt.get(query) === before) {
+			if (!current.waiting) {
 				registry.refresh(query);
 			}
 		}
-		// Otherwise building the query is its first fetch.
 		return AtomRegistry.getResult(registry, query, {
 			suspendOnWaiting: true,
 		});

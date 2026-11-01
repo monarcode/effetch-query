@@ -12,8 +12,16 @@ import type * as QueryClient from "../QueryClient.js";
 import { resolveGcTime, resolveQueryOptions } from "./defaults.js";
 import { emit } from "./events.js";
 import { type Watcher, watch } from "./freshness.js";
+import { hashKey } from "./hashKey.js";
 import { forkQueryHooks } from "./hooks.js";
 import {
+	type Codec,
+	decodeResult,
+	hashOption,
+	type Hydration,
+} from "./hydration.js";
+import {
+	type ClientState,
 	ConfigAtom,
 	ReactivityAtom,
 	RegistryAtom,
@@ -80,11 +88,19 @@ export interface Local<A, E> {
 export interface Internals<A, E> {
 	readonly options: Query.Options<E>;
 	readonly member: Member | undefined;
+	/** Set for a query with a `schema`: how it crosses the wire (DESIGN.md §3.12). */
+	readonly hydration: QueryHydration<A, E> | undefined;
 	readonly local: Atom.Writable<Local<A, E>>;
 	readonly fetchAtom: (
 		generation: number,
 	) => Atom.Atom<AsyncResult.AsyncResult<A, E>>;
 	readonly watcher: Atom.Atom<Watcher<E>>;
+}
+
+export interface QueryHydration<A, E> {
+	readonly codec: Codec<A, E>;
+	/** The string the query is found by; throws `NonJsonKey`. */
+	readonly hash: () => string;
 }
 
 interface QueryWithInternals<A, E> extends Query.Query<A, E> {
@@ -195,6 +211,94 @@ export const peek = <A, E>(
 	return Option.some(combine(result.value, value));
 };
 
+// The node takes `skipInitialRun` as `initialValues` does, though its
+// interface leaves the parameter out.
+export const seed = <A>(
+	registry: AtomRegistry.AtomRegistry,
+	atom: Atom.Atom<A>,
+	value: A,
+): void =>
+	(
+		registry.ensureNode(atom) as unknown as {
+			setInitialValue(value: A, skipInitialRun: boolean): void;
+		}
+	).setInitialValue(value, true);
+
+/**
+ * Seeds a query's first fetch atom from the value `hydrate` left for it
+ * (DESIGN.md §3.12). It's in the registry's preload map, where Effect's
+ * `Hydration.hydrate` leaves values too, so the first read shows it without
+ * fetching.
+ */
+const seedPreloaded = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,
+	hydration: QueryHydration<A, E>,
+): void => {
+	const preloaded = registry.preloadedSerializable;
+	if (preloaded.size === 0) {
+		return;
+	}
+	const hash = hashOption(hydration.hash);
+	if (Option.isNone(hash) || !preloaded.has(hash.value)) {
+		return;
+	}
+	const json = preloaded.get(hash.value);
+	preloaded.delete(hash.value);
+	if (Option.isSome(nodeValue(registry, atom))) {
+		return;
+	}
+	const result = decodeResult(hydration.codec, json);
+	if (Option.isSome(result) && !AsyncResult.isInitial(result.value)) {
+		seed(registry, atom, result.value);
+	}
+};
+
+/** The result the server is still loading for a query, if it sent one. */
+const takeStreamed = (
+	state: ClientState,
+	hydration: QueryHydration<any, any> | undefined,
+): Promise<unknown> | undefined => {
+	if (hydration === undefined || state.streamed.size === 0) {
+		return undefined;
+	}
+	const hash = hashOption(hydration.hash);
+	if (Option.isNone(hash)) {
+		return undefined;
+	}
+	const streamed = state.streamed.get(hash.value);
+	state.streamed.delete(hash.value);
+	return streamed;
+};
+
+/**
+ * A fetch that waits for the server's result instead of running: it shows
+ * the result that lands, or runs `fetch` when it lands as nothing to show
+ * (a failure the server kept, or one the schema can't decode).
+ */
+const fromServer = <A, E, R>(
+	streamed: Promise<unknown>,
+	codec: Codec<A, E>,
+	fetch: () => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+	Effect.flatMap(
+		Effect.promise(() =>
+			streamed.then(
+				(json) => decodeResult(codec, json),
+				() => Option.none(),
+			),
+		),
+		(result) => {
+			if (Option.isSome(result) && AsyncResult.isSuccess(result.value)) {
+				return Effect.succeed(result.value.value);
+			}
+			if (Option.isSome(result) && AsyncResult.isFailure(result.value)) {
+				return Effect.failCause(result.value.cause);
+			}
+			return Effect.suspend(fetch);
+		},
+	);
+
 /** Builds a query atom (DESIGN.md §5.2). */
 export const makeQuery = <A, E>(definition: {
 	readonly key: Query.QueryKey;
@@ -203,8 +307,21 @@ export const makeQuery = <A, E>(definition: {
 	readonly member?: Member | undefined;
 	/** Atoms that live as long as the query, without refetching it when they change. */
 	readonly mounts?: ReadonlyArray<Atom.Atom<unknown>> | undefined;
+	readonly hydration?: Hydration<A, E> | undefined;
 }): Query.Query<A, E> => {
-	const { key, fetch: makeFetch, options, member, mounts = [] } = definition;
+	const {
+		key,
+		fetch: makeFetch,
+		options,
+		member,
+		mounts = [],
+		hydration: definitionHydration,
+	} = definition;
+	let hash: string | undefined;
+	const hydration: QueryHydration<A, E> | undefined = definitionHydration && {
+		codec: definitionHydration.codec,
+		hash: () => (hash ??= hashKey(key, definitionHydration.kind)),
+	};
 	const { reactivityKeys } = options;
 	// The client's defaults are read at run time, so one definition serves
 	// every client; the watcher resolves them once per query node.
@@ -248,7 +365,7 @@ export const makeQuery = <A, E>(definition: {
 			const runContext: Query.RunContext = {
 				result: (query) => get.result(query),
 			};
-			const fetch = makeFetch({
+			const context: FetchContext<A, E> = {
 				get,
 				previous: () => {
 					const { written: value } = get.once(local);
@@ -268,7 +385,14 @@ export const makeQuery = <A, E>(definition: {
 					const once = Effect.scoped(run(runContext));
 					return retry === undefined ? once : Effect.retry(once, retry);
 				},
-			});
+			};
+			const streamed = takeStreamed(get.once(StateAtom), hydration);
+			const fetch =
+				streamed === undefined || hydration === undefined
+					? makeFetch(context)
+					: fromServer(streamed, hydration.codec, () =>
+							makeFetch(context),
+						);
 			return Effect.withFiber((fiber) => {
 				const state = get.once(StateAtom);
 				track(state, fiber);
@@ -305,6 +429,9 @@ export const makeQuery = <A, E>(definition: {
 					for (const atom of mounts) {
 						get.mount(atom);
 					}
+					if (generation === 0 && hydration !== undefined) {
+						seedPreloaded(get.registry, fetchAtom(0), hydration);
+					}
 					const result = combine(get(fetchAtom(generation)), written);
 					get(watcher).resume();
 					return result;
@@ -326,11 +453,28 @@ export const makeQuery = <A, E>(definition: {
 			key,
 			initialValueTarget: fetchAtom(0),
 			// A server render reads the cache and never fetches (DESIGN.md §5.8).
-			[Atom.ServerValueTypeId]: (get: <X>(atom: Atom.Atom<X>) => X) =>
-				Option.getOrElse(peek(get(RegistryAtom), query), () =>
+			// React reads this while hydrating server HTML too, before the query
+			// is read, so it shows a value `hydrate` left as the read will.
+			[Atom.ServerValueTypeId]: (get: <X>(atom: Atom.Atom<X>) => X) => {
+				const registry = get(RegistryAtom);
+				if (
+					hydration !== undefined &&
+					localValue(registry, query).generation === 0
+				) {
+					seedPreloaded(registry, fetchAtom(0), hydration);
+				}
+				return Option.getOrElse(peek(registry, query), () =>
 					AsyncResult.initial<A, E>(true),
-				),
-			[InternalsId]: { options, member, local, fetchAtom, watcher },
+				);
+			},
+			[InternalsId]: {
+				options,
+				member,
+				hydration,
+				local,
+				fetchAtom,
+				watcher,
+			},
 		},
 	);
 	return query;

@@ -115,6 +115,7 @@ cat >core.ts <<'TS'
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import { InfiniteQuery, Query, QueryClient } from "@monarcode/effetch-query";
 import * as ReactNative from "@monarcode/effetch-query/react-native";
@@ -168,7 +169,24 @@ const numbers = InfiniteQuery.make({
 });
 await client.runPromise(Query.fetch(numbers));
 const paged = await client.runPromise(InfiniteQuery.fetchNextPage(numbers));
+let served = 0;
+const count = Query.make({
+	key: ["served"],
+	run: Effect.sync(() => ++served),
+	schema: { success: Schema.Finite },
+	staleTime: "1 minute",
+});
+await client.runPromise(Query.prefetch(count));
+const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(client)));
 await client.dispose();
+
+// The browser shows what the server sent, without fetching.
+const browser = QueryClient.make({
+	layer: Layer.succeed(Greeter, { greet: (name) => name }),
+});
+QueryClient.hydrate(browser, sent);
+const hydrated = await browser.runPromise(Query.fetch(count));
+await browser.dispose();
 
 if (key.length !== 3) {
 	throw new Error(`Unexpected query key: ${JSON.stringify(key)}`);
@@ -178,6 +196,9 @@ if (greeting !== "Hello, smoke") {
 }
 if (paged.pages.flat().join() !== "0,1") {
 	throw new Error(`Unexpected pages: ${JSON.stringify(paged)}`);
+}
+if (hydrated !== 1 || served !== 1) {
+	throw new Error(`Hydration: ${hydrated} shown after ${served} fetches`);
 }
 if (Object.keys(ReactNative).join() !== "reactNativeSignals") {
 	throw new Error("Unexpected react-native exports");
@@ -262,6 +283,7 @@ npm install --silent --no-audit --no-fund --no-package-lock \
 cat >react.ts <<'TS'
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
@@ -269,6 +291,7 @@ import { Query, QueryClient } from "@monarcode/effetch-query";
 import * as React from "@monarcode/effetch-query/react";
 
 const expected = [
+	"HydrationBoundary",
 	"MissingQueryProvider",
 	"QueryFailure",
 	"QueryProvider",
@@ -303,6 +326,41 @@ await client.dispose();
 // A server render reads only the cache.
 if (html !== "Initial" || fetches !== 0) {
 	throw new Error(`Unexpected server render: ${html} after ${fetches} fetches`);
+}
+
+let sentFetches = 0;
+const sentGreeting = Query.make({
+	key: ["sent"],
+	run: Effect.sync(() => `Sent ${++sentFetches}`),
+	schema: { success: Schema.String },
+});
+const SentGreeting = () => {
+	const result = React.useQuery(sentGreeting);
+	return result._tag === "Success" ? result.value : result._tag;
+};
+const server = QueryClient.make({ layer: Layer.empty });
+await server.runPromise(Query.prefetch(sentGreeting));
+const state = QueryClient.dehydrate(server);
+await server.dispose();
+const browser = QueryClient.make({ layer: Layer.empty });
+const hydratedHtml = renderToString(
+	createElement(
+		React.QueryProvider,
+		{ client: browser },
+		createElement(
+			React.HydrationBoundary,
+			{ state },
+			createElement(SentGreeting),
+		),
+	),
+);
+await browser.dispose();
+
+// The boundary shows what the server sent, without fetching again.
+if (hydratedHtml !== "Sent 1" || sentFetches !== 1) {
+	throw new Error(
+		`Unexpected hydration: ${hydratedHtml} after ${sentFetches} fetches`,
+	);
 }
 
 console.log("react: ok");

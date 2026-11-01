@@ -1,7 +1,9 @@
 import type * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
+import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
+import { infiniteSchema, makeCodec } from "./internal/hydration.js";
 import * as internal from "./internal/infiniteQuery.js";
 import type * as Query from "./Query.js";
 import * as QueryClient from "./QueryClient.js";
@@ -253,6 +255,40 @@ export interface PageOptions<A, P> {
 }
 
 /**
+ * How an infinite query's pages are sent from the server to the browser, as
+ * {@link Query.QuerySchema} for a query: Schemas for a page and, to send
+ * failures too, the error. The page params go as they are, so they must be
+ * JSON values (strings, numbers, booleans, `null`), unless `pageParam`
+ * names their schema; a query whose params don't fit isn't sent.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { InfiniteQuery } from "@monarcode/effetch-query";
+ *
+ * const Page = Schema.Struct({
+ *   items: Schema.Array(Schema.String),
+ *   nextCursor: Schema.NullOr(Schema.String),
+ * });
+ *
+ * export const schema: InfiniteQuery.PageSchema<typeof Page.Type, never, string | null> = {
+ *   page: Page,
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface PageSchema<A, E, P> {
+	/** A page's schema. */
+	readonly page: Schema.Codec<A, unknown>;
+	/** The page params' schema, for params that aren't JSON values. */
+	readonly pageParam?: Schema.Codec<P, unknown> | undefined;
+	/** The error's schema, needed only to send failures. */
+	readonly error?: Schema.Codec<E, unknown> | undefined;
+}
+
+/**
  * Options for {@link make}.
  *
  * @example
@@ -283,6 +319,8 @@ export interface MakeOptions<A, E, P>
 		pageParam: P,
 		ctx: Query.RunContext,
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
+	/** How the pages cross from server to browser; without one, they fetch in the browser. */
+	readonly schema?: PageSchema<A, E, P> | undefined;
 }
 
 /**
@@ -323,7 +361,12 @@ export interface FamilyOptions<Args, A, E, P>
 		pageParam: P,
 		ctx: Query.RunContext,
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
+	/** How each member's pages cross from server to browser, as {@link MakeOptions.schema}. */
+	readonly schema?: PageSchema<A, E, P> | undefined;
 }
+
+const hydrationOf = <A, E, P>(schema: PageSchema<A, E, P> | undefined) =>
+	schema && { codec: makeCodec(infiniteSchema(schema)) };
 
 const pageOptions = <A, P>(
 	options: PageOptions<A, P>,
@@ -371,6 +414,7 @@ export const make = <A, E, P>(
 		run: options.run,
 		pages: pageOptions(options),
 		options,
+		hydration: hydrationOf(options.schema),
 	});
 
 /**
@@ -411,6 +455,7 @@ export const family = <Args, A, E, P>(
 	options: FamilyOptions<Args, A, E, P>,
 ): InfiniteQueryFamily<Args, A, E, P> => {
 	const pages = pageOptions(options);
+	const hydration = hydrationOf(options.schema);
 	const self: InfiniteQueryFamily<Args, A, E, P> = Object.assign(
 		Atom.family((args: Args) =>
 			internal.makeInfiniteQuery({
@@ -419,6 +464,7 @@ export const family = <Args, A, E, P>(
 				pages,
 				options,
 				member: { family: self, args },
+				hydration,
 			}),
 		),
 		{ key: options.key },
