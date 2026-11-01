@@ -2,6 +2,43 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-alpha.3
+
+Server rendering: send the cache with the page, and pick it up in the
+browser without fetching again, streamed or not.
+
+### Added
+
+- A `schema` option on `Query.make` and `Query.family` (`success`, and
+  `error` to send failures), and on `InfiniteQuery.make` and
+  `InfiniteQuery.family` (`page`, `pageParam`, `error`). A query with a
+  schema can cross from server to browser; its schema's type is its value
+  type.
+- `QueryClient.dehydrate(client, options)`: reads a client's cache to send
+  with the page, without fetching. Values keep their timestamp, so a query
+  is as fresh in the browser as it was on the server. `queries` sends only
+  the queries a target matches, `pending: "promise"` sends a query still
+  loading as a promise of its result, for streaming, and
+  `failures: "include"` sends failed queries, which are left out by
+  default.
+- `QueryClient.hydrate(client, state)`: loads that state. A query that
+  isn't cached shows its value when first read, a cached one takes it only
+  if it's newer, and a query the server was still loading waits for its
+  result instead of fetching. State from Effect's own `Hydration.dehydrate`
+  loads too.
+- `QueryClient.NonJsonKey` and `QueryClient.DuplicateQueryKey`: thrown by
+  `dehydrate` for a key that isn't JSON, and for two cached queries with
+  one key.
+- `@monarcode/effetch-query/react`: `HydrationBoundary`, which loads a
+  state into the provider's client so the first render matches the
+  server's HTML.
+- `@monarcode/effetch-query/effetch`: endpoint queries and infinite queries
+  with an `output` cross with no schema to write. With
+  `failures: "include"`, effetch's errors are sent too: an `HttpError`
+  without its headers, but with its URL and response text.
+- The README's "Server rendering" guide, and `examples/ssr`: a page
+  rendered with a client per request and hydrated in the browser.
+
 ## 0.1.0-alpha.2
 
 Infinite queries, and `Query.update` across a family.

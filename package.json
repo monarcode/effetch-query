@@ -1,6 +1,6 @@
 {
 	"name": "@monarcode/effetch-query",
-	"version": "0.1.0-alpha.2",
+	"version": "0.1.0-alpha.3",
 	"description": "Effectful queries and mutations for Effect 4, inspired by TanStack Query. Cached, kept fresh, typed end to end, and made to pair with effetch.",
 	"keywords": [
 		"TanStack",
