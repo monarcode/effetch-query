@@ -64,7 +64,7 @@ endpoints turn into queries and mutations in one line.
 - [The client](#the-client)
   - [Client options](#client-options)
   - [App-wide hooks](#app-wide-hooks)
-  - [Sharing layers with your runtime](#sharing-layers-with-your-runtime)
+  - [Sharing your runtime](#sharing-your-runtime)
 - [Testing](#testing)
 - [Coming from TanStack Query](#coming-from-tanstack-query)
 - [Reference](#reference)
@@ -1023,6 +1023,8 @@ On the server, make a client per request, load what the page needs, and
 send `QueryClient.dehydrate`'s result with the HTML:
 
 ```tsx
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
 import { Query, QueryClient } from "@monarcode/effetch-query";
 import {
   HydrationBoundary,
@@ -1033,9 +1035,12 @@ import { renderToString } from "react-dom/server";
 import { TodoApiLive } from "./todo-api.js";
 import { TodoList, todoList } from "./todo-list.js";
 
+// Builds your services once per process, for every request's client.
+const appRuntime = ManagedRuntime.make(TodoApiLive);
+
 export async function renderPage(): Promise<string> {
   // One client per request, so one user's data never reaches another's page.
-  const client = QueryClient.make({ layer: TodoApiLive });
+  const client = QueryClient.make({ runtime: appRuntime });
   try {
     await client.runPromise(Query.prefetch(todoList));
     const state = QueryClient.dehydrate(client);
@@ -1142,7 +1147,6 @@ TanStack's `setupRouterSsrQueryIntegration` does for TanStack Query. Install
 where the router is made:
 
 ```tsx router.tsx
-import * as Effect from "effect/Effect";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 
 import { Query, QueryClient } from "@monarcode/effetch-query";
@@ -1177,11 +1181,7 @@ const appRuntime = ManagedRuntime.make(TodoApiLive);
 // Start calls `getRouter` once per request on the server, and once in the
 // browser, so each request gets its own client.
 export function getRouter() {
-  void appRuntime.runPromiseExit(Effect.void);
-  const queryClient = QueryClient.make({
-    layer: TodoApiLive,
-    memoMap: appRuntime.memoMap,
-  });
+  const queryClient = QueryClient.make({ runtime: appRuntime });
   const router = createRouter({
     routeTree: rootRoute.addChildren([todosRoute]),
     context: { queryClient },
@@ -1200,10 +1200,9 @@ export function getRouter() {
   lets the page render at once, and the value streams in. The client is
   disposed when the request ends.
 - **Your app's layer is built once per process** when every request's
-  client shares a `ManagedRuntime`'s `memoMap`. The runtime keeps a layer
-  only once it has built it itself, hence the `runPromiseExit` before
-  making the client; without it, each request would build the layer (a
-  database pool, say) and release it when its client is disposed.
+  client uses one `ManagedRuntime`. A client given a `layer` instead
+  builds it per request (a database pool, say) and releases it when the
+  client is disposed.
 - **In the browser**, it all loads into the client before React hydrates:
   no `HydrationBoundary`, and nothing is fetched while it's fresh. Only
   queries with a `schema` cross ([Server rendering](#server-rendering)).
@@ -1249,7 +1248,8 @@ export const viewer = Query.make({
 | Option      | What it does                                                                                                               |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `layer`     | Provides your registered services. Built once, when first needed.                                                          |
-| `memoMap`   | A `Layer.MemoMap` to share layer builds with your app's `ManagedRuntime`.                                                  |
+| `memoMap`   | The `Layer.MemoMap` to build `layer` with, to share builds with your app's `ManagedRuntime`.                               |
+| `runtime`   | Instead of `layer`: a `ManagedRuntime` that provides your services. The client uses them and doesn't dispose it.           |
 | `signals`   | Focus and online signals. Default: `Signals.browser` (inert without a DOM). `Signals.none` turns them off.                 |
 | `queries`   | `defaults` for every query, and the `onSuccess`, `onFailure` and `onSettled` hooks.                                        |
 | `mutations` | `defaults` (`retry`, `concurrent`) for every mutation, and the `onMutate`, `onSuccess`, `onFailure` and `onSettled` hooks. |
@@ -1292,10 +1292,13 @@ export const queryClient = QueryClient.make({
 Each runs once per fetch or run, after `retry`. Interruptions, such as a
 component unmounting mid-fetch, never reach them.
 
-### Sharing layers with your runtime
+### Sharing your runtime
 
-If your app also has a `ManagedRuntime` for the same layer, pass its
-`memoMap`, so each layer is built once and shared:
+If your app has a `ManagedRuntime` that provides your services, give it to
+the client in place of a layer. The client uses the runtime's services
+rather than building its own, and leaves the runtime running when it's
+disposed, so every client of one runtime, such as one per request on a
+server, shares one build:
 
 ```ts
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -1306,11 +1309,18 @@ import { TodoApiLive } from "./todo-api.js";
 
 export const appRuntime = ManagedRuntime.make(TodoApiLive);
 
-export const queryClient = QueryClient.make({
-  layer: TodoApiLive,
-  memoMap: appRuntime.memoMap,
-});
+export const queryClient = QueryClient.make({ runtime: appRuntime });
 ```
+
+The clients share the runtime's `Reactivity`, so an invalidation by any of
+them, or by a service the runtime built (an SQL client, say), refetches
+the matching queries of all of them. No cached values cross between
+clients.
+
+When a client needs services of its own on top of the runtime's, such as
+the viewer of one request, give it a `layer` with the runtime's `memoMap`
+instead: layers the runtime has already built are shared rather than built
+again. The [SSR example](examples/ssr/server.tsx) does this.
 
 ## Testing
 

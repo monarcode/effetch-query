@@ -135,8 +135,8 @@ tanstack-start/
 - **[`src/router.tsx`](tanstack-start/src/router.tsx)** is Start's
   `getRouter`: a query client per router, so per request on the server,
   passed to the routes in the router's context and connected to it. Every
-  client shares one process-wide `ManagedRuntime`'s memo map, so
-  `AppLayer` is built once, not per request.
+  client uses one process-wide `ManagedRuntime`, so `AppLayer` is built
+  once, not per request.
 - **[`src/routes/`](tanstack-start/src/routes)**: the list's loader awaits
   `Query.fetch(todos)`; the detail's starts `Query.prefetch(todo(id))`
   without waiting, so the page renders at once and the todo streams in;

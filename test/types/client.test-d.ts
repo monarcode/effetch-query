@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 
 import { describe, expectTypeOf, it } from "vitest";
 
@@ -66,6 +67,39 @@ describe("QueryClient.make", () => {
 				Unregistered.useSync(({ value }) => ({ text: String(value) })),
 			),
 		});
+	});
+});
+
+describe("QueryClient.make with a runtime", () => {
+	it("takes a runtime that provides the registered services", () => {
+		QueryClient.make({
+			runtime: ManagedRuntime.make(servicesLayer("hello")),
+		});
+		QueryClient.make({
+			runtime: ManagedRuntime.make(
+				Layer.merge(
+					servicesLayer("hello"),
+					Layer.succeed(Unregistered, { value: 1 }),
+				),
+			),
+		});
+	});
+
+	it("rejects a runtime that doesn't provide them", () => {
+		QueryClient.make({
+			// @ts-expect-error the runtime doesn't provide TestApi
+			runtime: ManagedRuntime.make(
+				Layer.succeed(Greeting, { text: "hello" }),
+			),
+		});
+	});
+
+	it("rejects a runtime with a layer or a memo map", () => {
+		const runtime = ManagedRuntime.make(servicesLayer("hello"));
+		// @ts-expect-error either a layer or a runtime
+		QueryClient.make({ runtime, layer: servicesLayer("hello") });
+		// @ts-expect-error the runtime has its own memo map
+		QueryClient.make({ runtime, memoMap: Layer.makeMemoMapUnsafe() });
 	});
 });
 

@@ -214,7 +214,9 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
 	Context.Service<QueryClient>("@monarcode/effetch-query/QueryClient");
 
 /**
- * Options for {@link make} and {@link layer}.
+ * Options for {@link make} and {@link layer}: your services, as a layer
+ * ({@link LayerOptions}) or a runtime that already provides them
+ * ({@link RuntimeOptions}), with the {@link CommonOptions}.
  *
  * @example
  * ```ts
@@ -236,7 +238,27 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
  *
  * @since 0.1.0
  */
-export interface Options {
+export type Options = LayerOptions | RuntimeOptions;
+
+/**
+ * {@link Options} that give the client a layer, which it builds itself.
+ *
+ * @example
+ * ```ts
+ * import type * as Layer from "effect/Layer";
+ *
+ * import type { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const AppLayer: Layer.Layer<QueryClient.Services>;
+ *
+ * export const options: QueryClient.LayerOptions = { layer: AppLayer };
+ * ```
+ *
+ * @see {@link RuntimeOptions} to use a runtime you already have
+ *
+ * @since 0.1.0
+ */
+export interface LayerOptions extends CommonOptions {
 	/**
 	 * Provides the services declared in {@link Register}. The client builds it
 	 * the first time it's needed and keeps it until
@@ -245,16 +267,89 @@ export interface Options {
 	 */
 	readonly layer: Layer.Layer<Services, unknown>;
 	/**
-	 * The memo map to build `layer` with. Pass your `ManagedRuntime`'s
-	 * `memoMap` so layers it has built are shared rather than built twice.
-	 * Default: a new one, or for {@link layer} the memo map of the layer graph
-	 * the client is built in.
+	 * The memo map to build `layer` with, so layers built with it before are
+	 * shared rather than built twice: pass a `ManagedRuntime`'s `memoMap` when
+	 * the client adds services of its own to the runtime's (with none, pass
+	 * the runtime itself, {@link RuntimeOptions}). Default: a new one, or for
+	 * {@link layer} the memo map of the layer graph the client is built in.
 	 *
 	 * Clients that share a memo map also share one `Reactivity`, so a
 	 * `Reactivity.invalidate` in one refetches the matching queries of all of
 	 * them. No cached values cross between clients.
 	 */
 	readonly memoMap?: Layer.MemoMap | undefined;
+	/** Not with a layer: see {@link RuntimeOptions}. */
+	readonly runtime?: undefined;
+}
+
+/**
+ * {@link Options} that give the client a `ManagedRuntime` providing your
+ * services, built once for every client that uses it. Share one runtime per
+ * process: on a server, each request's client then reuses its services
+ * rather than building them again.
+ *
+ * The client doesn't own the runtime: {@link QueryClient.dispose} leaves it
+ * running. The runtime builds its layer the first time any client needs it;
+ * if that fails, or the runtime has been disposed, everything that needs it
+ * dies.
+ *
+ * The client builds its own parts with the runtime's `memoMap`, so it shares
+ * the runtime's `Reactivity` with the services the runtime built (an SQL
+ * client publishes on it) and with the runtime's other clients: a
+ * `Reactivity.invalidate` in any of them refetches the matching queries of
+ * all. No cached values cross between clients.
+ *
+ * @example
+ * ```ts
+ * import type * as Layer from "effect/Layer";
+ * import * as ManagedRuntime from "effect/ManagedRuntime";
+ *
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const AppLayer: Layer.Layer<QueryClient.Services>;
+ * const appRuntime = ManagedRuntime.make(AppLayer);
+ *
+ * // A client per request, sharing the runtime's services.
+ * export const handle = async (request: Request) => {
+ *   const queryClient = QueryClient.make({ runtime: appRuntime });
+ *   try {
+ *     return new Response(new URL(request.url).pathname);
+ *   } finally {
+ *     await queryClient.dispose();
+ *   }
+ * };
+ * ```
+ *
+ * @see {@link LayerOptions} to give the client a layer instead
+ *
+ * @since 0.1.0
+ */
+export interface RuntimeOptions extends CommonOptions {
+	/** Provides the services declared in {@link Register}. */
+	readonly runtime: ManagedRuntime.ManagedRuntime<Services, unknown>;
+	/** Not with a runtime, which provides the services. */
+	readonly layer?: undefined;
+	/** Not with a runtime: the client uses the runtime's. */
+	readonly memoMap?: undefined;
+}
+
+/**
+ * The {@link Options} every client takes, whether it's given a layer or a
+ * runtime.
+ *
+ * @example
+ * ```ts
+ * import type { QueryClient } from "@monarcode/effetch-query";
+ *
+ * export const common: QueryClient.CommonOptions = {
+ *   queries: { defaults: { staleTime: "1 minute" } },
+ *   mutations: { defaults: { concurrent: false } },
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface CommonOptions {
 	/** Where focus and reconnect come from. Default: the browser's. */
 	readonly signals?: Signals | undefined;
 	/** Defaults and app-wide hooks for every query. */
@@ -579,7 +674,8 @@ export interface MutationSettled {
 /**
  * Creates a {@link QueryClient}. Nothing is built until the client is first
  * used: then it builds `layer` once and keeps it until
- * {@link QueryClient.dispose}.
+ * {@link QueryClient.dispose}. Given a `runtime` instead, it uses the
+ * runtime's services and builds none of its own ({@link RuntimeOptions}).
  *
  * @example
  * ```ts
@@ -589,14 +685,15 @@ export interface MutationSettled {
  * import { QueryClient } from "@monarcode/effetch-query";
  *
  * declare const AppLayer: Layer.Layer<QueryClient.Services>;
- * const appRuntime = ManagedRuntime.make(AppLayer);
  *
  * export const queryClient = QueryClient.make({
  *   layer: AppLayer,
- *   // Share layers already built by the app's runtime.
- *   memoMap: appRuntime.memoMap,
  *   queries: { defaults: { staleTime: "1 minute" } },
  * });
+ *
+ * // Or with the services of a runtime you already have.
+ * const appRuntime = ManagedRuntime.make(AppLayer);
+ * export const sharedClient = QueryClient.make({ runtime: appRuntime });
  * ```
  *
  * @see {@link layer} to create one in an Effect program
@@ -604,12 +701,19 @@ export interface MutationSettled {
  * @since 0.1.0
  */
 export const make = (options: Options): QueryClient => {
-	const memoMap = options.memoMap ?? Layer.makeMemoMapUnsafe();
-	// `Reactivity.layer` is last so it wins over one in `options.layer`: the
-	// runtime's atoms build the same layer with the same memo map, so both
-	// see one instance.
+	const appRuntime = options.runtime;
+	const memoMap =
+		appRuntime?.memoMap ?? options.memoMap ?? Layer.makeMemoMapUnsafe();
+	// Read when it's needed: disposing a runtime replaces its `contextEffect`.
+	const app =
+		appRuntime === undefined
+			? options.layer
+			: Layer.effectContext(Effect.suspend(() => appRuntime.contextEffect));
+	// `Reactivity.layer` is last so it wins over one in the app's services:
+	// the runtime's atoms build the same layer with the same memo map, so
+	// both see one instance.
 	const services = Layer.mergeAll(
-		Layer.orDie(options.layer),
+		Layer.orDie(app),
 		Layer.sync(QueryClient, () => client),
 		Reactivity.layer,
 	);
@@ -681,7 +785,8 @@ export const make = (options: Options): QueryClient => {
  *
  * Unless `options.memoMap` is set, the client builds `options.layer` with
  * the memo map of the layer graph it's built in, so services that graph also
- * builds are built once.
+ * builds are built once. A client given `options.runtime` uses the runtime's
+ * services instead.
  *
  * @example
  * ```ts
@@ -709,10 +814,11 @@ export const make = (options: Options): QueryClient => {
 export const layer = (options: Options): Layer.Layer<QueryClient> =>
 	Layer.fromBuildMemo((memoMap, scope) =>
 		Effect.suspend(() => {
-			const client = make({
-				...options,
-				memoMap: options.memoMap ?? memoMap,
-			});
+			const client = make(
+				options.runtime === undefined
+					? { ...options, memoMap: options.memoMap ?? memoMap }
+					: options,
+			);
 			return Effect.as(
 				Scope.addFinalizer(
 					scope,

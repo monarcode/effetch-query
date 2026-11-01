@@ -86,9 +86,10 @@ export interface ConnectQueryClientOptions {
  * - **On the server**, the queries your loaders loaded go with the page,
  *   and queries started while rendering follow as they start, those still
  *   loading as promises the browser waits for, so nothing is fetched twice.
- *   The client is disposed when the request ends: make one per request,
- *   sharing a process-wide `ManagedRuntime`'s `memoMap`, so your app's
- *   layer is built once rather than per request (see the example).
+ *   The client is disposed when the request ends: make one per request
+ *   from a process-wide `ManagedRuntime` (`QueryClient.make({ runtime })`),
+ *   so your app's layer is built once rather than per request (see the
+ *   example).
  * - **In the browser**, they load into the client before React hydrates,
  *   with no `HydrationBoundary`.
  * - **Redirects:** a query or mutation that fails or dies with a router
@@ -105,7 +106,6 @@ export interface ConnectQueryClientOptions {
  *
  * @example
  * ```tsx
- * import * as Effect from "effect/Effect";
  * import type * as Layer from "effect/Layer";
  * import * as ManagedRuntime from "effect/ManagedRuntime";
  *
@@ -124,11 +124,7 @@ export interface ConnectQueryClientOptions {
  * }>()();
  *
  * export function getRouter() {
- *   void appRuntime.runPromiseExit(Effect.void);
- *   const queryClient = QueryClient.make({
- *     layer: AppLayer,
- *     memoMap: appRuntime.memoMap,
- *   });
+ *   const queryClient = QueryClient.make({ runtime: appRuntime });
  *   const router = createRouter({
  *     routeTree: rootRoute,
  *     context: { queryClient },

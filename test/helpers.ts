@@ -16,7 +16,9 @@ const clients: Array<QueryClient.QueryClient> = [];
  * A client whose atom runtime is built, so a fetch starts as soon as a query
  * is read: a check that nothing fetched can then run straight away.
  */
-export const makeClient = async (options?: Partial<QueryClient.Options>) => {
+export const makeClient = async (
+	options?: Partial<QueryClient.LayerOptions>,
+) => {
 	const client = QueryClient.make({
 		layer: servicesLayer("hello"),
 		...options,

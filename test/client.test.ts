@@ -218,6 +218,101 @@ describe("QueryClient.make", () => {
 	});
 });
 
+describe("QueryClient.make with a runtime", () => {
+	const reactiveCount = () => {
+		let runs = 0;
+		return runtime.factory.withReactivity(["todos"])(
+			runtime.atom(Effect.sync(() => ++runs)),
+		);
+	};
+
+	it("uses the runtime's services, built once for every client, and leaves them on dispose", async () => {
+		const { counts, layer } = countingLayer("hello");
+		const appRuntime = ManagedRuntime.make(layer);
+		const first = QueryClient.make({ runtime: appRuntime });
+		const second = QueryClient.make({ runtime: appRuntime });
+		await settle();
+		expect(counts.builds).toBe(0);
+
+		expect(await valueOf(first.registry, greeting)).toBe("hello");
+		expect(await second.runPromise(readGreeting)).toBe("hello");
+		await first.dispose();
+		await second.dispose();
+
+		expect(counts).toEqual({ builds: 1, releases: 0 });
+		expect(await appRuntime.runPromise(readGreeting)).toBe("hello");
+		await appRuntime.dispose();
+		expect(counts).toEqual({ builds: 1, releases: 1 });
+	});
+
+	it("shares the runtime's Reactivity, which the services it built publish on", async () => {
+		const appRuntime = ManagedRuntime.make(
+			Layer.merge(servicesLayer("hello"), Reactivity.layer),
+		);
+		const first = QueryClient.make({ runtime: appRuntime });
+		const second = QueryClient.make({ runtime: appRuntime });
+		const firstTodos = reactiveCount();
+		const secondTodos = reactiveCount();
+		first.registry.mount(firstTodos);
+		second.registry.mount(secondTodos);
+		await valueOf(first.registry, firstTodos);
+		await valueOf(second.registry, secondTodos);
+
+		await appRuntime.runPromise(Reactivity.invalidate(["todos"]));
+
+		expect(await valueOf(first.registry, firstTodos)).toBe(2);
+		expect(await valueOf(second.registry, secondTodos)).toBe(2);
+		await first.dispose();
+		await second.dispose();
+		await appRuntime.dispose();
+	});
+
+	it("dies with the runtime's build failure", async () => {
+		const appRuntime = ManagedRuntime.make(
+			Layer.merge(
+				Layer.effect(Greeting, Effect.fail("no greeting")),
+				testApiLayer(),
+			),
+		);
+		const client = QueryClient.make({ runtime: appRuntime });
+
+		const exit = await client.runPromiseExit(readGreeting);
+
+		expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+		expect(squashed(exit)).toBe("no greeting");
+		await client.dispose();
+		await appRuntime.dispose();
+	});
+
+	it("dies once the runtime is disposed", async () => {
+		const appRuntime = ManagedRuntime.make(servicesLayer("hello"));
+		const client = QueryClient.make({ runtime: appRuntime });
+		await appRuntime.dispose();
+
+		const exit = await client.runPromiseExit(readGreeting);
+
+		expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+		await client.dispose();
+	});
+
+	it("provides the runtime's services through QueryClient.layer, and leaves them when its scope closes", async () => {
+		const { counts, layer } = countingLayer("hello");
+		const appRuntime = ManagedRuntime.make(layer);
+
+		const text = await Effect.runPromise(
+			Effect.gen(function* () {
+				const client = yield* QueryClient.QueryClient;
+				return yield* Effect.promise(() => client.runPromise(readGreeting));
+			}).pipe(Effect.provide(QueryClient.layer({ runtime: appRuntime }))),
+		);
+
+		expect(text).toBe("hello");
+		expect(counts).toEqual({ builds: 1, releases: 0 });
+		await appRuntime.dispose();
+		expect(counts.releases).toBe(1);
+	});
+});
+
 describe("QueryClient runPromise and runPromiseExit", () => {
 	it("provide the client, the services and Reactivity", async () => {
 		const client = QueryClient.make({ layer: servicesLayer("hello") });

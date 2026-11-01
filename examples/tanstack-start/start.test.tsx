@@ -4,6 +4,7 @@ import path from "node:path";
 // @vitest-environment happy-dom
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Predicate from "effect/Predicate";
 
 import { RouterProvider } from "@tanstack/react-router";
@@ -66,11 +67,14 @@ const get = (url: string): Page => {
 };
 
 const roots: Array<Root> = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<TodoApi | Session, never>> =
+	[];
 
-afterEach(() => {
+afterEach(async () => {
 	for (const root of roots.splice(0)) {
 		act(() => root.unmount());
 	}
+	await Promise.all(runtimes.splice(0).map((runtime) => runtime.dispose()));
 	cleanup();
 	Reflect.deleteProperty(window, "$_TSR");
 	Reflect.deleteProperty(window, "$R");
@@ -145,7 +149,9 @@ const body = () => within(document.body);
 
 /** Hydrates the page as Start's browser entry does, with the app's own router. */
 const hydratePage = async (api: Layer.Layer<TodoApi | Session>) => {
-	const router = getRouter(api);
+	const runtime = ManagedRuntime.make(api);
+	runtimes.push(runtime);
+	const router = getRouter(runtime);
 	await hydrate(router);
 	await act(async () => {
 		roots.push(hydrateRoot(document, <RouterProvider router={router} />));
