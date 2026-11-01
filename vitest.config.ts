@@ -11,7 +11,14 @@ export default defineConfig({
 		],
 	},
 	test: {
-		include: ["test/**/*.test.{ts,tsx}", "examples/**/*.test.{ts,tsx}"],
+		include: ["test/**/*.test.{ts,tsx}"],
+		// The examples link this stylesheet by its `?url`, which must be a real
+		// URL for test/examples to hydrate the head as the server rendered it.
+		css: { include: [/examples\/ui\/styles\.css/] },
+		// test/examples/react-router hydrates a page in each test, and
+		// `react-router/dom` keeps the page it hydrated in module state: inlined,
+		// `vi.resetModules()` gives each test a fresh copy.
+		server: { deps: { inline: ["react-router"] } },
 		typecheck: {
 			enabled: true,
 			include: ["test/**/*.test-d.ts"],

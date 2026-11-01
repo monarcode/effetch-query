@@ -6,11 +6,27 @@ import {
 	Scripts,
 } from "@tanstack/react-router";
 
+import { AppShell, NotFoundPanel } from "../../../ui/components.js";
+
+import styles from "../../../ui/styles.css?url";
+
 export const Route = createRootRouteWithContext<{
 	readonly queryClient: QueryClient.QueryClient;
+	readonly readToken: () => string | undefined;
 }>()({
-	head: () => ({ meta: [{ charSet: "utf-8" }, { title: "Todos" }] }),
-	notFoundComponent: () => <h1>Page not found</h1>,
+	head: () => ({
+		meta: [
+			{ charSet: "utf-8" },
+			{ name: "viewport", content: "width=device-width, initial-scale=1" },
+			{ title: "Todos" },
+		],
+		links: [{ rel: "stylesheet", href: styles }],
+	}),
+	notFoundComponent: () => (
+		<AppShell>
+			<NotFoundPanel />
+		</AppShell>
+	),
 	component: function Root() {
 		return (
 			<html lang="en">

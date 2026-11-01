@@ -28,5 +28,7 @@
 		},
 		"plugins": [{ "name": "@effect/language-service" }]
 	},
-	"include": ["src", "test", "*.config.ts"]
+	"include": ["src", "test", "*.config.ts"],
+	// They have their own tsconfig.json: each registers its example's services.
+	"exclude": ["test/examples"]
 }

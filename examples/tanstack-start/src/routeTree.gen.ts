@@ -9,19 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AccountRouteImport } from './routes/account'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as TodosIdRouteImport } from './routes/todos.$id'
+import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppTodosIndexRouteImport } from './routes/_app.todos.index'
+import { Route as AppTodosIdRouteImport } from './routes/_app.todos.$id'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AccountRoute = AccountRouteImport.update({
-  id: '/account',
-  path: '/account',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -29,60 +24,68 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TodosIdRoute = TodosIdRouteImport.update({
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTodosIndexRoute = AppTodosIndexRouteImport.update({
+  id: '/todos/',
+  path: '/todos/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTodosIdRoute = AppTodosIdRouteImport.update({
   id: '/todos/$id',
   path: '/todos/$id',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/account': typeof AccountRoute
+  '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
-  '/todos/$id': typeof TodosIdRoute
+  '/todos/$id': typeof AppTodosIdRoute
+  '/todos/': typeof AppTodosIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/account': typeof AccountRoute
   '/login': typeof LoginRoute
-  '/todos/$id': typeof TodosIdRoute
+  '/': typeof AppIndexRoute
+  '/todos/$id': typeof AppTodosIdRoute
+  '/todos': typeof AppTodosIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/account': typeof AccountRoute
+  '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/todos/$id': typeof TodosIdRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/todos/$id': typeof AppTodosIdRoute
+  '/_app/todos/': typeof AppTodosIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/account' | '/login' | '/todos/$id'
+  fullPaths: '/' | '/login' | '/todos/$id' | '/todos/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/account' | '/login' | '/todos/$id'
-  id: '__root__' | '/' | '/account' | '/login' | '/todos/$id'
+  to: '/login' | '/' | '/todos/$id' | '/todos'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/login'
+    | '/_app/'
+    | '/_app/todos/$id'
+    | '/_app/todos/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AccountRoute: typeof AccountRoute
+  AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
-  TodosIdRoute: typeof TodosIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/account': {
-      id: '/account'
-      path: '/account'
-      fullPath: '/account'
-      preLoaderRoute: typeof AccountRouteImport
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -92,21 +95,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/todos/$id': {
-      id: '/todos/$id'
+    '/_app/': {
+      id: '/_app/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/todos/': {
+      id: '/_app/todos/'
+      path: '/todos'
+      fullPath: '/todos/'
+      preLoaderRoute: typeof AppTodosIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/todos/$id': {
+      id: '/_app/todos/$id'
       path: '/todos/$id'
       fullPath: '/todos/$id'
-      preLoaderRoute: typeof TodosIdRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppTodosIdRouteImport
+      parentRoute: typeof AppRoute
     }
   }
 }
 
+interface AppRouteChildren {
+  AppIndexRoute: typeof AppIndexRoute
+  AppTodosIdRoute: typeof AppTodosIdRoute
+  AppTodosIndexRoute: typeof AppTodosIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppIndexRoute: AppIndexRoute,
+  AppTodosIdRoute: AppTodosIdRoute,
+  AppTodosIndexRoute: AppTodosIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AccountRoute: AccountRoute,
+  AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-  TodosIdRoute: TodosIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

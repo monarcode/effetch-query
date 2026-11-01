@@ -1,0 +1,6 @@
+{
+	"extends": "../../../examples/tanstack-start/tsconfig.json",
+	"compilerOptions": { "types": ["node", "vite/client"] },
+	"include": ["."],
+	"exclude": []
+}

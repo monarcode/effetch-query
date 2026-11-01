@@ -5,6 +5,9 @@ dist
 coverage
 *.tgz
 .smoke
+build/
+.react-router
+.tanstack
 
 .idea
 

@@ -39,9 +39,7 @@ recipes, and clients made from an existing `ManagedRuntime`.
   and the options both take.
 - `Mutation.isMutation`, to match `Query.isQuery` and
   `InfiniteQuery.isInfiniteQuery`.
-- The README's "TanStack Router and Start" guide, and
-  `examples/tanstack-start`: a Start app with loaders, a streamed detail
-  page and a redirect, built and served by its tests.
+- The README's "TanStack Router and Start" guide.
 - The README's "Next.js" guide: the App Router with the core and
   `./react`, no integration package. Each request's client for server
   components comes from React's `cache()` and is disposed with Next's
@@ -52,6 +50,15 @@ recipes, and clients made from an existing `ManagedRuntime`.
   server render uses through `entry.server.tsx`, and disposes it with
   `QueryClient.disposeAfter`; loaders return the dehydrated state, promises
   included, for a `HydrationBoundary`.
+- New examples, all on dummyjson.com's todos and auth APIs: `basic`, a
+  list with an optimistic toggle in one small React app; and three full
+  apps with the same pages, sign-in and look: `tanstack-start` (effetch
+  endpoints), `tanstack-start-httpclient` (Effect's `HttpClient`, with
+  `Query.family` and `Mutation.make`) and `react-router` (framework mode,
+  effetch endpoints). The examples are plain code now, typechecked with the
+  package; `test/examples` builds `tanstack-start` and `react-router`,
+  serves them against an in-memory dummyjson, and hydrates their pages in
+  happy-dom.
 
 ### Changed
 
@@ -71,6 +78,8 @@ recipes, and clients made from an existing `ManagedRuntime`.
   a compile error.
 - The README's server rendering guide makes each request's client from a
   process-wide `ManagedRuntime`, so the app's layer is built once.
+- The `todos` and `ssr` examples are replaced by the new ones, and no
+  example carries its own tests any more.
 - The README is rewritten: why effetch-query exists and how it relates to
   TanStack Query, a step-by-step start, and every example built on effetch,
   with a "Without effetch" section for queries over any Effect.

@@ -22,6 +22,8 @@
 		"dist",
 		"coverage",
 		".smoke",
+		"build",
+		".react-router",
 		"routeTree.gen.ts"
 	],
 	"sortImports": {

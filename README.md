@@ -1853,20 +1853,21 @@ editor's hover and "Go to Definition" show it.
 
 ## Examples
 
-[`examples/`](examples) has complete programs, typechecked and tested with
-the package:
+[`examples/`](examples) has complete programs, typechecked with the
+package, and the full apps tested end to end in
+[`test/examples/`](test/examples):
 
 - [`effect-only.ts`](examples/effect-only/effect-only.ts): queries, the cache
   and mutations from Effect code, with no UI.
-- [`todos/`](examples/todos): a React app over effetch endpoints: a list
-  with "load more", a detail view, an optimistic toggle that updates every
-  page, a missing todo with a retry button and a refresh button, with tests
-  that drive it.
-- [`ssr/`](examples/ssr): a page rendered on the server with a client per
-  request, then hydrated in the browser without a fetch.
-- [`tanstack-start/`](examples/tanstack-start): a TanStack Start app with
-  loaders, a streamed detail page and a redirect, built and served by its
-  tests, then hydrated without a fetch.
+- [`basic/`](examples/basic): the smallest React app, with dummyjson.com's
+  todos and an optimistic toggle.
+- [`tanstack-start/`](examples/tanstack-start): a full TanStack Start app on
+  effetch endpoints: sign-in, a user's todos, a list with "Load more", a
+  streamed detail page and a missing one.
+- [`tanstack-start-httpclient/`](examples/tanstack-start-httpclient): the
+  same app on Effect's `HttpClient`, without effetch.
+- [`react-router/`](examples/react-router): the same app in React Router's
+  framework mode, on effetch endpoints.
 
 Its [README](examples/README.md) walks through each one.
 
