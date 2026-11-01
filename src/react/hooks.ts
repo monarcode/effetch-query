@@ -1,6 +1,7 @@
 "use client";
 
 import { useAtomValue } from "@effect/atom-react";
+import type * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import type * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -416,6 +417,58 @@ export const useSuspenseInfiniteQuery = <A, E, P>(
 };
 
 /**
+ * Callbacks for one run of {@link useMutation}, which its `run` takes:
+ * TanStack's `mutate(variables, { onSuccess, onError, onSettled })`. They're
+ * called after the mutation's own callbacks, `invalidates` and the client's
+ * hooks, before code awaiting `run` carries on.
+ *
+ * They're dropped if, by the time the run settles, `reset` was called, a
+ * newer run started in the component, or the component unmounted; and for a
+ * run that was interrupted, or that never started because the client was
+ * disposed. The run itself completes all the same. Use them for what matters
+ * only to this screen, such as filling in a form field or navigating, and
+ * the mutation's own `onSuccess` for what must always happen.
+ *
+ * A callback that throws is logged with `console.error`; the ones after it
+ * still run, and `run` still resolves.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Mutation } from "@monarcode/effetch-query";
+ * import { useMutation } from "@monarcode/effetch-query/react";
+ *
+ * const lookUpMeter = Mutation.make({
+ *   run: (meter: string) => Effect.succeed({ meter, name: "Ada Lovelace" }),
+ * });
+ *
+ * export const useMeterLookup = (setName: (name: string) => void) => {
+ *   const { result, run, reset } = useMutation(lookUpMeter);
+ *   // A lookup still running when the meter number changes never fills
+ *   // in its name: `reset` drops its callbacks.
+ *   const lookUp = (meter: string) =>
+ *     run(meter, { onSuccess: (found) => setName(found.name) });
+ *   return { looking: result.waiting, lookUp, meterChanged: reset };
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseMutationRunOptions<Variables, A, E> {
+	/** Called with the value when the run succeeds. */
+	readonly onSuccess?: ((value: A, variables: Variables) => void) | undefined;
+	/** Called with the cause when the run fails. */
+	readonly onFailure?:
+		| ((cause: Cause.Cause<E>, variables: Variables) => void)
+		| undefined;
+	/** Called after `onSuccess` or `onFailure`. */
+	readonly onSettled?:
+		| ((exit: Exit.Exit<A, E>, variables: Variables) => void)
+		| undefined;
+}
+
+/**
  * What {@link useMutation} returns.
  *
  * @example
@@ -439,8 +492,16 @@ export const useSuspenseInfiniteQuery = <A, E, P>(
 export interface UseMutationResult<Variables, A, E> {
 	/** This component's latest run: `Initial` before the first and after {@link UseMutationResult.reset}. */
 	readonly result: AsyncResult.AsyncResult<A, E>;
-	/** Starts a run. Resolves with its `Exit`; never rejects. */
-	readonly run: (variables: Variables) => Promise<Exit.Exit<A, E>>;
+	/**
+	 * Starts a run. Resolves with its `Exit`; never rejects. With the
+	 * mutation's `concurrent: false`, a run that a newer one replaces resolves
+	 * with an interrupted `Exit`. `options` are callbacks for this run only:
+	 * see {@link UseMutationRunOptions}.
+	 */
+	readonly run: (
+		variables: Variables,
+		options?: UseMutationRunOptions<Variables, A, E> | undefined,
+	) => Promise<Exit.Exit<A, E>>;
 	/** Puts `result` back to `Initial`. Runs in progress carry on. */
 	readonly reset: () => void;
 }
@@ -449,8 +510,9 @@ export interface UseMutationResult<Variables, A, E> {
  * Uses a mutation in this component, with state of its own: two components
  * using one mutation never share a pending or failed state. A run carries on
  * after the component unmounts, so its `onSuccess` and `invalidates` still
- * happen. With the mutation's `concurrent: false`, a run interrupts this
- * component's previous one.
+ * happen, though the callbacks given to `run` don't
+ * ({@link UseMutationRunOptions}). With the mutation's `concurrent: false`, a
+ * run interrupts this component's previous one.
  *
  * Define mutations at module level, with {@link Mutation.make}: a new
  * definition on each render starts a new state. Outside React, run one with
@@ -489,6 +551,12 @@ export const useMutation = <Variables, A, E>(
 		[registry, mutation],
 	);
 	const result = useAtomValue(handle.result);
+	React.useEffect(
+		function retainHandle() {
+			return handle.retain();
+		},
+		[handle],
+	);
 	return React.useMemo(
 		() => ({ result, run: handle.run, reset: handle.reset }),
 		[result, handle],

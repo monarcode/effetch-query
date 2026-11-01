@@ -480,7 +480,8 @@ export const prefetch = <A, E>(
 /**
  * Returns a query's cached value, if it has one. Never fetches (use
  * {@link fetch} for that). A query whose last fetch failed still returns the
- * value it had before. Write it with {@link set} or {@link update}.
+ * value it had before. Write it with {@link set} or {@link update}. Outside
+ * Effect, read it with {@link QueryClient.get}.
  *
  * @example
  * ```ts
@@ -502,9 +503,7 @@ export const prefetch = <A, E>(
 export const get = <A, E>(
 	query: Query<A, E>,
 ): Effect.Effect<Option.Option<A>, never, QueryClient.QueryClient> =>
-	QueryClient.QueryClient.useSync(({ registry }) =>
-		Option.flatMap(internal.peek(registry, query), AsyncResult.value),
-	);
+	QueryClient.QueryClient.useSync((client) => QueryClient.get(client, query));
 
 /**
  * Writes a query's value. It's shown until a fetch settles after the write,

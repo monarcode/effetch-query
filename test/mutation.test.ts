@@ -733,3 +733,145 @@ describe("mutation handles", () => {
 		expect(log).toEqual([]);
 	});
 });
+
+describe("a run's callbacks", () => {
+	const logged = (log: Array<string>) => ({
+		onSuccess: (value: number, variables: number) =>
+			log.push(`success ${value} ${variables}`),
+		onFailure: (cause: Cause.Cause<string>) =>
+			log.push(`failure ${Cause.squash(cause)}`),
+		onSettled: (exit: Exit.Exit<number, string>) =>
+			log.push(`settled ${exit._tag}`),
+	});
+
+	it("are called after the mutation's own and the client's, before run resolves", async () => {
+		const log: Array<string> = [];
+		const client = await makeClient({
+			mutations: { onSettled: () => Effect.sync(() => log.push("client")) },
+		});
+		const save = Mutation.make({
+			run: (n: number) => Effect.succeed(n * 2),
+			onSuccess: () => Effect.sync(() => log.push("mutation")),
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const exit = await handle.run(2, logged(log));
+		log.push("resolved");
+
+		expect(exit).toEqual(Exit.succeed(4));
+		expect(log).toEqual([
+			"mutation",
+			"client",
+			"success 4 2",
+			"settled Success",
+			"resolved",
+		]);
+	});
+
+	it("get the cause of a failure", async () => {
+		const log: Array<string> = [];
+		const client = await makeClient();
+		const save = Mutation.make<number, never, string>({
+			run: () => Effect.fail("boom"),
+		});
+		const handle = makeHandle(client.registry, save);
+
+		await handle.run(1, logged(log));
+
+		expect(log).toEqual(["failure boom", "settled Failure"]);
+	});
+
+	it("log a callback that throws, and still call the rest", async () => {
+		const log: Array<string> = [];
+		const failed = new Error("callback failed");
+		const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const client = await makeClient();
+		const save = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+		const handle = makeHandle(client.registry, save);
+
+		const exit = await handle.run(1, {
+			onSuccess: () => {
+				throw failed;
+			},
+			onSettled: () => log.push("settled"),
+		});
+
+		expect(exit).toEqual(Exit.succeed(1));
+		expect(log).toEqual(["settled"]);
+		expect(logError).toHaveBeenCalledWith(
+			"A mutation run's callback failed:",
+			failed,
+		);
+		logError.mockRestore();
+	});
+
+	it("are dropped after reset, while the run completes", async () => {
+		const log: Array<string> = [];
+		const client = await makeClient();
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) => Effect.as(slow.wait, n),
+			onSuccess: () => Effect.sync(() => log.push("mutation")),
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const run = handle.run(1, logged(log));
+		handle.reset();
+		slow.open();
+
+		expect(await run).toEqual(Exit.succeed(1));
+		expect(log).toEqual(["mutation"]);
+	});
+
+	it("are dropped when a newer run starts", async () => {
+		const log: Array<string> = [];
+		const client = await makeClient();
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) =>
+				n === 1 ? Effect.as(slow.wait, n) : Effect.succeed(n),
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const first = handle.run(1, logged(log));
+		await handle.run(2, logged(log));
+		slow.open();
+		await first;
+
+		expect(log).toEqual(["success 2 2", "settled Success"]);
+	});
+
+	it("aren't called for an interrupted run", async () => {
+		const log: Array<string> = [];
+		const client = await makeClient();
+		const save = Mutation.make<number, never, never>({
+			run: () => Effect.never,
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const run = handle.run(1, logged(log));
+		await flush();
+		await dispose(client);
+		const exit = await run;
+
+		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(
+			true,
+		);
+		expect(log).toEqual([]);
+	});
+
+	it("are dropped once the handle is released, and called again once retained", async () => {
+		const log: Array<string> = [];
+		const client = await makeClient();
+		const save = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+		const handle = makeHandle(client.registry, save);
+
+		const release = handle.retain();
+		release();
+		await handle.run(1, logged(log));
+		handle.retain();
+		await handle.run(2, logged(log));
+
+		expect(log).toEqual(["success 2 2", "settled Success"]);
+	});
+});

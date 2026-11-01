@@ -184,6 +184,9 @@ export interface EndpointMutationOptions<
  * They make its key, so `headers` and `plugins` are given once, in
  * {@link EndpointQueryOptions}, instead.
  *
+ * - `Q`: the type of `query`, checked with `Fetch.QueryOf`, so a value typed
+ *   with an `interface` is accepted too. Defaults to `Fetch.QueryInput`.
+ *
  * @example
  * ```ts
  * import type { EndpointQueryArgs } from "@monarcode/effetch-query/effetch";
@@ -196,14 +199,20 @@ export interface EndpointMutationOptions<
  *
  * @since 0.1.0
  */
-export type EndpointQueryArgs<R extends string> = Fetch.ParamsOption<
-	Fetch.RoutePath<R>
-> & { readonly query?: Fetch.QueryInput | undefined };
+export type EndpointQueryArgs<
+	R extends string,
+	Q extends Fetch.QueryOf<Q> = Fetch.QueryInput,
+> = Fetch.ParamsOption<Fetch.RoutePath<R>> & {
+	readonly query?: Q | undefined;
+};
 
 /**
  * What a mutation from route `R` takes when run: the endpoint's call
  * options (`params`, `query`, `body`, `headers`, `plugins`), or nothing
  * when none are required. The variables of {@link Endpoints.mutation}.
+ *
+ * Its `query` is a `Fetch.QueryInput`, which has an index signature: type a
+ * query object you pass with a `type` alias rather than an `interface`.
  *
  * @example
  * ```ts
@@ -282,8 +291,8 @@ export type ErrorSchema<
  * @since 0.1.0
  */
 export interface EndpointQuery<R extends string, A, E> {
-	(
-		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R>>
+	<Q extends Fetch.QueryOf<Q> = Fetch.QueryInput>(
+		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q>>
 	): Query.Query<A, E>;
 	/** The start every one of its keys has: the prefix and the path up to its first param. */
 	readonly key: Query.Key;
@@ -325,8 +334,8 @@ export interface EndpointQuery<R extends string, A, E> {
  * @since 0.1.0
  */
 export interface EndpointInfiniteQuery<R extends string, A, E, P> {
-	(
-		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R>>
+	<Q extends Fetch.QueryOf<Q> = Fetch.QueryInput>(
+		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q>>
 	): InfiniteQuery.InfiniteQuery<A, E, P>;
 	/** The start every one of its keys has: the prefix and the path up to its first param. */
 	readonly key: Query.Key;

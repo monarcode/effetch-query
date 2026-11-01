@@ -638,6 +638,10 @@ export const refreshEverything = () =>
 | `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
 | `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
 
+To read the cache where you can't wait for a promise, such as a form
+listener, `QueryClient.get(queryClient, query)` returns the cached value as
+an `Option`, as `Query.get` does.
+
 A **target** is one query (`todo({ params: { id: 1 } })`), a family of
 queries (`todos`, every call of the endpoint), or a key (`["todos"]`,
 every query whose key starts with it).
@@ -930,8 +934,53 @@ export function DoneCheckbox({ todo }: { readonly todo: Todo }) {
 ```
 
 `run` returns a `Promise` of the run's `Exit` and never rejects. A run
-carries on if the component unmounts, so its `onSuccess` and `invalidates`
-still happen. `reset` puts `result` back to `Initial`.
+carries on if the component unmounts, so the mutation's `onSuccess` and
+`invalidates` still happen. `reset` puts `result` back to `Initial`. With
+the mutation's `concurrent: false`, a new run interrupts the one in
+progress, whose `run` then resolves with an interrupted `Exit`.
+
+`run` also takes callbacks for one run, as TanStack's
+`mutate(variables, { onSuccess })` does:
+
+```tsx
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import type { Todo } from "./api.js";
+import { toggleTodo } from "./toggle-todo.js";
+
+export function MarkDone({
+  todo,
+  onDone,
+}: {
+  readonly todo: Todo;
+  readonly onDone: () => void;
+}) {
+  const { result, run } = useMutation(toggleTodo);
+
+  return (
+    <button
+      type="button"
+      disabled={result.waiting}
+      onClick={() =>
+        run(
+          { params: { id: todo.id }, body: { done: true } },
+          { onSuccess: onDone },
+        )
+      }
+    >
+      Done
+    </button>
+  );
+}
+```
+
+`onSuccess`, `onFailure` and `onSettled` run after the mutation's own. They
+belong to this screen, so they're dropped if, before the run settles,
+`reset` is called, a newer run starts or the component unmounts; the run
+completes all the same. A lookup that you `reset` when its input changes
+never fills in the answer for the old input. A lookup that only reads can
+also be a query keyed by its input, read with
+`useQuery(input === "" ? null : lookup(input))`.
 
 ### Load more
 
@@ -1808,7 +1857,8 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `queryOptions({ queryKey, queryFn })`                 | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                        |
 | `useQuery`, `useSuspenseQuery`                        | Same names; they return an `AsyncResult`                                                     |
 | `useMutation`, `mutationOptions`                      | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
-| `getQueryData`, `setQueryData`                        | `Query.get`, `Query.set` / `Query.update` (Effects)                                          |
+| `getQueryData`, `setQueryData`                        | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
+| `mutate(variables, { onSuccess, onError })`           | `run(variables, { onSuccess, onFailure })`                                                   |
 | `ensureQueryData`, `prefetchQuery`                    | `Query.fetch`, `Query.prefetch`                                                              |
 | `invalidateQueries`, `refetchQueries`, `resetQueries` | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
 | `useQueryErrorResetBoundary`                          | `useResetQueryFailure`                                                                       |

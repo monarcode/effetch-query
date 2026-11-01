@@ -1,3 +1,4 @@
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -10,17 +11,42 @@ import { resolveMutationOptions } from "./defaults.js";
 import { execute, options } from "./mutation.js";
 import { ConfigAtom, forkWithClient, refreshIfBuilt } from "./runtime.js";
 
+/** Callbacks for one run, which a framework's `run` takes. */
+export interface RunCallbacks<Variables, A, E> {
+	readonly onSuccess?: ((value: A, variables: Variables) => void) | undefined;
+	readonly onFailure?:
+		| ((cause: Cause.Cause<E>, variables: Variables) => void)
+		| undefined;
+	readonly onSettled?:
+		| ((exit: Exit.Exit<A, E>, variables: Variables) => void)
+		| undefined;
+}
+
 /**
  * One use of a mutation, such as a component's `useMutation` (DESIGN.md
- * §4.7, §5.8). Framework adapters subscribe to `result` and call the rest.
+ * §4.7, §5.8). Framework adapters subscribe to `result`, `retain` the handle
+ * while their component is mounted, and call the rest.
  */
 export interface MutationHandle<Variables, A, E> {
 	/** The latest run's state: `Initial` before the first run and after `reset`. */
 	readonly result: Atom.Atom<AsyncResult.AsyncResult<A, E>>;
-	/** Starts a run. Resolves with its `Exit`, never rejects or throws. */
-	readonly run: (variables: Variables) => Promise<Exit.Exit<A, E>>;
+	/**
+	 * Starts a run. Resolves with its `Exit`, never rejects or throws. The
+	 * callbacks are called once it settles, unless it was interrupted, is no
+	 * longer the run `result` shows, or the handle was released. A run on a
+	 * disposed client never starts, and calls none.
+	 */
+	readonly run: (
+		variables: Variables,
+		callbacks?: RunCallbacks<Variables, A, E> | undefined,
+	) => Promise<Exit.Exit<A, E>>;
 	/** Puts `result` back to `Initial`. Runs in progress carry on. */
 	readonly reset: () => void;
+	/**
+	 * Marks the handle in use, as a new one is, until the function it returns
+	 * releases it.
+	 */
+	readonly retain: () => () => void;
 }
 
 /**
@@ -39,6 +65,7 @@ export const makeHandle = <Variables, A, E>(
 	// the first, so a `concurrent: false` run still replaces the last one.
 	let shown: Fiber.Fiber<A, E> | undefined;
 	let latest: Fiber.Fiber<A, E> | undefined;
+	let released = false;
 	const result = Atom.readable((get): AsyncResult.AsyncResult<A, E> => {
 		const fiber = shown;
 		if (fiber === undefined) {
@@ -79,7 +106,7 @@ export const makeHandle = <Variables, A, E>(
 	};
 	return {
 		result,
-		run: (variables) => {
+		run: (variables, callbacks) => {
 			let fiber: Fiber.Fiber<A, E>;
 			try {
 				fiber = start(variables);
@@ -89,8 +116,49 @@ export const makeHandle = <Variables, A, E>(
 			}
 			latest = fiber;
 			show(fiber);
-			return new Promise((resolve) => fiber.addObserver(resolve));
+			const settled = new Promise<Exit.Exit<A, E>>((resolve) =>
+				fiber.addObserver(resolve),
+			);
+			if (callbacks !== undefined) {
+				void settled.then((exit) => {
+					if (!released && shown === fiber) {
+						notify(callbacks, variables, exit);
+					}
+				});
+			}
+			return settled;
 		},
 		reset: () => show(undefined),
+		retain: () => {
+			released = false;
+			return function release() {
+				released = true;
+			};
+		},
 	};
+};
+
+const notify = <Variables, A, E>(
+	callbacks: RunCallbacks<Variables, A, E>,
+	variables: Variables,
+	exit: Exit.Exit<A, E>,
+): void => {
+	if (Exit.isSuccess(exit)) {
+		report(() => callbacks.onSuccess?.(exit.value, variables));
+	} else if (Cause.hasInterruptsOnly(exit.cause)) {
+		return;
+	} else {
+		report(() => callbacks.onFailure?.(exit.cause, variables));
+	}
+	report(() => callbacks.onSettled?.(exit, variables));
+};
+
+// The run has settled, so there's nothing left to fail: a callback that
+// throws is logged, and the callbacks after it still run.
+const report = (callback: () => void): void => {
+	try {
+		callback();
+	} catch (error) {
+		console.error("A mutation run's callback failed:", error);
+	}
 };
