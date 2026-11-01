@@ -23,6 +23,7 @@ import {
 import * as Mutation from "../Mutation.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
+import { wireErrors } from "./wireErrors.js";
 
 /**
  * A schema whose decoding and encoding need nothing outside your registered
@@ -376,6 +377,12 @@ export interface Endpoints<
 	 *
 	 * Only `GET`, `HEAD`, `OPTIONS` and `TRACE` endpoints: a call with a body
 	 * is a {@link Endpoints.mutation}, or a {@link Query.family} of your own.
+	 *
+	 * With an `output`, its queries cross from server to browser with no
+	 * `schema` to write (`QueryClient.dehydrate`): the value with `output`,
+	 * and, with `failures: "include"`, effetch's errors, an `HttpError`
+	 * without its headers. A query that failed with a plugin's error isn't
+	 * sent.
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -398,7 +405,9 @@ export interface Endpoints<
 	 * query per `params` and `query`, as {@link Endpoints.query} makes
 	 * queries. Each page's param is sent in the query field `pageParam`
 	 * names; the value is an {@link InfiniteQuery.InfiniteData} of the
-	 * endpoint's `output`. Only endpoints without a body.
+	 * endpoint's `output`. Only endpoints without a body. Its queries cross
+	 * from server to browser as {@link Endpoints.query}'s do, the page
+	 * params as JSON.
 	 */
 	readonly infiniteQuery: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -555,19 +564,27 @@ export const endpoints = <
 		});
 		return self;
 	};
-	// An endpoint's queries cross the wire with its `output`, keyed apart
-	// by method: `GET` and `HEAD` of one path share keys.
+	// An endpoint's queries cross the wire with its `output` and effetch's
+	// errors, keyed apart by method: `GET` and `HEAD` of one path share keys.
 	const hydrationOf = (
 		endpoint: AnyEndpoint,
 		schema: (
 			output: Schema.Codec<unknown, unknown>,
+			error: Schema.Codec<unknown, unknown>,
 		) => Query.QuerySchema<any, any>,
 	) =>
 		endpoint.output === undefined
 			? undefined
 			: {
 					codec: makeCodec(
-						schema(endpoint.output as Schema.Codec<unknown, unknown>),
+						schema(
+							endpoint.output as Schema.Codec<unknown, unknown>,
+							wireErrors(
+								(endpoint.error ?? options?.defaultError) as
+									| Schema.Codec<unknown, unknown>
+									| undefined,
+							),
+						),
 					),
 					kind: endpoint.method === "GET" ? undefined : endpoint.method,
 				};
@@ -578,7 +595,10 @@ export const endpoints = <
 		const { headers, plugins, ...rest } = queryOptions ?? {};
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
-		const hydration = hydrationOf(endpoint, (success) => ({ success }));
+		const hydration = hydrationOf(endpoint, (success, error) => ({
+			success,
+			error,
+		}));
 		return endpointFamily(
 			endpoint,
 			path,
@@ -615,8 +635,8 @@ export const endpoints = <
 			previousPageParam,
 			maxPages,
 		};
-		const hydration = hydrationOf(endpoint, (page) =>
-			infiniteSchema({ page }),
+		const hydration = hydrationOf(endpoint, (page, error) =>
+			infiniteSchema({ page, error }),
 		);
 		return endpointFamily(
 			endpoint,

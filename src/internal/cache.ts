@@ -1,7 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import type * as Atom from "effect/reactivity/Atom";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
@@ -15,6 +14,7 @@ import {
 	localValue,
 	nodeValue,
 	peek,
+	seed,
 	written,
 } from "./queryAtom.js";
 import { type ClientState, ConfigAtom, StateAtom } from "./runtime.js";
@@ -56,19 +56,6 @@ export const settings = <E>(
 			),
 	});
 };
-
-// The node takes `skipInitialRun` as `initialValues` does, though its
-// interface leaves the parameter out.
-const seed = <A>(
-	registry: AtomRegistry.AtomRegistry,
-	atom: Atom.Atom<A>,
-	value: A,
-): void =>
-	(
-		registry.ensureNode(atom) as unknown as {
-			setInitialValue(value: A, skipInitialRun: boolean): void;
-		}
-	).setInitialValue(value, true);
 
 /**
  * Writes a value. A query whose fetch atom is up to date takes it as a
@@ -118,6 +105,39 @@ export const setValue = <A, E>(
 			registry.refresh(fetchAtom(generation));
 		},
 	});
+};
+
+/**
+ * Puts a value from the server into a cached query (DESIGN.md §3.12),
+ * unless it shows newer data: a success newer than the one it has, or
+ * anything over a query without a success. The query moves to a fetch atom
+ * seeded with it, as `setValue` seeds, so it shows without fetching, its
+ * freshness is the server's, and a fetch it was running is dropped.
+ */
+export const hydrateValue = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	result: AsyncResult.AsyncResult<A, E>,
+): void => {
+	const current = peek(registry, query);
+	if (
+		Option.isSome(current) &&
+		AsyncResult.isSuccess(current.value) &&
+		!(
+			AsyncResult.isSuccess(result) &&
+			result.timestamp > current.value.timestamp
+		)
+	) {
+		return;
+	}
+	const { local, fetchAtom } = internals(query);
+	const { generation } = localValue(registry, query);
+	const target = Option.isSome(nodeValue(registry, fetchAtom(generation)))
+		? generation + 1
+		: generation;
+	seed(registry, fetchAtom(target), result);
+	registry.set(local, { generation: target, written: Option.none() });
+	registry.get(query);
 };
 
 /** Writes a value computed from the cached one, as `setValue` does, if there is one. */

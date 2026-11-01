@@ -2,17 +2,27 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
+import * as Hydration from "effect/reactivity/Hydration";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
 import { InfiniteQuery, Query, QueryClient } from "../src/index.js";
 import { hashKey } from "../src/internal/hashKey.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
-import { disposeClients, makeClient, valueOf } from "./helpers.js";
-import { TestApi } from "./services.js";
+import {
+	dispose,
+	disposeClients,
+	gate,
+	makeClient,
+	use,
+	useFakeTimers,
+	valueOf,
+} from "./helpers.js";
+import { Greeting, servicesLayer, TestApi } from "./services.js";
 
 afterEach(disposeClients);
 
@@ -242,5 +252,299 @@ describe("effetch schema", () => {
 		const raw = api.query(Fetch.endpoint("GET /health"));
 
 		expect(internals(raw()).hydration).toBeUndefined();
+	});
+});
+
+/** A todo list served by a counter: each fetch, on any client, is counted. */
+const todoList = (options?: Partial<Query.MakeOptions<any, never>>) => {
+	const state = {
+		runs: 0,
+		hold: undefined as Effect.Effect<void> | undefined,
+	};
+	const todos = Query.make({
+		staleTime: "1 minute",
+		...options,
+		key: ["todos"],
+		run: Effect.suspend(() => {
+			state.runs += 1;
+			const list = [{ id: state.runs, title: `Fetch ${state.runs}` }];
+			return Effect.as(state.hold ?? Effect.void, list);
+		}),
+		schema: { success: Schema.Array(Todo) },
+	});
+	return { state, todos };
+};
+
+/** What crosses the wire: the state through JSON, as a page embeds it. */
+const overTheWire = (state: QueryClient.DehydratedState) =>
+	JSON.parse(JSON.stringify(state)) as QueryClient.DehydratedState;
+
+describe("dehydrate and hydrate", () => {
+	it("send a query to the browser, which shows it without fetching", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		await server.runPromise(Query.prefetch(todos));
+		const sent = overTheWire(QueryClient.dehydrate(server));
+		await dispose(server);
+
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+		const unmount = use(browser.registry, todos);
+
+		expect(await valueOf(browser.registry, todos)).toEqual([
+			{ id: 1, title: "Fetch 1" },
+		]);
+		expect(state.runs).toBe(1);
+		unmount();
+	});
+
+	it("keep the server's timestamp, so the query refetches once stale", async () => {
+		useFakeTimers();
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		await server.runPromise(Query.prefetch(todos));
+		const sent = overTheWire(QueryClient.dehydrate(server));
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(await browser.runPromise(Query.fetch(todos))).toEqual([
+			{ id: 1, title: "Fetch 1" },
+		]);
+		await vi.advanceTimersByTimeAsync(31_000);
+		expect(await browser.runPromise(Query.fetch(todos))).toEqual([
+			{ id: 2, title: "Fetch 2" },
+		]);
+		expect(state.runs).toBe(2);
+	});
+
+	it("put a newer value into a cached query, and keep a newer one it has", async () => {
+		useFakeTimers();
+		const { todos } = todoList({ staleTime: 0 });
+		const browser = await makeClient();
+		const server = await makeClient();
+		await browser.runPromise(Query.prefetch(todos));
+		await vi.advanceTimersByTimeAsync(1000);
+		await server.runPromise(Query.prefetch(todos));
+		const newer = QueryClient.dehydrate(server);
+
+		QueryClient.hydrate(browser, newer);
+		expect(await browser.runPromise(Query.get(todos))).toEqual(
+			Option.some([{ id: 2, title: "Fetch 2" }]),
+		);
+
+		await vi.advanceTimersByTimeAsync(1000);
+		await browser.runPromise(Query.refetch(todos));
+		await browser.runPromise(Query.fetch(todos));
+		QueryClient.hydrate(browser, newer);
+		expect(await browser.runPromise(Query.get(todos))).not.toEqual(
+			Option.some([{ id: 2, title: "Fetch 2" }]),
+		);
+	});
+
+	it("send only queries with a schema, matched by `queries`", async () => {
+		const server = await makeClient();
+		const { todos } = todoList();
+		const plain = Query.make({ key: ["plain"], run: Effect.succeed(1) });
+		const other = Query.make({
+			key: ["other"],
+			run: Effect.succeed("x"),
+			schema: { success: Schema.String },
+		});
+		await server.runPromise(
+			Effect.all([
+				Query.prefetch(todos),
+				Query.prefetch(plain),
+				Query.prefetch(other),
+			]),
+		);
+
+		const keys = (state: QueryClient.DehydratedState) =>
+			Hydration.toValues(state).map((entry) => entry.key);
+
+		expect(keys(QueryClient.dehydrate(server)).sort()).toEqual([
+			'effetch-query:["other"]',
+			'effetch-query:["todos"]',
+		]);
+		expect(
+			keys(QueryClient.dehydrate(server, { queries: ["todos"] })),
+		).toEqual(['effetch-query:["todos"]']);
+	});
+
+	it("leave failures out unless asked, so the browser fetches them", async () => {
+		const todo = Query.make({
+			key: ["todo"],
+			run: Effect.fail(new NotFound({ id: 1 })),
+			schema: { success: Todo, error: NotFound },
+		});
+		const server = await makeClient();
+		await server.runPromiseExit(Query.fetch(todo));
+
+		expect(QueryClient.dehydrate(server)).toEqual([]);
+
+		const sent = overTheWire(
+			QueryClient.dehydrate(server, { failures: "include" }),
+		);
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+		const result = browser.registry.get(todo);
+		expect(
+			AsyncResult.isFailure(result) && Cause.findErrorOption(result.cause),
+		).toEqual(Option.some(new NotFound({ id: 1 })));
+	});
+
+	it("fail for two cached queries with one key", async () => {
+		const server = await makeClient();
+		const first = todoList().todos;
+		const second = todoList().todos;
+		await server.runPromise(
+			Effect.all([Query.prefetch(first), Query.prefetch(second)]),
+		);
+
+		expect(() => QueryClient.dehydrate(server)).toThrow(
+			QueryClient.DuplicateQueryKey,
+		);
+	});
+
+	it("fail for a key that isn't JSON, only when it's sent", async () => {
+		const at = Query.family({
+			key: ["at"],
+			run: (date: Date) => Effect.succeed(date.getTime()),
+			schema: { success: Schema.Finite },
+		});
+		const server = await makeClient();
+		await server.runPromise(Query.prefetch(at(new Date(0))));
+
+		expect(() => QueryClient.dehydrate(server)).toThrow(
+			QueryClient.NonJsonKey,
+		);
+		expect(QueryClient.dehydrate(server, { queries: ["todos"] })).toEqual([]);
+	});
+
+	it("keep concurrent server requests apart", async () => {
+		const greeting = Query.make({
+			key: ["greeting"],
+			run: Greeting.useSync(({ text }) => text),
+			schema: { success: Schema.String },
+		});
+		const [first, second] = await Promise.all(
+			["hello", "bonjour"].map(async (text) => {
+				const server = await makeClient({ layer: servicesLayer(text) });
+				await server.runPromise(Query.prefetch(greeting));
+				return overTheWire(QueryClient.dehydrate(server));
+			}),
+		);
+
+		const read = async (state: QueryClient.DehydratedState) => {
+			const browser = await makeClient();
+			QueryClient.hydrate(browser, state);
+			return browser.runPromise(Query.fetch(greeting));
+		};
+		expect(await read(first!)).toBe("hello");
+		expect(await read(second!)).toBe("bonjour");
+	});
+
+	it("load other atoms' state from Effect's Hydration too", async () => {
+		const count = Atom.serializable(Atom.make(0), {
+			key: "count",
+			schema: Schema.Finite,
+		});
+		const server = await makeClient();
+		server.registry.set(count, 7);
+		const browser = await makeClient();
+
+		QueryClient.hydrate(browser, Hydration.dehydrate(server.registry));
+
+		expect(browser.registry.get(count)).toBe(7);
+	});
+});
+
+describe("streaming", () => {
+	it("sends a query still loading as a promise the browser waits for", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		const { wait, open } = gate();
+		state.hold = wait;
+		void server.runPromise(Query.prefetch(todos));
+		const sent = QueryClient.dehydrate(server, { pending: "promise" });
+		expect(Hydration.toValues(sent)[0]?.resultPromise).toBeInstanceOf(
+			Promise,
+		);
+
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+		const unmount = use(browser.registry, todos);
+		expect(browser.registry.get(todos)).toMatchObject({
+			_tag: "Initial",
+			waiting: true,
+		});
+		state.hold = undefined;
+		open();
+
+		expect(await valueOf(browser.registry, todos)).toEqual([
+			{ id: 1, title: "Fetch 1" },
+		]);
+		expect(state.runs).toBe(1);
+		unmount();
+	});
+
+	it("leaves a query still loading out by default", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		state.hold = gate().wait;
+		void server.runPromiseExit(Query.prefetch(todos));
+
+		expect(QueryClient.dehydrate(server)).toEqual([]);
+	});
+
+	it("lets the browser fetch when the server's fetch fails", async () => {
+		const runs = { server: 0, browser: 0 };
+		const { wait, open } = gate();
+		const todo = Query.make({
+			key: ["todo"],
+			run: Greeting.use(({ text }) => {
+				if (text === "server") {
+					runs.server += 1;
+					return Effect.andThen(
+						wait,
+						Effect.fail(new NotFound({ id: 1 })),
+					);
+				}
+				runs.browser += 1;
+				return Effect.succeed({ id: 1, title: "From the browser" });
+			}),
+			schema: { success: Todo, error: NotFound },
+		});
+		const server = await makeClient({ layer: servicesLayer("server") });
+		void server.runPromiseExit(Query.fetch(todo));
+		const sent = QueryClient.dehydrate(server, { pending: "promise" });
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+		const unmount = use(browser.registry, todo);
+		open();
+
+		expect(await valueOf(browser.registry, todo)).toEqual({
+			id: 1,
+			title: "From the browser",
+		});
+		expect(runs).toEqual({ server: 1, browser: 1 });
+		unmount();
+	});
+
+	it("settles its promise when the server's client is disposed first", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		state.hold = gate().wait;
+		void server.runPromiseExit(Query.fetch(todos));
+		const [entry] = Hydration.toValues(
+			QueryClient.dehydrate(server, { pending: "promise" }),
+		);
+
+		await dispose(server);
+
+		expect(await entry?.resultPromise).toEqual({
+			_tag: "Initial",
+			waiting: false,
+		});
 	});
 });

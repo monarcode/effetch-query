@@ -1,18 +1,17 @@
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Headers from "effect/http/Headers";
 import * as Option from "effect/Option";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
-import {
-	InfiniteQuery,
-	Mutation,
-	Query,
-	type QueryClient,
-} from "../src/index.js";
+import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
+import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
 import { segments } from "../src/internal/routeKey.js";
 import { disposeClients, makeClient, use } from "./helpers.js";
 import {
@@ -432,5 +431,113 @@ describe("mutations", () => {
 				? exit.cause.reasons[0].error._tag
 				: undefined,
 		).toBe("HttpError");
+	});
+});
+
+describe("hydration", () => {
+	/** A query's error, as the client that hydrated it shows it. */
+	const shownError = (
+		client: QueryClient.QueryClient,
+		query: Query.Query<any, any>,
+	) => {
+		const result = client.registry.get(query);
+		return AsyncResult.isFailure(result)
+			? Cause.findErrorOption(result.cause)
+			: Option.none();
+	};
+
+	const sendFailure = async (
+		handler: Parameters<typeof serve>[0],
+		query: Query.Query<any, any>,
+	) => {
+		const server = await serve(handler);
+		await failure(server, query);
+		const sent = QueryClient.dehydrate(server, { failures: "include" });
+		const browser = await serve();
+		QueryClient.hydrate(browser, JSON.parse(JSON.stringify(sent)));
+		return { sent, browser };
+	};
+
+	it("sends an endpoint query without code", async () => {
+		const server = await serve();
+		await server.runPromise(Query.prefetch(todo({ params: { id: 1 } })));
+		const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(server)));
+		const handler = todosServer();
+		const browser = await serve(handler.handle);
+
+		QueryClient.hydrate(browser, sent);
+
+		expect(
+			await browser.runPromise(Query.fetch(todo({ params: { id: 1 } }))),
+		).toEqual({ id: 1, title: "Write tests" });
+		expect(handler.hits("GET /todos/1")).toBe(0);
+	});
+
+	it("sends an HttpError with its decoded body, and no headers", async () => {
+		const query = todo({ params: { id: 1 } });
+		const { sent, browser } = await sendFailure(
+			() =>
+				Response.json(
+					{ message: "gone" },
+					{ status: 410, headers: { "set-cookie": "session=secret" } },
+				),
+			query,
+		);
+
+		expect(JSON.stringify(sent)).not.toContain("secret");
+		const error = shownError(browser, query);
+		expect(Option.getOrUndefined(error)).toBeInstanceOf(Fetch.HttpError);
+		expect(Option.getOrUndefined(error)).toMatchObject({
+			status: 410,
+			body: { message: "gone" },
+			headers: Headers.empty,
+		});
+	});
+
+	it("sends a DecodeError without its issue", async () => {
+		const query = todo({ params: { id: 1 } });
+		const { browser } = await sendFailure(
+			() => Response.json({ id: "one" }),
+			query,
+		);
+
+		const error = Option.getOrUndefined(shownError(browser, query));
+		expect(error).toBeInstanceOf(Fetch.DecodeError);
+		expect(error).toMatchObject({ status: 200, issue: undefined });
+	});
+
+	it("sends a NetworkError without its cause", () => {
+		const { hydration } = internals(todo({ params: { id: 1 } }));
+		expect(hydration).toBeDefined();
+		const { codec } = hydration as QueryHydration<unknown, unknown>;
+		const failed = AsyncResult.failure(
+			Cause.fail(
+				new Fetch.NetworkError({
+					method: "GET",
+					url: "/todos/1",
+					cause: new TypeError("Failed to fetch"),
+				}),
+			),
+		);
+
+		const decoded = codec.decode(
+			JSON.parse(JSON.stringify(codec.encode(failed))),
+		);
+
+		const error =
+			AsyncResult.isFailure(decoded) &&
+			Option.getOrUndefined(Cause.findErrorOption(decoded.cause));
+		expect(error).toBeInstanceOf(Fetch.NetworkError);
+		expect(error).toMatchObject({ url: "/todos/1", cause: undefined });
+	});
+
+	it("leaves out a query that failed with a plugin's error", async () => {
+		const server = await serve();
+		const denied = api.query(getTodo, { headers: { "x-deny": "1" } });
+		await failure(server, denied({ params: { id: 1 } }));
+
+		expect(QueryClient.dehydrate(server, { failures: "include" })).toEqual(
+			[],
+		);
 	});
 });

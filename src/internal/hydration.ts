@@ -1,6 +1,8 @@
+import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
+import { NonJsonKey } from "../HydrationError.js";
 import type * as InfiniteQuery from "../InfiniteQuery.js";
 import type * as Query from "../Query.js";
 
@@ -63,3 +65,33 @@ export const infiniteSchema = <A, E, P>(
 	}) as unknown as Schema.Codec<InfiniteQuery.InfiniteData<A, P>, unknown>,
 	error: schema.error,
 });
+
+/** A JSON value decoded with a codec, or none when the schema doesn't fit it. */
+export const decodeResult = <A, E>(
+	codec: Codec<A, E>,
+	json: unknown,
+): Option.Option<AsyncResult.AsyncResult<A, E>> => {
+	try {
+		return Option.some(codec.decode(json as Schema.Json));
+	} catch (error) {
+		if (Schema.isSchemaError(error)) {
+			return Option.none();
+		}
+		throw error;
+	}
+};
+
+/**
+ * A query's hash, or none when its key isn't JSON: the browser only looks
+ * queries up, and the server never sends such a one.
+ */
+export const hashOption = (hash: () => string): Option.Option<string> => {
+	try {
+		return Option.some(hash());
+	} catch (error) {
+		if (error instanceof NonJsonKey) {
+			return Option.none();
+		}
+		throw error;
+	}
+};

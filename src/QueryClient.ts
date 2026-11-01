@@ -7,17 +7,19 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import type * as Hydration from "effect/reactivity/Hydration";
 import * as Reactivity from "effect/reactivity/Reactivity";
 import type * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 
 import { observeNodes } from "./internal/cache.js";
+import * as hydration from "./internal/dehydrate.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
 import type { Mutation } from "./Mutation.js";
-import type { QueryKey } from "./Query.js";
+import type { QueryKey, QueryTarget } from "./Query.js";
 import type { Signals } from "./Signals.js";
 
-export { NonJsonKey } from "./HydrationError.js";
+export { DuplicateQueryKey, NonJsonKey } from "./HydrationError.js";
 
 /**
  * Declares the services your queries and mutations run with. Augment it once,
@@ -655,6 +657,9 @@ export const make = (options: Options): QueryClient => {
 				Effect.sync(() => {
 					state.disposed = true;
 					registry.dispose();
+					for (const settle of state.onDispose) {
+						settle();
+					}
 				}).pipe(
 					Effect.ensuring(
 						Effect.suspend(() => Fiber.interruptAll([...state.fibers])),
@@ -713,3 +718,134 @@ export const layer = (options: Options): Layer.Layer<QueryClient> =>
 			);
 		}),
 	);
+
+/**
+ * A client's cache as `dehydrate` sends it: Effect's `Hydration` format, so
+ * a framework's serializer carries it as it carries any atom state. Its
+ * values are JSON; a query still fetching carries a promise of its result,
+ * which only streaming serializers (React's, TanStack Start's, React
+ * Router's) can send.
+ *
+ * @example
+ * ```ts
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const client: QueryClient.QueryClient;
+ *
+ * export const state: QueryClient.DehydratedState = QueryClient.dehydrate(client);
+ * export const html = `<script>window.__QUERY_STATE__ = ${JSON.stringify(state)}</script>`;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type DehydratedState = ReadonlyArray<Hydration.DehydratedAtom>;
+
+/**
+ * Options for {@link dehydrate}.
+ *
+ * @example
+ * ```ts
+ * import type { QueryClient } from "@monarcode/effetch-query";
+ *
+ * // Stream the queries still loading, and send failures too.
+ * export const options: QueryClient.DehydrateOptions = {
+ *   queries: ["todos"],
+ *   pending: "promise",
+ *   failures: "include",
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface DehydrateOptions {
+	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
+	readonly queries?: QueryTarget | undefined;
+	/**
+	 * A query still fetching, with nothing to show yet: `"promise"` sends a
+	 * promise of its result, for streaming server rendering, and the browser
+	 * waits for it instead of fetching; `"omit"` leaves it out, and the
+	 * browser fetches it. Default: `"omit"`.
+	 */
+	readonly pending?: "omit" | "promise" | undefined;
+	/**
+	 * A failed query: `"include"` sends it with its error, encoded with the
+	 * query's `schema.error` (defects as `Schema.Defect`); `"omit"` leaves it
+	 * out, so the browser fetches it again and server errors never reach the
+	 * page. Default: `"omit"`.
+	 */
+	readonly failures?: "omit" | "include" | undefined;
+}
+
+/**
+ * Reads a client's cache to send to the browser, for server rendering, as
+ * TanStack's `dehydrate`. Load what the page needs first (`Query.prefetch`
+ * through {@link QueryClient.runPromise}), then send the result with the
+ * page and load it with {@link hydrate} (or `HydrationBoundary` from
+ * `@monarcode/effetch-query/react`).
+ *
+ * Only queries with a `schema` are sent, encoded with it, timestamp
+ * included, so a query stays fresh in the browser as long as it would on
+ * the server. It reads without fetching: a stale query is sent as it is.
+ * Values a schema can't encode are left out.
+ *
+ * Throws {@link NonJsonKey} for a key that isn't JSON, and
+ * {@link DuplicateQueryKey} when two queries it sends have one key.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ * import * as Schema from "effect/Schema";
+ *
+ * import { Query, QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const client: QueryClient.QueryClient;
+ *
+ * const todos = Query.make({
+ *   key: ["todos"],
+ *   run: Effect.succeed(["Buy milk"]),
+ *   schema: { success: Schema.Array(Schema.String) },
+ * });
+ *
+ * export const render = async () => {
+ *   await client.runPromise(Query.prefetch(todos));
+ *   return QueryClient.dehydrate(client);
+ * };
+ * ```
+ *
+ * @see {@link hydrate} to load it in the browser
+ *
+ * @since 0.1.0
+ */
+export const dehydrate = (
+	client: QueryClient,
+	options?: DehydrateOptions | undefined,
+): DehydratedState => hydration.dehydrate(client.registry, options);
+
+/**
+ * Loads a cache {@link dehydrate} sent into a client, as TanStack's
+ * `hydrate`. A query that isn't cached shows its value the first time it's
+ * read, without fetching, and refetches once it's stale. A cached query
+ * takes it only if it's newer than what it shows. A query the server was
+ * still loading waits for its result instead of fetching.
+ *
+ * Values its schema can't decode are dropped, and the query fetches. State
+ * from Effect's own `Hydration.dehydrate`, for other atoms, is loaded too.
+ *
+ * @example
+ * ```ts
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const client: QueryClient.QueryClient;
+ * declare const window: { readonly __QUERY_STATE__: QueryClient.DehydratedState };
+ *
+ * QueryClient.hydrate(client, window.__QUERY_STATE__);
+ * ```
+ *
+ * @see {@link dehydrate} to send it from the server
+ *
+ * @since 0.1.0
+ */
+export const hydrate = (
+	client: QueryClient,
+	state: Iterable<Hydration.DehydratedAtom>,
+): void => hydration.hydrate(client.registry, state);

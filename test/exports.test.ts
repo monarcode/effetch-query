@@ -43,8 +43,11 @@ describe("public entry points", () => {
 			"update",
 		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([
+			"DuplicateQueryKey",
 			"NonJsonKey",
 			"QueryClient",
+			"dehydrate",
+			"hydrate",
 			"layer",
 			"make",
 		]);
@@ -53,6 +56,7 @@ describe("public entry points", () => {
 
 	it("@monarcode/effetch-query/react exports exactly these values", () => {
 		expect(Object.keys(React).sort()).toEqual([
+			"HydrationBoundary",
 			"MissingQueryProvider",
 			"QueryFailure",
 			"QueryProvider",

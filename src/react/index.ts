@@ -16,6 +16,10 @@ export {
 	useSuspenseQuery,
 } from "./hooks.js";
 export {
+	HydrationBoundary,
+	type HydrationBoundaryProps,
+} from "./HydrationBoundary.js";
+export {
 	MissingQueryProvider,
 	QueryProvider,
 	type QueryProviderProps,
