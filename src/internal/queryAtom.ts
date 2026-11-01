@@ -2,6 +2,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
@@ -224,6 +225,45 @@ export const seed = <A>(
 		}
 	).setInitialValue(value, true);
 
+/** Where `hydrate` left a value for a query in the registry's preload map. */
+const preloadedHash = (
+	registry: AtomRegistry.AtomRegistry,
+	hydration: QueryHydration<any, any>,
+): Option.Option<string> =>
+	registry.preloadedSerializable.size === 0
+		? Option.none()
+		: Option.filter(hashOption(hydration.hash), (hash) =>
+				registry.preloadedSerializable.has(hash),
+			);
+
+/**
+ * The value `hydrate` left for a query, decoded once per value: React reads
+ * a query's server snapshot again and again while it hydrates, and needs
+ * one object each time.
+ */
+const preloadedResult = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	hydration: QueryHydration<A, E>,
+): Option.Option<AsyncResult.AsyncResult<A, E>> =>
+	Option.flatMap(preloadedHash(registry, hydration), (hash) => {
+		const json = registry.preloadedSerializable.get(hash);
+		const { preloads } = registry.get(StateAtom);
+		const cached = Predicate.isObjectKeyword(json)
+			? preloads.get(json)
+			: undefined;
+		if (cached !== undefined) {
+			return cached;
+		}
+		const result = Option.filter(
+			decodeResult(hydration.codec, json),
+			(result) => !AsyncResult.isInitial(result),
+		);
+		if (Predicate.isObjectKeyword(json)) {
+			preloads.set(json, result);
+		}
+		return result;
+	});
+
 /**
  * Seeds a query's first fetch atom from the value `hydrate` left for it
  * (DESIGN.md §3.12). It's in the registry's preload map, where Effect's
@@ -235,23 +275,16 @@ const seedPreloaded = <A, E>(
 	atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,
 	hydration: QueryHydration<A, E>,
 ): void => {
-	const preloaded = registry.preloadedSerializable;
-	if (preloaded.size === 0) {
+	const hash = preloadedHash(registry, hydration);
+	if (Option.isNone(hash)) {
 		return;
 	}
-	const hash = hashOption(hydration.hash);
-	if (Option.isNone(hash) || !preloaded.has(hash.value)) {
-		return;
+	if (Option.isNone(nodeValue(registry, atom))) {
+		Option.map(preloadedResult(registry, hydration), (result) =>
+			seed(registry, atom, result),
+		);
 	}
-	const json = preloaded.get(hash.value);
-	preloaded.delete(hash.value);
-	if (Option.isSome(nodeValue(registry, atom))) {
-		return;
-	}
-	const result = decodeResult(hydration.codec, json);
-	if (Option.isSome(result) && !AsyncResult.isInitial(result.value)) {
-		seed(registry, atom, result.value);
-	}
+	registry.preloadedSerializable.delete(hash.value);
 };
 
 /** The result the server is still loading for a query, if it sent one. */
@@ -455,17 +488,20 @@ export const makeQuery = <A, E>(definition: {
 			initialValueTarget: fetchAtom(0),
 			// A server render reads the cache and never fetches (DESIGN.md §5.8).
 			// React reads this while hydrating server HTML too, before the query
-			// is read, so it shows a value `hydrate` left as the read will.
+			// is read, so it shows a value `hydrate` left as the read will. It
+			// leaves the value for that read: a fetch atom seeded here has nothing
+			// observing it, and the registry drops such a node on its next task,
+			// which can come before React subscribes.
 			[Atom.ServerValueTypeId]: (get: <X>(atom: Atom.Atom<X>) => X) => {
 				const registry = get(RegistryAtom);
-				if (
-					hydration !== undefined &&
-					localValue(registry, query).generation === 0
-				) {
-					seedPreloaded(registry, fetchAtom(0), hydration);
-				}
-				return Option.getOrElse(peek(registry, query), () =>
-					AsyncResult.initial<A, E>(true),
+				return peek(registry, query).pipe(
+					Option.orElse(() =>
+						hydration !== undefined &&
+						localValue(registry, query).generation === 0
+							? preloadedResult(registry, hydration)
+							: Option.none(),
+					),
+					Option.getOrElse(() => AsyncResult.initial<A, E>(true)),
 				);
 			},
 			[InternalsId]: {

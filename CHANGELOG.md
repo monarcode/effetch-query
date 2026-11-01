@@ -2,6 +2,67 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## Unreleased
+
+The TanStack Router and Start integration, a Next.js App Router recipe,
+and clients made from an existing `ManagedRuntime`. Phase 17 (React
+Router) joins this release before it ships.
+
+### Added
+
+- `@monarcode/effetch-query/react/tanstack-router`: `connectQueryClient`,
+  which connects a query client to a TanStack Router, and so to TanStack
+  Start, where the router is made. On the server, the queries the loaders
+  loaded go with the page, and queries started while rendering stream in
+  as they start, those still loading as promises the browser waits for.
+  The request's client is disposed when the request ends. In the browser,
+  it all loads into the client before React hydrates, with no
+  `HydrationBoundary`. A query or mutation that fails or dies with the
+  router's `redirect()` navigates there, unless an Effect awaits the fetch:
+  a loader's redirect is left to the router, and a preload's is dropped, as
+  the router drops it. Options: `dehydrate` (`queries`, `failures`),
+  `handleRedirects` and `wrapQueryClient`. `@tanstack/react-router`
+  (`>=1.170.33 <2.0.0`) is an optional peer.
+- `QueryClient.make({ runtime })` and `QueryClient.layer({ runtime })`: a
+  client that uses the services of a `ManagedRuntime` you already have
+  rather than building a layer. Every client of one runtime, such as one
+  per request on a server, shares its build, and disposing a client leaves
+  the runtime running. The clients share the runtime's `Reactivity`, so an
+  invalidation by any of them, or by a service the runtime built, reaches
+  all of them.
+- `QueryClient.LayerOptions`, `QueryClient.RuntimeOptions` and
+  `QueryClient.CommonOptions`: the two ways to give a client its services,
+  and the options both take.
+- The README's "TanStack Router and Start" guide, and
+  `examples/tanstack-start`: a Start app with loaders, a streamed detail
+  page and a redirect, built and served by its tests.
+- The README's "Next.js" guide: the App Router with the core and
+  `./react`, no integration package. Each request's client for server
+  components comes from React's `cache()` and is disposed with Next's
+  `after()`; client components get theirs from a `QueryProvider`.
+
+### Changed
+
+- `QueryClient.Options` is now a union, `LayerOptions | RuntimeOptions`,
+  rather than an interface. Passing `runtime` with `layer` or `memoMap` is
+  a compile error.
+- The README's server rendering guide makes each request's client from a
+  process-wide `ManagedRuntime`, so the app's layer is built once.
+- `useSuspenseQuery` and `useSuspenseInfiniteQuery` throw an error with a
+  string `digest`, such as what Next's `redirect()` and `notFound()`
+  throw, as it is rather than in a `QueryFailure`, so the framework
+  handles it.
+
+### Fixed
+
+- A query `hydrate` or `HydrationBoundary` loaded is no longer fetched
+  again in the browser when React reads it while hydrating server HTML in
+  slices: the value React's server snapshot showed was dropped before the
+  query was subscribed to.
+- `hydrate` and `HydrationBoundary` take a streamed result whose promise
+  is a thenable whose `then` returns nothing, as React's RSC client hands
+  over, rather than throwing.
+
 ## 0.1.0-alpha.3
 
 Server rendering: send the cache with the page, and pick it up in the

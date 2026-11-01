@@ -114,6 +114,9 @@ The maintainer handles commits, pull requests, CI and npm.
   settings, the Release workflow), stop and say exactly what to do, with the
   commands.
 - Prepare version bumps and `CHANGELOG.md` entries as uncommitted edits.
+- Between releases, keep `CHANGELOG.md`'s `## Unreleased` section current:
+  add each change as it lands, so the release only renames the heading to
+  the version.
 
 ## Before declaring any work done
 

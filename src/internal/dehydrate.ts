@@ -296,7 +296,7 @@ const stream = (
 	registry: AtomRegistry.AtomRegistry,
 	client: ClientState,
 	entry: Hydration.DehydratedAtomValue,
-	promise: Promise<unknown>,
+	resultPromise: PromiseLike<unknown>,
 	query: Query.Query<any, any> | undefined,
 ): void => {
 	registry.preloadedSerializable.delete(entry.key);
@@ -311,6 +311,9 @@ const stream = (
 			return;
 		}
 	}
+	// A framework's deserializer may hand over a thenable whose `then`
+	// returns nothing, as React's RSC client does.
+	const promise = Promise.resolve(resultPromise);
 	client.streamed.set(entry.key, promise);
 	// A result no fetch has taken when it lands is loaded as a value, so it
 	// keeps the server's timestamp rather than taking the time of a read

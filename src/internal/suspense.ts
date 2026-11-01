@@ -61,6 +61,33 @@ export const whenShowable = (
 };
 
 /**
+ * What a suspense reader throws for a failed query: a framework's control
+ * flow error as it is, or else a {@link queryFailure}. A control flow error
+ * (Next's `redirect()` and `notFound()`, React Router's) is an error or
+ * defect with a string `digest`, React's convention, which the framework's
+ * boundary finds it by: wrapped, it would be an ordinary error.
+ */
+export const thrownFailure = (
+	query: Query.Query<any, any>,
+	cause: Cause.Cause<unknown>,
+): unknown => {
+	for (const reason of cause.reasons) {
+		const value = Cause.isFailReason(reason)
+			? reason.error
+			: Cause.isDieReason(reason)
+				? reason.defect
+				: undefined;
+		if (
+			Predicate.hasProperty(value, "digest") &&
+			Predicate.isString(value.digest)
+		) {
+			return value;
+		}
+	}
+	return queryFailure(query, cause);
+};
+
+/**
  * The {@link QueryFailure} a suspense reader throws for a failed query. The
  * message uses `Formatter.format`, which never throws: it's built during
  * render, and a key may hold a bigint or a cycle.

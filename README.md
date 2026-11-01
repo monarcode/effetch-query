@@ -61,6 +61,7 @@ endpoints turn into queries and mutations in one line.
   - [Loading it in the browser](#loading-it-in-the-browser)
   - [Streaming](#streaming)
 - [TanStack Router and Start](#tanstack-router-and-start)
+- [Next.js](#nextjs)
 - [The client](#the-client)
   - [Client options](#client-options)
   - [App-wide hooks](#app-wide-hooks)
@@ -1244,6 +1245,129 @@ export const viewer = Query.make({
 | `dehydrate`       | `queries` to send only some queries, `failures: "include"` to send failures, as `QueryClient.dehydrate`. |
 | `handleRedirects` | Default `true`: follow a `redirect()` a query or mutation fails or dies with, in the browser.            |
 | `wrapQueryClient` | Default `true`: wrap the router's `Wrap` in a `QueryProvider` for the client.                            |
+
+## Next.js
+
+The App Router needs no integration package: the core and `./react` cover
+it, as TanStack Query's do. Make each request's client for the server
+components with React's `cache()`, and dispose it with Next's `after()`:
+
+```ts query-client.ts
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { QueryClient } from "@monarcode/effetch-query";
+import { after } from "next/server";
+import { cache } from "react";
+
+import { TodoApiLive } from "./todo-api.js";
+
+// Builds your services once per process, for every request's client.
+const appRuntime = ManagedRuntime.make(TodoApiLive);
+
+// Every server component of a request gets the same client. It's disposed
+// once the response is sent, streamed results included, or after an error,
+// `redirect()` or `notFound()`.
+export const getQueryClient = cache(() => {
+  const client = QueryClient.make({ runtime: appRuntime });
+  after(() => client.dispose());
+  return client;
+});
+```
+
+Disposing matters more than with TanStack Query: a client holds a
+registry, the fetches it's running and, given a `layer` rather than a
+`runtime`, the services it built, and `dispose()` releases them. Call
+`getQueryClient` from server components only: React's `cache()` memoizes
+only while it renders them, so a Route Handler or Server Action gets a new
+client on every call. `import "server-only"` at the top of the file makes
+importing it from a client component a build error.
+
+A server component loads what the page needs and passes it to the client
+components under a `HydrationBoundary`. Client components are the ones in
+a `"use client"` file, such as this one, which marks `TodoList` from
+[Sending the cache](#sending-the-cache):
+
+```tsx todo-list-view.tsx
+"use client";
+
+export { TodoList } from "./todo-list.js";
+```
+
+```tsx
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import { HydrationBoundary } from "@monarcode/effetch-query/react";
+
+import { getQueryClient } from "./query-client.js";
+import { TodoList } from "./todo-list-view.js";
+import { todoList } from "./todo-list.js";
+
+export default async function TodosPage() {
+  const client = getQueryClient();
+  await client.runPromise(Query.prefetch(todoList));
+  return (
+    <HydrationBoundary
+      state={QueryClient.dehydrate(client, { pending: "promise" })}
+    >
+      <TodoList />
+    </HydrationBoundary>
+  );
+}
+```
+
+The client components get their own client from a `QueryProvider` in the
+root layout. The browser keeps one for the page's lifetime, but Next
+renders client components on the server too, for every request, so there
+each render gets its own:
+
+```tsx
+"use client";
+
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { QueryClient } from "@monarcode/effetch-query";
+import { QueryProvider } from "@monarcode/effetch-query/react";
+import { type ReactNode, useState } from "react";
+
+import { TodoApiLive } from "./todo-api.js";
+
+const appRuntime = ManagedRuntime.make(TodoApiLive);
+let browserClient: QueryClient.QueryClient | undefined;
+
+const getClient = () =>
+  typeof window === "undefined"
+    ? QueryClient.make({ runtime: appRuntime })
+    : (browserClient ??= QueryClient.make({ runtime: appRuntime }));
+
+// The root layout renders its children inside it.
+export function Providers({ children }: { readonly children: ReactNode }) {
+  const [client] = useState(getClient);
+  return <QueryProvider client={client}>{children}</QueryProvider>;
+}
+```
+
+- **A server render's client isn't disposed:** nothing says when React is
+  done with it, so it's kept until its queries' `gcTime` passes. Make it
+  from a `runtime`, as here, so it never builds your services itself.
+- **A query still loading crosses as a promise** with
+  `pending: "promise"`, and the client components' readers suspend until
+  it lands. Start a prefetch without awaiting it,
+  `void client.runPromise(Query.prefetch(query))`, and the page renders at
+  once while the value streams in.
+- **On client navigation**, the page's state comes with its payload, and
+  the boundary loads what's newer than the browser's cache. Only queries
+  with a `schema` cross ([Server rendering](#server-rendering)).
+- **Next's `redirect()` and `notFound()` throw.** A query whose run calls
+  one, inside `Effect.suspend`, dies with what it throws: in a server
+  component, `runPromise` rejects with it, and Next follows it. In a
+  client component, `useSuspenseQuery` rethrows it, as it does any error
+  with a string `digest`, so Next's boundaries handle it there too.
+- **Keep queries out of `"use client"` files:** a server component that
+  imports from one gets references to its exports, not the queries.
+
+The Pages Router has no server components: make a client per request in
+`getServerSideProps`, return `QueryClient.dehydrate(client)` as a prop,
+dispose the client, and render the page under a `HydrationBoundary` given
+that prop, as [Server rendering](#server-rendering) does.
 
 ## The client
 

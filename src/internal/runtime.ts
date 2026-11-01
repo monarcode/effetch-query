@@ -3,6 +3,8 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import type * as Option from "effect/Option";
+import type * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Reactivity from "effect/reactivity/Reactivity";
@@ -52,6 +54,15 @@ export interface ClientState {
 	 * `dehydrate.ts`).
 	 */
 	readonly streamed: Map<string, Promise<unknown>>;
+	/**
+	 * Values decoded from the registry's preload map, by the JSON they came
+	 * from: React reads a query's server snapshot again and again while it
+	 * hydrates, and needs one object each time (see `queryAtom.ts`).
+	 */
+	readonly preloads: WeakMap<
+		object,
+		Option.Option<AsyncResult.AsyncResult<any, any>>
+	>;
 	/** Run by `dispose()`: settles the promises `dehydrate` handed out. */
 	readonly onDispose: Set<() => void>;
 }
@@ -66,6 +77,7 @@ export const makeClientState = (): ClientState => ({
 	fetchedAt: new WeakMap(),
 	awaited: new Map(),
 	streamed: new Map(),
+	preloads: new WeakMap(),
 	onDispose: new Set(),
 });
 

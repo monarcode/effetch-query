@@ -284,6 +284,11 @@ npm install --silent --no-audit --no-fund --no-package-lock \
 	"@types/react@$react_types_version" "@types/react-dom@$react_dom_types_version" \
 	"@effect/atom-react@$atom_react_version" "scheduler@$scheduler_version"
 
+# React Server Components resolve packages with the `react-server`
+# condition; the core must load there (Next's server components).
+echo "› Running core.ts as a React Server Component would load it"
+node --conditions=react-server core.ts
+
 cat >react.ts <<'TS'
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

@@ -9,9 +9,10 @@ import type { Query } from "./Query.js";
  * Thrown by `useSuspenseQuery` (from `@monarcode/effetch-query/react`) to the
  * nearest error boundary when a query fails. It carries the query, so the
  * boundary can refetch it with `useResetQueryFailure`, and the full `Cause`.
- * Tell it from other errors with {@link QueryFailure.is}.
- * Code outside React never sees it: there, a query's failure keeps its own
- * error type.
+ * Tell it from other errors with {@link QueryFailure.is}. A failure whose
+ * error has a string `digest` (a framework's `redirect()`, say) is thrown as
+ * it is instead. Code outside React never sees it: there, a query's failure
+ * keeps its own error type.
  *
  * @example
  * ```ts
