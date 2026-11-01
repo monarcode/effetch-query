@@ -60,7 +60,6 @@ describe("QueryClient.make", () => {
 
 	it("rejects a layer that needs services of its own", () => {
 		QueryClient.make({
-			// @effect-diagnostics-next-line missingLayerContext:off
 			// @ts-expect-error the layer needs Unregistered
 			layer: Layer.effect(
 				Greeting,

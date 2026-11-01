@@ -208,7 +208,32 @@ export const resetQuery = (
 	}));
 };
 
+/**
+ * The query's value: a fresh one, or the result of a fetch. While it waits,
+ * the query counts as awaited (`ClientState.awaited`), from before its read,
+ * which can start a fetch that settles at once.
+ */
 export const fetchValue = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+): Effect.Effect<A, E> =>
+	Effect.suspend(() => {
+		const { awaited } = registry.get(StateAtom);
+		awaited.set(query, (awaited.get(query) ?? 0) + 1);
+		return Effect.ensuring(
+			readOrFetch(registry, query),
+			Effect.sync(() => {
+				const count = (awaited.get(query) ?? 1) - 1;
+				if (count === 0) {
+					awaited.delete(query);
+				} else {
+					awaited.set(query, count);
+				}
+			}),
+		);
+	});
+
+const readOrFetch = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
 ): Effect.Effect<A, E> =>

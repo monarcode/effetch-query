@@ -1,6 +1,7 @@
 import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
 import * as Exit from "effect/Exit";
-import type * as Hydration from "effect/reactivity/Hydration";
+import * as Hydration from "effect/reactivity/Hydration";
 
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
@@ -77,7 +78,13 @@ const connectServer = ({
 			...(router.serverSsrLifecycle?.onServerSsrAttach ?? []),
 			(serverSsr: ServerSsr) =>
 				serverSsr.onCleanup(() => {
-					void client.dispose();
+					// A rejection left unhandled would end a Node server's process.
+					client.dispose().catch((error: unknown) => {
+						console.error(
+							"Disposing the request's query client failed:",
+							error,
+						);
+					});
 				}),
 		],
 	};
@@ -160,24 +167,32 @@ const connectBrowser = ({
 			| undefined,
 	) => {
 		const query = dehydrated?.query;
+		const ended = pageEnded();
 		try {
 			await theirs?.(dehydrated);
 			if (query !== undefined) {
-				hydrate(client.registry, query.initial);
+				hydrate(client.registry, untilPageEnd(query.initial, ended));
 			}
 		} catch (error) {
 			void query?.stream.cancel(error).catch(() => {});
 			throw error;
 		}
 		if (query !== undefined) {
-			void readBatches(client, query.stream);
+			void readBatches(client, query.stream, ended);
 		}
 	};
 	if (handleRedirects) {
 		subscribe(client.registry.get(StateAtom), (event) => {
 			if (
-				(event._tag !== "FetchSettled" &&
-					event._tag !== "MutationSettled") ||
+				event._tag !== "FetchSettled" &&
+				event._tag !== "MutationSettled"
+			) {
+				return;
+			}
+			// An awaited fetch's redirect reaches whatever awaits it: a loader's
+			// reaches the router, which follows it, and a preload's is dropped.
+			if (
+				(event._tag === "FetchSettled" && event.awaited) ||
 				Exit.isSuccess(event.exit)
 			) {
 				return;
@@ -204,7 +219,8 @@ const connectBrowser = ({
 /** Hydrates each streamed batch as it lands; a failure is reported, not thrown. */
 const readBatches = async (
 	client: QueryClient.QueryClient,
-	stream: ReadableStream<ReadonlyArray<Hydration.DehydratedAtom>>,
+	stream: ReadableStream<QueryClient.DehydratedState>,
+	ended: Promise<void> | undefined,
 ): Promise<void> => {
 	const reader = stream.getReader();
 	try {
@@ -213,7 +229,7 @@ const readBatches = async (
 			if (done) {
 				return;
 			}
-			hydrate(client.registry, value);
+			hydrate(client.registry, untilPageEnd(value, ended));
 		}
 	} catch (error) {
 		void reader.cancel(error).catch(() => {});
@@ -223,4 +239,52 @@ const readBatches = async (
 	} finally {
 		reader.releaseLock();
 	}
+};
+
+/** Why a streamed result is given up on: the page ended without it. */
+class ResultNotSent extends Data.TaggedError("ResultNotSent")<{}> {}
+
+/**
+ * Settles once the page has loaded and its scripts have run, after which
+ * the server sends nothing more. Without a DOM, never.
+ */
+const pageEnded = (): Promise<void> | undefined => {
+	const { document } = globalThis;
+	if (typeof document?.addEventListener !== "function") {
+		return undefined;
+	}
+	return new Promise((resolve) => {
+		// A macrotask later, so a result the last script resolved lands first.
+		const settle = () => setTimeout(resolve, 0);
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", settle, { once: true });
+		} else {
+			settle();
+		}
+	});
+};
+
+/**
+ * Gives up on streamed results still pending when the page ends, such as
+ * when the server's serialization timed out, so their queries fetch rather
+ * than wait for good.
+ */
+const untilPageEnd = (
+	state: QueryClient.DehydratedState,
+	ended: Promise<void> | undefined,
+): QueryClient.DehydratedState => {
+	if (ended === undefined) {
+		return state;
+	}
+	const notSent = ended.then(() => Promise.reject(new ResultNotSent()));
+	// Rejecting is how a race is lost; nothing else waits on it.
+	notSent.catch(() => {});
+	return Hydration.toValues(Array.from(state)).map((entry) =>
+		entry.resultPromise === undefined
+			? entry
+			: {
+					...entry,
+					resultPromise: Promise.race([entry.resultPromise, notSent]),
+				},
+	);
 };

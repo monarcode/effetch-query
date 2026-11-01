@@ -104,7 +104,8 @@ export const dehydrate = (
 		options.queries === undefined ? () => true : matcher(options.queries);
 	const dehydratedAt = Date.now();
 	const entries: Array<Hydration.DehydratedAtomValue> = [];
-	for (const query of registry.get(StateAtom).index) {
+	const { index } = registry.get(StateAtom);
+	for (const query of index) {
 		const { hydration } = internals(query);
 		if (
 			hydration === undefined ||
@@ -121,7 +122,10 @@ export const dehydrate = (
 			continue;
 		}
 		const key = hydration.hash();
-		if (sent.has(key)) {
+		const earlier = sent.get(key);
+		// One sent in an earlier batch counts only while it's still cached: a
+		// query that replaced it is sent too, and loads over it.
+		if (earlier !== undefined && index.has(earlier)) {
 			throw new DuplicateQueryKey({
 				key: query.key,
 				message: `Two cached queries have the key ${key}, so the browser can't tell them apart`,

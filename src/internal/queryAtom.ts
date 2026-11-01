@@ -405,6 +405,7 @@ export const makeQuery = <A, E>(definition: {
 							key,
 							fetchId: fiber.id,
 							exit,
+							awaited: state.awaited.has(query),
 						});
 						// An interrupted fetch was replaced or left: it isn't a failure.
 						if (

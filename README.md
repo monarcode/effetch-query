@@ -1212,8 +1212,12 @@ export function getRouter() {
 
 A query or mutation that fails or dies with the router's `redirect()`
 navigates there in the browser. Use `Effect.die`, so the redirect stays out
-of the error type. In a loader, `runPromise` rejects with it, and the router
-follows it, on the server too:
+of the error type, and make it inside the Effect, so each run has its own:
+the router resolves a redirect in place. In a loader, `runPromise` rejects
+with it, and the router follows it, on the server too. A fetch an Effect
+awaits is left to that Effect, so a preload drops the redirect, as the
+router does, and a query only prefetched fails in its readers instead: load
+a query that may redirect with `Query.fetch`.
 
 ```ts
 import * as Effect from "effect/Effect";

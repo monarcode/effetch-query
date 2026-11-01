@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
+import * as Hydration from "effect/reactivity/Hydration";
 import * as Schema from "effect/Schema";
 
 import {
@@ -21,13 +24,13 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Mutation, Query, type QueryClient } from "../src/index.js";
+import { Mutation, Query, QueryClient } from "../src/index.js";
 import { useSuspenseQuery } from "../src/react/index.js";
 import {
 	type ConnectQueryClientOptions,
 	connectQueryClient,
 } from "../src/react/tanstack-router/index.js";
-import { disposeClients, gate, makeClient } from "./helpers.js";
+import { disposeClients, gate, makeClient, use } from "./helpers.js";
 
 afterEach(async () => {
 	cleanup();
@@ -37,6 +40,8 @@ afterEach(async () => {
 });
 
 const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+
+class FinalizerFailed extends Data.TaggedError("FinalizerFailed")<{}> {}
 
 interface RouterSetup {
 	readonly connect?:
@@ -75,7 +80,7 @@ const app = () => {
 	});
 	const guarded = Query.make({
 		key: ["guarded"],
-		run: Effect.die(redirect({ to: "/login" })),
+		run: Effect.suspend(() => Effect.die(redirect({ to: "/login" }))),
 		schema: { success: Schema.String },
 	});
 
@@ -236,6 +241,29 @@ describe("server rendering", () => {
 		await vi.waitFor(() => expect(isDisposed(server)).toBe(true));
 	});
 
+	it("reports a failure to dispose the client rather than leaving it unhandled", async () => {
+		const { makeRouter } = app();
+		const server = await makeClient();
+		server.registry.mount(
+			Atom.readable((get) => {
+				get.addFinalizer(() => {
+					throw new FinalizerFailed();
+				});
+				return 1;
+			}),
+		);
+		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await (await serve(makeRouter, server)).text();
+
+		await vi.waitFor(() =>
+			expect(errors).toHaveBeenCalledWith(
+				"Disposing the request's query client failed:",
+				new FinalizerFailed(),
+			),
+		);
+	});
+
 	it("follows a redirect a loader's query dies with, and disposes the client", async () => {
 		const { makeRouter } = app();
 		const server = await makeClient();
@@ -286,6 +314,37 @@ describe("server rendering", () => {
 	});
 });
 
+describe("hydrating", () => {
+	it("fetches a query whose streamed result the page ended without", async () => {
+		const { runs, hold, later, makeRouter } = app();
+		const { wait, open } = gate();
+		hold.later = wait;
+		const server = await makeClient();
+		void server.runPromise(Query.prefetch(later));
+		const initial = Hydration.toValues(
+			QueryClient.dehydrate(server, { pending: "promise" }),
+		).map((entry) => ({ ...entry, resultPromise: new Promise(() => {}) }));
+		const browser = await makeClient();
+		const router = makeRouter(browser, false);
+		hold.later = Effect.void;
+
+		// What the server's router sends, as Router SSR hands it to `hydrate`.
+		const hydrate = router.options.hydrate as (
+			dehydrated: unknown,
+		) => unknown;
+		await hydrate({
+			query: {
+				initial,
+				stream: new ReadableStream({ start: (c) => c.close() }),
+			},
+		});
+
+		expect(await browser.runPromise(Query.fetch(later))).toBe("Later 2");
+		expect(runs.later).toBe(2);
+		open();
+	});
+});
+
 describe("in the browser", () => {
 	const start = async (connect?: RouterSetup["connect"]) => {
 		const parts = app();
@@ -295,14 +354,36 @@ describe("in the browser", () => {
 		return { ...parts, client, router };
 	};
 
-	it("navigates to a redirect a query dies with", async () => {
+	it("navigates to a redirect a query a component reads dies with", async () => {
 		const { client, router, guarded } = await start();
 
-		await client.runPromiseExit(Query.fetch(guarded));
+		use(client.registry, guarded);
 
 		await vi.waitFor(() =>
 			expect(router.state.location.pathname).toBe("/login"),
 		);
+	});
+
+	it("leaves a loader's redirect to the router, so Back returns to the page before", async () => {
+		const { router } = await start();
+
+		await act(() => router.navigate({ to: "/private" }));
+		await vi.waitFor(() =>
+			expect(router.state.location.pathname).toBe("/login"),
+		);
+		// The router follows history only once it's rendered: the entry is enough.
+		router.history.back();
+
+		expect(router.history.location.pathname).toBe("/");
+	});
+
+	it("stays on the page when a route that redirects is preloaded", async () => {
+		const { router } = await start();
+
+		await router.preloadRoute({ to: "/private" });
+		await act(async () => {});
+
+		expect(router.state.location.pathname).toBe("/");
 	});
 
 	it("navigates to a redirect a mutation dies with", async () => {
@@ -323,7 +404,7 @@ describe("in the browser", () => {
 			handleRedirects: false,
 		});
 
-		await client.runPromiseExit(Query.fetch(guarded));
+		use(client.registry, guarded);
 		await act(async () => {});
 
 		expect(router.state.location.pathname).toBe("/");

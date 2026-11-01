@@ -26,7 +26,7 @@ export { DuplicateQueryKey, NonJsonKey } from "./HydrationError.js";
  * next to your composition root, and every definition, client hook and
  * {@link QueryClient.runPromise} is typed against it:
  *
- * - {@link make} requires a layer that provides these services.
+ * - {@link make} requires a layer or a runtime that provides these services.
  * - An Effect that needs a service outside them doesn't compile.
  *
  * Without the augmentation, {@link Services} is `never`, so anything that
@@ -123,12 +123,13 @@ export type Hook<Event> = (
 ) => Effect.Effect<void, never, Requirements>;
 
 /**
- * A query cache with its own {@link AtomRegistry.AtomRegistry} and its own
- * build of your layer. Create one with {@link make} (or {@link layer} in
- * Effect programs). Every query, mutation and Effect-side cache function runs
+ * A query cache with its own {@link AtomRegistry.AtomRegistry}, and your
+ * services from its own build of your layer or from your runtime. Create one
+ * with {@link make} (or {@link layer} in Effect programs). Every query, mutation and Effect-side cache function runs
  * with it, as the {@link QueryClient} service.
  *
- * A client is cheap to create. On a server, create one per request and
+ * A client is cheap to create. On a server, create one per request from
+ * your process's runtime ({@link RuntimeOptions}) and
  * {@link QueryClient.dispose} it when the response is done.
  *
  * @example

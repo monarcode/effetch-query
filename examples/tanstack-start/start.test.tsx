@@ -48,8 +48,9 @@ beforeAll(() => {
 				"/todos/9",
 				"/account",
 			],
-			// A missing todo fails while rendering, which React logs.
-			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+			// A missing todo fails while rendering, which React logs: the log
+			// is kept, and shown only if rendering fails.
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
 		),
 	);
 	for (const page of rendered) {

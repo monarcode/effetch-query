@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
 import { InfiniteQuery, Query, QueryClient } from "../src/index.js";
+import { dehydrate } from "../src/internal/dehydrate.js";
 import { hashKey } from "../src/internal/hashKey.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
 import {
@@ -497,6 +498,24 @@ describe("dehydrate and hydrate", () => {
 		expect(() => QueryClient.dehydrate(server)).toThrow(
 			QueryClient.DuplicateQueryKey,
 		);
+	});
+
+	it("send a query that replaced one an earlier batch sent", async () => {
+		const server = await makeClient();
+		const first = todoList({ gcTime: 0 }).todos;
+		const second = todoList().todos;
+		const sent = new Map<string, Query.Query<any, any>>();
+		await server.runPromise(Query.prefetch(first));
+		expect(dehydrate(server.registry, {}, sent)).toHaveLength(1);
+		await vi.waitFor(() =>
+			expect(server.registry.getNodes().has(first)).toBe(false),
+		);
+		await server.runPromise(Query.prefetch(second));
+
+		const batch = Hydration.toValues(dehydrate(server.registry, {}, sent));
+
+		expect(batch.map((entry) => entry.key)).toEqual([...sent.keys()]);
+		expect([...sent.values()]).toEqual([second]);
 	});
 
 	it("fail for a key that isn't JSON, only when it's sent", async () => {

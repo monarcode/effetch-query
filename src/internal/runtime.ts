@@ -42,6 +42,11 @@ export interface ClientState {
 	/** Each query's latest fetch, by its place in `fetchCount`. */
 	readonly fetchedAt: WeakMap<Query<any, any>, number>;
 	/**
+	 * How many Effects wait on each query's value (`fetchValue`): they get a
+	 * failure themselves, so `FetchSettled` says so (see `events.ts`).
+	 */
+	readonly awaited: Map<Query<any, any>, number>;
+	/**
 	 * Results the server was still loading when it sent the cache, by hash:
 	 * the query's next fetch waits for one instead of fetching (see
 	 * `dehydrate.ts`).
@@ -59,6 +64,7 @@ export const makeClientState = (): ClientState => ({
 	suspensions: new Map(),
 	fetchCount: 0,
 	fetchedAt: new WeakMap(),
+	awaited: new Map(),
 	streamed: new Map(),
 	onDispose: new Set(),
 });

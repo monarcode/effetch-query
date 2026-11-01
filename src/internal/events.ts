@@ -8,8 +8,10 @@ import type { ClientState } from "./runtime.js";
  * What happens in a client's cache. SSR streaming, router redirects and
  * devtools build on this channel; it's internal until devtools. A fetch's
  * `fetchId` pairs its `FetchStarted` with its `FetchSettled`, whose exit is
- * an interruption when the fetch was replaced or the client disposed. A
- * mutation run's `runId` pairs its events the same way.
+ * an interruption when the fetch was replaced or the client disposed, and
+ * whose `awaited` says an Effect waits on it (`Query.fetch`, a router
+ * loader's): that Effect gets a failure itself. A mutation run's `runId`
+ * pairs its events the same way.
  */
 export type CacheEvent =
 	| { readonly _tag: "QueryAdded"; readonly key: QueryKey }
@@ -24,6 +26,7 @@ export type CacheEvent =
 			readonly key: QueryKey;
 			readonly fetchId: number;
 			readonly exit: Exit.Exit<unknown, unknown>;
+			readonly awaited: boolean;
 	  }
 	| {
 			readonly _tag: "MutationStarted";

@@ -59,15 +59,17 @@ export interface ConnectQueryClientOptions {
 	/** The router, made for this request on the server. */
 	readonly router: AnyRouter;
 	/**
-	 * The query client, made with the router. On the server it must be this
-	 * request's own: it's disposed when the request ends.
+	 * The query client, made with the router and connected to no other. On
+	 * the server it must be this request's own: it's disposed when the
+	 * request ends.
 	 */
 	readonly queryClient: QueryClient.QueryClient;
 	/** Which queries the server sends. */
 	readonly dehydrate?: ConnectDehydrateOptions | undefined;
 	/**
 	 * Whether a query or mutation that fails or dies with a `redirect()`
-	 * navigates there, in the browser. Default: `true`.
+	 * navigates there, in the browser, unless an Effect awaits the fetch
+	 * (a loader's `Query.fetch`). Default: `true`.
 	 */
 	readonly handleRedirects?: boolean | undefined;
 	/**
@@ -95,8 +97,12 @@ export interface ConnectQueryClientOptions {
  * - **Redirects:** a query or mutation that fails or dies with a router
  *   `redirect()` navigates there, in the browser. Write it as
  *   `Effect.die(redirect({ to: "/login" }))`, to keep it out of the error
- *   type. In a loader, `runPromise` rejects with the redirect, and the
- *   router follows it.
+ *   type, inside the Effect so each run makes its own: the router resolves
+ *   a redirect in place. A fetch an Effect awaits (`Query.fetch` or
+ *   `Query.prefetch`) is left to it: in a loader, `runPromise` rejects with
+ *   the redirect and the router follows it, and a preload's is dropped, as
+ *   the router drops it. So load a query that may redirect with
+ *   `Query.fetch`: one only prefetched fails in its readers instead.
  *
  * Load data in loaders with `context.queryClient.runPromise(Query.fetch(…))`,
  * which returns a fresh value without fetching, and set the router's
