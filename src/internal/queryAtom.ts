@@ -12,7 +12,9 @@ import type * as QueryClient from "../QueryClient.js";
 import { resolveGcTime, resolveQueryOptions } from "./defaults.js";
 import { emit } from "./events.js";
 import { type Watcher, watch } from "./freshness.js";
+import { hashKey } from "./hashKey.js";
 import { forkQueryHooks } from "./hooks.js";
+import type { Codec, Hydration } from "./hydration.js";
 import {
 	ConfigAtom,
 	ReactivityAtom,
@@ -80,11 +82,19 @@ export interface Local<A, E> {
 export interface Internals<A, E> {
 	readonly options: Query.Options<E>;
 	readonly member: Member | undefined;
+	/** Set for a query with a `schema`: how it crosses the wire (DESIGN.md §3.12). */
+	readonly hydration: QueryHydration<A, E> | undefined;
 	readonly local: Atom.Writable<Local<A, E>>;
 	readonly fetchAtom: (
 		generation: number,
 	) => Atom.Atom<AsyncResult.AsyncResult<A, E>>;
 	readonly watcher: Atom.Atom<Watcher<E>>;
+}
+
+export interface QueryHydration<A, E> {
+	readonly codec: Codec<A, E>;
+	/** The string the query is found by; throws `NonJsonKey`. */
+	readonly hash: () => string;
 }
 
 interface QueryWithInternals<A, E> extends Query.Query<A, E> {
@@ -203,8 +213,21 @@ export const makeQuery = <A, E>(definition: {
 	readonly member?: Member | undefined;
 	/** Atoms that live as long as the query, without refetching it when they change. */
 	readonly mounts?: ReadonlyArray<Atom.Atom<unknown>> | undefined;
+	readonly hydration?: Hydration<A, E> | undefined;
 }): Query.Query<A, E> => {
-	const { key, fetch: makeFetch, options, member, mounts = [] } = definition;
+	const {
+		key,
+		fetch: makeFetch,
+		options,
+		member,
+		mounts = [],
+		hydration: definitionHydration,
+	} = definition;
+	let hash: string | undefined;
+	const hydration: QueryHydration<A, E> | undefined = definitionHydration && {
+		codec: definitionHydration.codec,
+		hash: () => (hash ??= hashKey(key, definitionHydration.kind)),
+	};
 	const { reactivityKeys } = options;
 	// The client's defaults are read at run time, so one definition serves
 	// every client; the watcher resolves them once per query node.
@@ -330,7 +353,14 @@ export const makeQuery = <A, E>(definition: {
 				Option.getOrElse(peek(get(RegistryAtom), query), () =>
 					AsyncResult.initial<A, E>(true),
 				),
-			[InternalsId]: { options, member, local, fetchAtom, watcher },
+			[InternalsId]: {
+				options,
+				member,
+				hydration,
+				local,
+				fetchAtom,
+				watcher,
+			},
 		},
 	);
 	return query;

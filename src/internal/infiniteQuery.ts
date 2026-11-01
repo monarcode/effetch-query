@@ -10,6 +10,7 @@ import type * as InfiniteQuery from "../InfiniteQuery.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { fetchValue } from "./cache.js";
+import type { Hydration } from "./hydration.js";
 import { type Member, makeQuery, nodeValue, peek } from "./queryAtom.js";
 import { forkWithClient } from "./runtime.js";
 
@@ -144,13 +145,24 @@ export const makeInfiniteQuery = <A, E, P>(definition: {
 	readonly pages: Pages<A, P>;
 	readonly options: Query.Options<E>;
 	readonly member?: Member | undefined;
+	readonly hydration?:
+		| Hydration<InfiniteQuery.InfiniteData<A, P>, E>
+		| undefined;
 }): InfiniteQuery.InfiniteQuery<A, E, P> => {
-	const { key, run, pages, options, member } = definition;
+	const { key, run, pages, options, member, hydration } = definition;
 	const paging = Atom.make<Paging>(idle);
 	const query = makeQuery<InfiniteQuery.InfiniteData<A, P>, E>({
 		key,
 		options,
 		member,
+		// Its keys hash apart from a plain query's with the same key.
+		hydration: hydration && {
+			codec: hydration.codec,
+			kind:
+				hydration.kind === undefined
+					? "infinite"
+					: `infinite/${hydration.kind}`,
+		},
 		// The query keeps `paging` alive without depending on it: a request
 		// refetches only through the refresh `fetchPage` makes.
 		mounts: [paging],

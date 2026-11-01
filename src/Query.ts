@@ -5,9 +5,11 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Reactivity from "effect/reactivity/Reactivity";
+import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
 import * as cache from "./internal/cache.js";
+import { makeCodec } from "./internal/hydration.js";
 import { matching } from "./internal/keyIndex.js";
 import * as optimistic from "./internal/optimistic.js";
 import * as internal from "./internal/queryAtom.js";
@@ -247,6 +249,35 @@ export interface Options<E> extends QueryClient.QueryDefaults<E> {
 }
 
 /**
+ * How a query's value is sent from the server to the browser, for server
+ * rendering: Schemas for its value and, to send failures too, its error.
+ * Only queries with one are sent (`QueryClient.dehydrate`); the rest fetch
+ * in the browser. Each must be a JSON codec that needs no services, as
+ * `Schema.toCodecJson` derives from it.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { Query } from "@monarcode/effetch-query";
+ *
+ * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+ *
+ * export const schema: Query.QuerySchema<ReadonlyArray<typeof Todo.Type>, never> = {
+ *   success: Schema.Array(Todo),
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface QuerySchema<A, E> {
+	/** The value's schema. */
+	readonly success: Schema.Codec<A, unknown>;
+	/** The error's schema, needed only to send failures. */
+	readonly error?: Schema.Codec<E, unknown> | undefined;
+}
+
+/**
  * Options for {@link make}.
  *
  * @example
@@ -277,6 +308,8 @@ export interface MakeOptions<A, E> extends Options<E> {
 		| ((
 				ctx: RunContext,
 		  ) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>);
+	/** How the value crosses from server to browser; without one, it fetches in the browser. */
+	readonly schema?: QuerySchema<A, E> | undefined;
 }
 
 /**
@@ -307,6 +340,8 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
 		args: Args,
 		ctx: RunContext,
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
+	/** How each member's value crosses from server to browser, as {@link MakeOptions.schema}. */
+	readonly schema?: QuerySchema<A, E> | undefined;
 }
 
 /**
@@ -333,6 +368,7 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
 		key: options.key,
 		fetch: internal.runOnce(internal.toRun(options.run)),
 		options,
+		hydration: options.schema && { codec: makeCodec(options.schema) },
 	});
 
 /**
@@ -372,6 +408,7 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
 export const family = <Args, A, E>(
 	options: FamilyOptions<Args, A, E>,
 ): QueryFamily<Args, A, E> => {
+	const hydration = options.schema && { codec: makeCodec(options.schema) };
 	const self: QueryFamily<Args, A, E> = Object.assign(
 		Atom.family((args: Args) =>
 			internal.makeQuery({
@@ -379,6 +416,7 @@ export const family = <Args, A, E>(
 				fetch: internal.runOnce((ctx) => options.run(args, ctx)),
 				options,
 				member: { family: self, args },
+				hydration,
 			}),
 		),
 		{ key: options.key },

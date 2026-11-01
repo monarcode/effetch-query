@@ -17,6 +17,8 @@ import type { Mutation } from "./Mutation.js";
 import type { QueryKey } from "./Query.js";
 import type { Signals } from "./Signals.js";
 
+export { NonJsonKey } from "./HydrationError.js";
+
 /**
  * Declares the services your queries and mutations run with. Augment it once,
  * next to your composition root, and every definition, client hook and

@@ -43,6 +43,7 @@ describe("public entry points", () => {
 			"update",
 		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([
+			"NonJsonKey",
 			"QueryClient",
 			"layer",
 			"make",

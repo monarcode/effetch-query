@@ -2,10 +2,12 @@ import type * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as HttpMethod from "effect/http/HttpMethod";
 import * as Atom from "effect/reactivity/Atom";
+import type * as Schema from "effect/Schema";
 
 import type * as Fetch from "@monarcode/effetch";
 
 import type * as InfiniteQuery from "../InfiniteQuery.js";
+import { infiniteSchema, makeCodec } from "../internal/hydration.js";
 import { makeInfiniteQuery } from "../internal/infiniteQuery.js";
 import { KeyMatcherId } from "../internal/keyIndex.js";
 import { isMember, makeQuery, runOnce } from "../internal/queryAtom.js";
@@ -446,7 +448,9 @@ export interface Endpoints<
 
 /** A definition or bound endpoint as the adapter uses it, whatever its types. */
 interface AnyEndpoint {
+	readonly method: string;
 	readonly path: string;
+	readonly output: Fetch.AnySchema | undefined;
 	readonly error: Fetch.AnySchema | undefined;
 }
 
@@ -551,6 +555,22 @@ export const endpoints = <
 		});
 		return self;
 	};
+	// An endpoint's queries cross the wire with its `output`, keyed apart
+	// by method: `GET` and `HEAD` of one path share keys.
+	const hydrationOf = (
+		endpoint: AnyEndpoint,
+		schema: (
+			output: Schema.Codec<unknown, unknown>,
+		) => Query.QuerySchema<any, any>,
+	) =>
+		endpoint.output === undefined
+			? undefined
+			: {
+					codec: makeCodec(
+						schema(endpoint.output as Schema.Codec<unknown, unknown>),
+					),
+					kind: endpoint.method === "GET" ? undefined : endpoint.method,
+				};
 	const query = (
 		endpoint: AnyEndpoint,
 		queryOptions?: EndpointQueryOptions<unknown, Ps>,
@@ -558,6 +578,7 @@ export const endpoints = <
 		const { headers, plugins, ...rest } = queryOptions ?? {};
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
+		const hydration = hydrationOf(endpoint, (success) => ({ success }));
 		return endpointFamily(
 			endpoint,
 			path,
@@ -568,6 +589,7 @@ export const endpoints = <
 					fetch: runOnce(() => fetch(args)),
 					options: rest,
 					member: { family, args },
+					hydration,
 				}),
 		);
 	};
@@ -593,6 +615,9 @@ export const endpoints = <
 			previousPageParam,
 			maxPages,
 		};
+		const hydration = hydrationOf(endpoint, (page) =>
+			infiniteSchema({ page }),
+		);
 		return endpointFamily(
 			endpoint,
 			path,
@@ -605,6 +630,7 @@ export const endpoints = <
 					pages,
 					options: rest,
 					member: { family, args },
+					hydration,
 				}),
 		);
 	};
