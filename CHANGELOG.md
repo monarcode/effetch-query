@@ -2,6 +2,34 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-rc.1
+
+Fixes from using the RC in cashmore-mobile, and two additions agreed as
+exceptions to the API freeze, which otherwise holds until `0.1.0`.
+
+### Added
+
+- `useMutation`'s `run` takes callbacks for one run as a second argument,
+  `run(variables, { onSuccess, onFailure, onSettled })`, as TanStack's
+  `mutate(variables, { onSuccess })`. They run after the mutation's own,
+  and are dropped if, before the run settles, `reset` is called, a newer
+  run starts or the component unmounts; so a lookup reset when its input
+  changes never fills in an old answer. New type: `UseMutationRunOptions`.
+  Passing `run` itself to `map` or `forEach` no longer compiles, since
+  the index would be taken as the options: write
+  `ids.map((id) => run(id))`.
+- `QueryClient.get(client, query)` reads a query's cached value
+  synchronously, as an `Option`, outside Effect: TanStack's
+  `getQueryData`.
+
+### Fixed
+
+- Endpoint queries and infinite queries accept a `query` typed with an
+  `interface`, as effetch's own calls do: `EndpointQueryArgs` checks it
+  with `Fetch.QueryOf`.
+- The docs say that, with `concurrent: false`, a run a newer one replaces
+  resolves with an interrupted `Exit`.
+
 ## 0.1.0-rc.0
 
 The first release candidate: the TanStack Router and Start integration,

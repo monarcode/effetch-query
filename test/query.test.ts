@@ -181,6 +181,19 @@ describe("writing to the cache", () => {
 		);
 	});
 
+	it("QueryClient.get reads the cached value synchronously, as get does", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(["sync"], () => Effect.succeed(1));
+
+		expect(QueryClient.get(client, query)).toEqual(Option.none());
+		expect(client.registry.getNodes().has(query)).toBe(false);
+
+		await client.runPromise(Query.set(query, 2));
+
+		expect(QueryClient.get(client, query)).toEqual(Option.some(2));
+		expect(fetches.count).toBe(0);
+	});
+
 	it("update applies a function to the value, and does nothing without one", async () => {
 		const client = await makeClient();
 		const { fetches, query } = tracked(["list"], () => Effect.succeed(["a"]));

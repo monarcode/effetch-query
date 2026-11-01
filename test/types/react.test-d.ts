@@ -1,3 +1,4 @@
+import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -15,6 +16,7 @@ import {
 	useInfiniteQuery,
 	type UseInfiniteQueryResult,
 	useMutation,
+	type UseMutationRunOptions,
 	useQuery,
 	useQueryClient,
 	useRefetch,
@@ -68,7 +70,10 @@ describe("useMutation", () => {
 			AsyncResult.AsyncResult<number, never>
 		>();
 		expectTypeOf(run).toEqualTypeOf<
-			(variables: string) => Promise<Exit.Exit<number, never>>
+			(
+				variables: string,
+				options?: UseMutationRunOptions<string, number, never> | undefined,
+			) => Promise<Exit.Exit<number, never>>
 		>();
 		expectTypeOf(reset).toEqualTypeOf<() => void>();
 		// @ts-expect-error: the variables are a string
@@ -79,6 +84,29 @@ describe("useMutation", () => {
 		const signOut = Mutation.make({ run: () => Effect.void });
 
 		void useMutation(signOut).run();
+		void useMutation(signOut).run(undefined, { onSuccess: () => {} });
+	});
+
+	it("types a run's callbacks by the mutation", () => {
+		const save = Mutation.make({
+			run: (title: string) =>
+				title === ""
+					? Effect.fail(new Missing())
+					: Effect.succeed(title.length),
+		});
+
+		void useMutation(save).run("a", {
+			onSuccess: (value, variables) => {
+				expectTypeOf(value).toEqualTypeOf<number>();
+				expectTypeOf(variables).toEqualTypeOf<string>();
+			},
+			onFailure: (cause) => {
+				expectTypeOf(cause).toEqualTypeOf<Cause.Cause<Missing>>();
+			},
+			onSettled: (exit) => {
+				expectTypeOf(exit).toEqualTypeOf<Exit.Exit<number, Missing>>();
+			},
+		});
 	});
 });
 

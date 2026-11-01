@@ -77,6 +77,32 @@ describe("Endpoints.query", () => {
 		todos({ query: { page: 2 } });
 	});
 
+	it("takes a query typed with an interface, and checks its fields", () => {
+		interface ListTodosParams {
+			readonly page: number;
+			readonly tags?: ReadonlyArray<string> | undefined;
+		}
+		interface Nested {
+			readonly filter: { readonly done: boolean };
+		}
+		const todos = api.query(Fetch.endpoint("GET /todos", { output: Todo }));
+		const todoPages = api.infiniteQuery(
+			Fetch.endpoint("GET /todos", { output: Todo }),
+			{
+				pageParam: "skip",
+				initialPageParam: 0,
+				nextPageParam: () => undefined,
+			},
+		);
+		const params: ListTodosParams = { page: 2 };
+		const nested: Nested = { filter: { done: true } };
+
+		todos({ query: params });
+		todoPages({ query: params });
+		// @ts-expect-error: an object can't be sent in a query field
+		todos({ query: nested });
+	});
+
 	it("only takes endpoints without a body", () => {
 		const create = Fetch.endpoint("POST /todos", { output: Todo });
 

@@ -6,6 +6,8 @@ import type * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Option from "effect/Option";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Hydration from "effect/reactivity/Hydration";
 import * as Reactivity from "effect/reactivity/Reactivity";
@@ -15,6 +17,7 @@ import * as Scope from "effect/Scope";
 import { observeNodes } from "./internal/cache.js";
 import * as hydration from "./internal/dehydrate.js";
 import * as disposal from "./internal/disposeAfter.js";
+import { peek } from "./internal/queryAtom.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
 import type { Mutation } from "./Mutation.js";
 import type * as Query from "./Query.js";
@@ -962,6 +965,37 @@ export const hydrate = (
 	client: QueryClient,
 	state: Iterable<Hydration.DehydratedAtom>,
 ): void => hydration.hydrate(client.registry, state);
+
+/**
+ * Returns a query's cached value in `client`, if it has one, outside Effect:
+ * TanStack's `queryClient.getQueryData`. It reads as `Query.get` does,
+ * without fetching, for code that can't wait for a promise, such as a form
+ * listener. Inside Effect, use `Query.get`.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ * import * as Option from "effect/Option";
+ *
+ * import { Query, QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const client: QueryClient.QueryClient;
+ *
+ * const plans = Query.make({ key: ["plans"], run: Effect.succeed(["Basic"]) });
+ *
+ * export const onProviderChange = () => {
+ *   const cached = Option.getOrElse(QueryClient.get(client, plans), () => []);
+ *   console.log(`${cached.length} plans cached`);
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export const get = <A, E>(
+	client: QueryClient,
+	query: Query.Query<A, E>,
+): Option.Option<A> =>
+	Option.flatMap(peek(client.registry, query), AsyncResult.value);
 
 /**
  * Returns `response` with its body wrapped so that `client` is disposed once

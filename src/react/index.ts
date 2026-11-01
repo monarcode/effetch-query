@@ -6,6 +6,7 @@ export {
 	type UseInfiniteQueryResult,
 	useMutation,
 	type UseMutationResult,
+	type UseMutationRunOptions,
 	useQuery,
 	type UseQueryOptions,
 	useRefetch,

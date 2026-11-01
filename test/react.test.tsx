@@ -537,6 +537,63 @@ describe("useMutation", () => {
 
 		expect(text()).toBe("Initial");
 	});
+
+	it("drops a run's callbacks after reset", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const found: Array<string> = [];
+		const lookUp = Mutation.make({
+			run: (meter: string) => Effect.as(slow.wait, `name of ${meter}`),
+		});
+		let controls:
+			| ReturnType<typeof useMutation<string, string, never>>
+			| undefined;
+		const Lookup = () => {
+			controls = useMutation(lookUp);
+			return <p data-testid="result">{show(controls.result)}</p>;
+		};
+		render(withClient(client, <Lookup />));
+
+		const pending = controls?.run("123", {
+			onSuccess: (name) => found.push(name),
+		});
+		act(() => controls?.reset());
+		slow.open();
+		await act(async () => {
+			await pending;
+		});
+
+		expect(found).toEqual([]);
+		expect(text()).toBe("Initial");
+	});
+
+	it("calls a run's callbacks while mounted, and drops them after unmount", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const saved: Array<number> = [];
+		const save = Mutation.make({
+			run: (n: number) =>
+				n === 1 ? Effect.succeed(n) : Effect.as(slow.wait, n),
+		});
+		let run: ((n: number) => Promise<unknown>) | undefined;
+		const Saver = () => {
+			const controls = useMutation(save);
+			run = (n) =>
+				controls.run(n, { onSuccess: (value) => saved.push(value) });
+			return null;
+		};
+		const view = render(withClient(client, <Saver />));
+
+		await act(async () => {
+			await run?.(1);
+		});
+		const pending = run?.(2);
+		view.unmount();
+		slow.open();
+		await pending;
+
+		expect(saved).toEqual([1]);
+	});
 });
 
 describe("useRefetch", () => {

@@ -50,6 +50,7 @@ describe("public entry points", () => {
 			"QueryClient",
 			"dehydrate",
 			"disposeAfter",
+			"get",
 			"hydrate",
 			"layer",
 			"make",

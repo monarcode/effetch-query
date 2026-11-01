@@ -3,10 +3,11 @@ import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
+import type * as Option from "effect/Option";
 
 import { describe, expectTypeOf, it } from "vitest";
 
-import { QueryClient } from "../../src/index.js";
+import { Query, QueryClient } from "../../src/index.js";
 import {
 	Greeting,
 	servicesLayer,
@@ -121,6 +122,16 @@ describe("runPromise and runPromiseExit", () => {
 		// @effect-diagnostics-next-line missingEffectContext:off
 		// @ts-expect-error Unregistered isn't in Register
 		client.runPromise(Unregistered.useSync(({ value }) => value));
+	});
+});
+
+describe("QueryClient.get", () => {
+	it("returns the query's value type as an Option", () => {
+		const count = Query.make({ key: ["count"], run: Effect.succeed(1) });
+
+		expectTypeOf(QueryClient.get(client, count)).toEqualTypeOf<
+			Option.Option<number>
+		>();
 	});
 });
 
