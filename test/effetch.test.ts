@@ -459,8 +459,9 @@ describe("hydration", () => {
 	};
 
 	it("sends an endpoint query without code", async () => {
+		const freshTodo = api.query(getTodo, { staleTime: "1 minute" });
 		const server = await serve();
-		await server.runPromise(Query.prefetch(todo({ params: { id: 1 } })));
+		await server.runPromise(Query.prefetch(freshTodo({ params: { id: 1 } })));
 		const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(server)));
 		const handler = todosServer();
 		const browser = await serve(handler.handle);
@@ -468,7 +469,9 @@ describe("hydration", () => {
 		QueryClient.hydrate(browser, sent);
 
 		expect(
-			await browser.runPromise(Query.fetch(todo({ params: { id: 1 } }))),
+			await browser.runPromise(
+				Query.fetch(freshTodo({ params: { id: 1 } })),
+			),
 		).toEqual({ id: 1, title: "Write tests" });
 		expect(handler.hits("GET /todos/1")).toBe(0);
 	});

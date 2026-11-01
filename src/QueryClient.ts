@@ -657,10 +657,14 @@ export const make = (options: Options): QueryClient => {
 				Effect.sync(() => {
 					state.disposed = true;
 					registry.dispose();
-					for (const settle of state.onDispose) {
-						settle();
-					}
 				}).pipe(
+					Effect.ensuring(
+						Effect.sync(() => {
+							for (const settle of state.onDispose) {
+								settle();
+							}
+						}),
+					),
 					Effect.ensuring(
 						Effect.suspend(() => Fiber.interruptAll([...state.fibers])),
 					),
@@ -825,7 +829,7 @@ export const dehydrate = (
  * Loads a cache {@link dehydrate} sent into a client, as TanStack's
  * `hydrate`. A query that isn't cached shows its value the first time it's
  * read, without fetching, and refetches once it's stale. A cached query
- * takes it only if it's newer than what it shows. A query the server was
+ * takes it only if it's newer than the last data it has. A query the server was
  * still loading waits for its result instead of fetching.
  *
  * Values its schema can't decode are dropped, and the query fetches. State

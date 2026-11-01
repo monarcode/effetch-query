@@ -109,23 +109,23 @@ export const setValue = <A, E>(
 
 /**
  * Puts a value from the server into a cached query (DESIGN.md §3.12),
- * unless it shows newer data: a success newer than the one it has, or
- * anything over a query without a success. The query moves to a fetch atom
- * seeded with it, as `setValue` seeds, so it shows without fetching, its
- * freshness is the server's, and a fetch it was running is dropped.
+ * unless it has newer data: a success newer than its own (or its failure's
+ * last one), or anything over a query that has never succeeded. The query
+ * moves to a fetch atom seeded with it, as `setValue` seeds, so it shows
+ * without fetching, its freshness is the server's, and a fetch it was
+ * running is dropped.
  */
 export const hydrateValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
 	result: AsyncResult.AsyncResult<A, E>,
 ): void => {
-	const current = peek(registry, query);
+	const shown = Option.flatMap(peek(registry, query), lastSuccess);
 	if (
-		Option.isSome(current) &&
-		AsyncResult.isSuccess(current.value) &&
+		Option.isSome(shown) &&
 		!(
 			AsyncResult.isSuccess(result) &&
-			result.timestamp > current.value.timestamp
+			result.timestamp > shown.value.timestamp
 		)
 	) {
 		return;
@@ -139,6 +139,15 @@ export const hydrateValue = <A, E>(
 	registry.set(local, { generation: target, written: Option.none() });
 	registry.get(query);
 };
+
+const lastSuccess = <A, E>(
+	result: AsyncResult.AsyncResult<A, E>,
+): Option.Option<AsyncResult.Success<A, E>> =>
+	AsyncResult.isSuccess(result)
+		? Option.some(result)
+		: AsyncResult.isFailure(result)
+			? result.previousSuccess
+			: Option.none();
 
 /** Writes a value computed from the cached one, as `setValue` does, if there is one. */
 export const updateValue = <A, E>(
@@ -204,20 +213,21 @@ export const fetchValue = <A, E>(
 	query: Query.Query<A, E>,
 ): Effect.Effect<A, E> =>
 	Effect.suspend(() => {
-		if (Option.isSome(peek(registry, query))) {
-			const { fetchedAt } = registry.get(StateAtom);
-			const before = fetchedAt.get(query);
-			// Reading a query invalidated while unused refetches it, and a fetch
-			// that settles at once leaves nothing waiting to tell it by.
-			const current = registry.get(query);
+		const { fetchedAt } = registry.get(StateAtom);
+		const before = fetchedAt.get(query);
+		// Reading a query that isn't cached, or was invalidated while unused,
+		// fetches it, and a fetch that settles at once leaves nothing waiting
+		// to tell it by. A read that doesn't fetch shows a cached value or one
+		// `hydrate` left, which may be stale.
+		const current = registry.get(query);
+		if (fetchedAt.get(query) === before) {
 			if (isFresh(current, settings(registry, query).staleTime)) {
 				return Effect.succeed(current.value);
 			}
-			if (!current.waiting && fetchedAt.get(query) === before) {
+			if (!current.waiting) {
 				registry.refresh(query);
 			}
 		}
-		// Otherwise building the query is its first fetch.
 		return AtomRegistry.getResult(registry, query, {
 			suspendOnWaiting: true,
 		});

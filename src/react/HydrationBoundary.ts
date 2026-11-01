@@ -4,7 +4,7 @@ import type * as Hydration from "effect/reactivity/Hydration";
 
 import * as React from "react";
 
-import { hydrate, partition } from "../internal/dehydrate.js";
+import { hydrate, hydrateFresh, partition } from "../internal/dehydrate.js";
 import { useRegistry } from "./QueryProvider.js";
 
 /**
@@ -94,7 +94,7 @@ export const HydrationBoundary = ({
 		}
 		const entries = partition(registry, state);
 		if (entries.fresh.length > 0) {
-			hydrate(registry, entries.fresh);
+			hydrateFresh(registry, entries.fresh);
 		}
 		return entries.cached.length > 0 ? entries.cached : undefined;
 	}, [registry, state]);

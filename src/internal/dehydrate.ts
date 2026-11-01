@@ -2,34 +2,24 @@ import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Hydration from "effect/reactivity/Hydration";
-import * as Schema from "effect/Schema";
+import type * as Schema from "effect/Schema";
 
 import { DuplicateQueryKey } from "../HydrationError.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { hydrateValue } from "./cache.js";
-import { type Codec, decodeResult, hashOption } from "./hydration.js";
+import {
+	type Codec,
+	decodeResult,
+	encodeResult,
+	hashOption,
+} from "./hydration.js";
 import { matcher } from "./keyIndex.js";
 import { internals, peek, type QueryHydration } from "./queryAtom.js";
 import { type ClientState, StateAtom } from "./runtime.js";
 
 const isOwnKey = (key: string): boolean =>
 	key.startsWith("effetch-query:") || key.startsWith("effetch-query/");
-
-/** A JSON value, or none when the schema can't encode the result. */
-const encodeResult = <A, E>(
-	codec: Codec<A, E>,
-	result: AsyncResult.AsyncResult<A, E>,
-): Option.Option<Schema.Json> => {
-	try {
-		return Option.some(codec.encode(result));
-	} catch (error) {
-		if (Schema.isSchemaError(error)) {
-			return Option.none();
-		}
-		throw error;
-	}
-};
 
 /**
  * What of a settled result goes to the browser: a success, or a failure
@@ -218,34 +208,61 @@ export const partition = (
 export const hydrate = (
 	registry: AtomRegistry.AtomRegistry,
 	state: Iterable<Hydration.DehydratedAtom>,
+): void =>
+	load(registry, Hydration.toValues(Array.from(state)), () =>
+		cachedByHash(registry),
+	);
+
+/** Loads entries {@link partition} found no cached query for. */
+export const hydrateFresh = (
+	registry: AtomRegistry.AtomRegistry,
+	entries: ReadonlyArray<Hydration.DehydratedAtomValue>,
+): void => load(registry, entries, () => new Map());
+
+const load = (
+	registry: AtomRegistry.AtomRegistry,
+	entries: ReadonlyArray<Hydration.DehydratedAtomValue>,
+	cached: () => Map<string, Cached>,
 ): void => {
 	const client = registry.get(StateAtom);
 	let byHash: Map<string, Cached> | undefined;
 	const others: Array<Hydration.DehydratedAtomValue> = [];
-	for (const entry of Hydration.toValues(Array.from(state))) {
+	for (const entry of entries) {
 		if (!isOwnKey(entry.key)) {
 			others.push(entry);
 			continue;
 		}
-		byHash ??= cachedByHash(registry);
+		byHash ??= cached();
 		const target = byHash.get(entry.key);
-		if (entry.resultPromise !== undefined) {
-			stream(registry, client, entry, entry.resultPromise, target?.query);
-		} else if (target === undefined) {
-			registry.setSerializable(entry.key, entry.value);
+		if (entry.resultPromise === undefined) {
+			loadValue(registry, entry.key, entry.value, target);
 		} else {
-			Option.map(
-				Option.filter(
-					decodeResult(target.hydration.codec, entry.value),
-					(result) => !AsyncResult.isInitial(result),
-				),
-				(result) => hydrateValue(registry, target.query, result),
-			);
+			stream(registry, client, entry, entry.resultPromise, target?.query);
 		}
 	}
 	if (others.length > 0) {
 		Hydration.hydrate(registry, others);
 	}
+};
+
+/** Stores a value until its query is first read, or puts it into the cached query. */
+const loadValue = (
+	registry: AtomRegistry.AtomRegistry,
+	key: string,
+	value: unknown,
+	target: Cached | undefined,
+): void => {
+	if (target === undefined) {
+		registry.setSerializable(key, value);
+		return;
+	}
+	Option.map(
+		Option.filter(
+			decodeResult(target.hydration.codec, value),
+			(result) => !AsyncResult.isInitial(result),
+		),
+		(result) => hydrateValue(registry, target.query, result),
+	);
 };
 
 interface Cached {
@@ -257,7 +274,8 @@ interface Cached {
  * Leaves a result the server is still loading for the query's next fetch,
  * which waits for it instead of fetching: its first, or, for a cached query
  * that isn't fetching and has nothing newer, the refetch this starts, as
- * TanStack's `hydrate` does with a pending query's promise.
+ * TanStack's `hydrate` does with a pending query's promise. If no fetch has
+ * taken it when it lands, it's loaded as a value.
  */
 const stream = (
 	registry: AtomRegistry.AtomRegistry,
@@ -279,6 +297,23 @@ const stream = (
 		}
 	}
 	client.streamed.set(entry.key, promise);
+	// A result no fetch has taken when it lands is loaded as a value, so it
+	// keeps the server's timestamp rather than taking the time of a read
+	// that may come much later.
+	const untaken = () =>
+		client.streamed.get(entry.key) === promise &&
+		client.streamed.delete(entry.key) &&
+		!client.disposed;
+	void promise.then((json) => {
+		if (untaken()) {
+			loadValue(
+				registry,
+				entry.key,
+				json,
+				cachedByHash(registry).get(entry.key),
+			);
+		}
+	}, untaken);
 	if (query !== undefined) {
 		registry.refresh(query);
 	}

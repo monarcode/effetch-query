@@ -11,7 +11,7 @@ import * as Fetch from "@monarcode/effetch";
  * issue. So each goes as a struct of what is, and comes back as the class:
  * an `HttpError` without headers, so `set-cookie` and the like never reach
  * the page, its body encoded with the endpoint's error schema; the others
- * without `cause` or `issue`. A plugin's own error has no schema here, so a
+ * without `cause` or `issue`. URLs and response text do go. A plugin's own error has no schema here, so a
  * query failing with one isn't sent.
  */
 export const wireErrors = (
@@ -28,11 +28,14 @@ export const wireErrors = (
 			Schema.decodeTo(
 				Schema.instanceOf(Fetch.HttpError),
 				SchemaTransformation.transform({
-					decode: ({ _tag, ...fields }) =>
+					decode: ({ method, url, status, text, body }) =>
 						new Fetch.HttpError({
-							...fields,
+							method,
+							url,
+							status,
+							text,
+							body,
 							headers: Headers.empty,
-							body: fields.body,
 						}),
 					encode: ({ method, url, status, text, body }) => ({
 						_tag: "HttpError" as const,
@@ -71,8 +74,14 @@ export const wireErrors = (
 			Schema.decodeTo(
 				Schema.instanceOf(Fetch.DecodeError),
 				SchemaTransformation.transform({
-					decode: ({ _tag, ...fields }) =>
-						new Fetch.DecodeError({ ...fields, issue: undefined }),
+					decode: ({ method, url, status, message }) =>
+						new Fetch.DecodeError({
+							method,
+							url,
+							status,
+							message,
+							issue: undefined,
+						}),
 					encode: ({ method, url, status, message }) => ({
 						_tag: "DecodeError" as const,
 						method,

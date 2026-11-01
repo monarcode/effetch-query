@@ -66,18 +66,32 @@ export const infiniteSchema = <A, E, P>(
 	error: schema.error,
 });
 
-/** A JSON value decoded with a codec, or none when the schema doesn't fit it. */
+/**
+ * A result as JSON, or none when the codec can't encode it: the schema
+ * doesn't fit the value, or needs a service, which a sync codec has no way
+ * to provide (an effetch endpoint's `output` may). The query then fetches in
+ * the browser.
+ */
+export const encodeResult = <A, E>(
+	codec: Codec<A, E>,
+	result: AsyncResult.AsyncResult<A, E>,
+): Option.Option<Schema.Json> => {
+	try {
+		return Option.some(codec.encode(result));
+	} catch {
+		return Option.none();
+	}
+};
+
+/** A JSON value decoded with a codec, or none when it can't be, as {@link encodeResult}. */
 export const decodeResult = <A, E>(
 	codec: Codec<A, E>,
 	json: unknown,
 ): Option.Option<AsyncResult.AsyncResult<A, E>> => {
 	try {
 		return Option.some(codec.decode(json as Schema.Json));
-	} catch (error) {
-		if (Schema.isSchemaError(error)) {
-			return Option.none();
-		}
-		throw error;
+	} catch {
+		return Option.none();
 	}
 };
 

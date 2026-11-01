@@ -380,9 +380,10 @@ export interface Endpoints<
 	 *
 	 * With an `output`, its queries cross from server to browser with no
 	 * `schema` to write (`QueryClient.dehydrate`): the value with `output`,
-	 * and, with `failures: "include"`, effetch's errors, an `HttpError`
-	 * without its headers. A query that failed with a plugin's error isn't
-	 * sent.
+	 * and, with `failures: "include"`, effetch's errors: an `HttpError`
+	 * without its headers, though with its request URL and response text,
+	 * so keep secrets out of the URLs your server calls. A query that failed
+	 * with a plugin's error isn't sent.
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,

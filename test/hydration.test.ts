@@ -1,10 +1,12 @@
 import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import * as Hydration from "effect/reactivity/Hydration";
 import * as Schema from "effect/Schema";
+import * as SchemaGetter from "effect/SchemaGetter";
 
 import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +29,8 @@ import { Greeting, servicesLayer, TestApi } from "./services.js";
 afterEach(disposeClients);
 
 const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+
+class FinalizerFailed extends Data.TaggedError("FinalizerFailed")<{}> {}
 
 class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
 	id: Schema.Finite,
@@ -253,6 +257,45 @@ describe("effetch schema", () => {
 
 		expect(internals(raw()).hydration).toBeUndefined();
 	});
+
+	it("leaves out a value whose schema needs a service, and fetches it", async () => {
+		const Greeted = Schema.String.pipe(
+			Schema.decodeTo(Schema.String, {
+				decode: SchemaGetter.transformEffect((name: string) =>
+					Greeting.useSync(({ text }) => `${text}, ${name}`),
+				),
+				encode: SchemaGetter.transformEffect((text: string) =>
+					Greeting.useSync(() => text),
+				),
+			}),
+		);
+		const greet = api.query(
+			Fetch.endpoint("GET /greeting", { output: Greeted }),
+		);
+		const server = await makeClient({
+			layer: servicesLayer("hello", () => Response.json("Ada")),
+		});
+		expect(await server.runPromise(Query.fetch(greet()))).toBe("hello, Ada");
+
+		expect(QueryClient.dehydrate(server)).toEqual([]);
+
+		const browser = await makeClient({
+			layer: servicesLayer("hi", () => Response.json("Grace")),
+		});
+		const sent: Hydration.DehydratedAtomValue = {
+			"~effect/reactivity/Hydration/DehydratedAtom": true,
+			key: 'effetch-query:["greeting"]',
+			value: {
+				_tag: "Success",
+				value: "Ada",
+				waiting: false,
+				timestamp: Date.now(),
+			},
+			dehydratedAt: Date.now(),
+		};
+		QueryClient.hydrate(browser, [sent]);
+		expect(await browser.runPromise(Query.fetch(greet()))).toBe("hi, Grace");
+	});
 });
 
 /** A todo list served by a counter: each fetch, on any client, is counted. */
@@ -318,6 +361,22 @@ describe("dehydrate and hydrate", () => {
 		expect(state.runs).toBe(2);
 	});
 
+	it("refetch a value that went stale before its query was first read", async () => {
+		useFakeTimers();
+		const { todos } = todoList();
+		const server = await makeClient();
+		await server.runPromise(Query.prefetch(todos));
+		const sent = overTheWire(QueryClient.dehydrate(server));
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+
+		await vi.advanceTimersByTimeAsync(61_000);
+
+		expect(await browser.runPromise(Query.fetch(todos))).toEqual([
+			{ id: 2, title: "Fetch 2" },
+		]);
+	});
+
 	it("put a newer value into a cached query, and keep a newer one it has", async () => {
 		useFakeTimers();
 		const { todos } = todoList({ staleTime: 0 });
@@ -340,6 +399,40 @@ describe("dehydrate and hydrate", () => {
 		expect(await browser.runPromise(Query.get(todos))).not.toEqual(
 			Option.some([{ id: 2, title: "Fetch 2" }]),
 		);
+	});
+
+	it("keep a newer value a cached query shows behind a failure", async () => {
+		useFakeTimers();
+		const runs = { count: 0, fail: false };
+		const todo = Query.make({
+			key: ["todo"],
+			run: Effect.suspend(() => {
+				runs.count += 1;
+				return runs.fail
+					? Effect.fail(new NotFound({ id: 1 }))
+					: Effect.succeed({ id: 1, title: `Fetch ${runs.count}` });
+			}),
+			schema: { success: Todo, error: NotFound },
+			staleTime: "1 minute",
+		});
+		const server = await makeClient();
+		await server.runPromise(Query.prefetch(todo));
+		const sent = overTheWire(QueryClient.dehydrate(server));
+		await vi.advanceTimersByTimeAsync(1_000);
+		const browser = await makeClient();
+		const unmount = use(browser.registry, todo);
+		await browser.runPromise(Query.fetch(todo));
+		runs.fail = true;
+		await browser.runPromise(Query.refetch(todo));
+
+		QueryClient.hydrate(browser, sent);
+
+		const shown = browser.registry.get(todo);
+		expect(AsyncResult.isFailure(shown)).toBe(true);
+		expect(AsyncResult.value(shown)).toEqual(
+			Option.some({ id: 1, title: "Fetch 2" }),
+		);
+		unmount();
 	});
 
 	it("send only queries with a schema, matched by `queries`", async () => {
@@ -426,6 +519,7 @@ describe("dehydrate and hydrate", () => {
 			key: ["greeting"],
 			run: Greeting.useSync(({ text }) => text),
 			schema: { success: Schema.String },
+			staleTime: "1 minute",
 		});
 		const [first, second] = await Promise.all(
 			["hello", "bonjour"].map(async (text) => {
@@ -488,6 +582,27 @@ describe("streaming", () => {
 		unmount();
 	});
 
+	it("keeps the server's timestamp for a result that lands before it's read", async () => {
+		useFakeTimers();
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		const { wait, open } = gate();
+		state.hold = wait;
+		const fetched = server.runPromise(Query.prefetch(todos));
+		const sent = QueryClient.dehydrate(server, { pending: "promise" });
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+		state.hold = undefined;
+		open();
+		await fetched;
+
+		await vi.advanceTimersByTimeAsync(61_000);
+		expect(await browser.runPromise(Query.fetch(todos))).toEqual([
+			{ id: 2, title: "Fetch 2" },
+		]);
+		expect(state.runs).toBe(2);
+	});
+
 	it("leaves a query still loading out by default", async () => {
 		const { state, todos } = todoList();
 		const server = await makeClient();
@@ -541,6 +656,31 @@ describe("streaming", () => {
 		);
 
 		await dispose(server);
+
+		expect(await entry?.resultPromise).toEqual({
+			_tag: "Initial",
+			waiting: false,
+		});
+	});
+
+	it("settles its promise when a cache finalizer throws during dispose", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		state.hold = gate().wait;
+		void server.runPromiseExit(Query.fetch(todos));
+		const [entry] = Hydration.toValues(
+			QueryClient.dehydrate(server, { pending: "promise" }),
+		);
+		server.registry.mount(
+			Atom.readable((get) => {
+				get.addFinalizer(() => {
+					throw new FinalizerFailed();
+				});
+				return 1;
+			}),
+		);
+
+		await expect(dispose(server)).rejects.toBeInstanceOf(FinalizerFailed);
 
 		expect(await entry?.resultPromise).toEqual({
 			_tag: "Initial",
