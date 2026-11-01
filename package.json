@@ -1,6 +1,6 @@
 {
 	"name": "@monarcode/effetch-query",
-	"version": "0.1.0-alpha.3",
+	"version": "0.1.0-rc.0",
 	"description": "Effectful queries and mutations for Effect 4, inspired by TanStack Query. Cached, kept fresh, typed end to end, and made to pair with effetch.",
 	"keywords": [
 		"TanStack",
@@ -82,9 +82,9 @@
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "0.18.5",
-		"@effect/atom-react": "4.1.0",
+		"@effect/atom-react": "4.1.1",
 		"@effect/language-service": "0.87.5",
-		"@effect/vitest": "4.1.0",
+		"@effect/vitest": "4.1.1",
 		"@monarcode/effetch": "0.1.0-rc.1",
 		"@react-router/dev": "8.5.1",
 		"@tanstack/react-router": "1.170.46",
@@ -95,7 +95,7 @@
 		"@types/react": "19.3.0",
 		"@types/react-dom": "19.3.0",
 		"@vitejs/plugin-react": "6.1.2",
-		"effect": "4.1.0",
+		"effect": "4.1.1",
 		"happy-dom": "21.0.4",
 		"husky": "9.1.7",
 		"oxfmt": "0.75.0",

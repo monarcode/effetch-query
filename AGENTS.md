@@ -55,6 +55,12 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
 8. **Ask before changing a settled decision** (DESIGN.md §2, PLAN.md
    "Settled decisions"). If the code shows a decision can't work, stop and
    explain why rather than working around it.
+9. **The public API is frozen from `0.1.0-rc.0`.** No renames, removals or
+   changed signatures of anything a subpath exports: functions, types,
+   options, hook results, error `_tag`s. Additive changes only, and only
+   with the maintainer's agreement. Release candidates carry fixes; a fix
+   that would change the API is a decision for the maintainer, not a
+   workaround.
 
 ## Code style
 

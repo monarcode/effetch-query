@@ -2,10 +2,12 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
-## Unreleased
+## 0.1.0-rc.0
 
-The TanStack Router and Start integration, Next.js and React Router
-recipes, and clients made from an existing `ManagedRuntime`.
+The first release candidate: the TanStack Router and Start integration,
+Next.js and React Router recipes, and clients made from an existing
+`ManagedRuntime`. The API is frozen until `0.1.0`: later candidates carry
+fixes only.
 
 ### Added
 
