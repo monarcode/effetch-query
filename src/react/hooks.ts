@@ -136,10 +136,7 @@ export const useQuery = <A, E>(
  * A failure with no earlier value is thrown to the nearest error boundary as
  * a {@link QueryFailure}, as it was cached: it's thrown again until something
  * refetches the query, such as {@link useResetQueryFailure} in the boundary.
- * A refetch that fails after a success keeps showing that success. An error
- * with a string `digest`, a framework's control flow such as Next's
- * `redirect()` or `notFound()`, is thrown as it is, so the framework handles
- * it.
+ * A refetch that fails after a success keeps showing that success.
  *
  * In a server render it may fetch, for streaming SSR: it suspends on the
  * fetch instead of reading only the cache.

@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { useAtomValue } from "@effect/atom-react";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
@@ -39,11 +38,6 @@ import {
 	tracked,
 	useFakeTimers,
 } from "./helpers.js";
-
-/** An error a framework's boundary finds by its `digest`, as Next's `redirect()` throws. */
-class FrameworkRedirect extends Data.TaggedError("FrameworkRedirect")<{
-	readonly digest: string;
-}> {}
 
 afterEach(async () => {
 	cleanup();
@@ -437,36 +431,6 @@ describe("useSuspenseQuery", () => {
 		expect((error as QueryFailure).message).toBe(
 			'Query ["big",1n] failed: "nope"',
 		);
-	});
-
-	it("throws a framework's control flow error as it is, for its boundary", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => {});
-		const client = await makeClient();
-		const redirect = new FrameworkRedirect({
-			digest: "NEXT_REDIRECT;replace;/login;307;",
-		});
-		const query = Query.make({
-			key: ["guarded"],
-			run: Effect.die(redirect),
-		});
-		const Fails = () => {
-			useSuspenseQuery(query);
-			return null;
-		};
-		const caught = vi.fn();
-		render(
-			withClient(
-				client,
-				<Boundary fallback={(error) => (caught(error), null)}>
-					<React.Suspense fallback={<p>loading</p>}>
-						<Fails />
-					</React.Suspense>
-				</Boundary>,
-			),
-		);
-
-		await vi.waitFor(() => expect(caught).toHaveBeenCalled());
-		expect(caught.mock.calls[0]?.[0]).toBe(redirect);
 	});
 
 	it("starts its fetch in a server render", async () => {

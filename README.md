@@ -62,6 +62,7 @@ endpoints turn into queries and mutations in one line.
   - [Streaming](#streaming)
 - [TanStack Router and Start](#tanstack-router-and-start)
 - [Next.js](#nextjs)
+- [React Router](#react-router)
 - [The client](#the-client)
   - [Client options](#client-options)
   - [App-wide hooks](#app-wide-hooks)
@@ -1197,7 +1198,7 @@ export function getRouter() {
 - **On the server**, what the loaders loaded goes with the page. Queries
   started while rendering follow as they start, those still loading as
   promises the browser waits for: an unawaited
-  `void context.queryClient.runPromise(Query.prefetch(query))` in a loader
+  `void context.queryClient.runPromiseExit(Query.prefetch(query))` in a loader
   lets the page render at once, and the value streams in. The client is
   disposed when the request ends.
 - **Your app's layer is built once per process** when every request's
@@ -1351,16 +1352,19 @@ export function Providers({ children }: { readonly children: ReactNode }) {
 - **A query still loading crosses as a promise** with
   `pending: "promise"`, and the client components' readers suspend until
   it lands. Start a prefetch without awaiting it,
-  `void client.runPromise(Query.prefetch(query))`, and the page renders at
-  once while the value streams in.
+  `void client.runPromiseExit(Query.prefetch(query))`, and the page
+  renders at once while the value streams in. `runPromiseExit` never
+  rejects, so a prefetch cut short when the client is disposed isn't an
+  unhandled rejection.
 - **On client navigation**, the page's state comes with its payload, and
   the boundary loads what's newer than the browser's cache. Only queries
   with a `schema` cross ([Server rendering](#server-rendering)).
-- **Next's `redirect()` and `notFound()` throw.** A query whose run calls
-  one, inside `Effect.suspend`, dies with what it throws: in a server
-  component, `runPromise` rejects with it, and Next follows it. In a
-  client component, `useSuspenseQuery` rethrows it, as it does any error
-  with a string `digest`, so Next's boundaries handle it there too.
+- **Call Next's `redirect()` and `notFound()` from server components.**
+  They throw, so a query whose run calls one, inside `Effect.suspend`,
+  dies with what it throws, `runPromise` rejects with it, and Next follows
+  it. Fetch such a query with `Query.fetch` in the server component: in a
+  client component its failure is a `QueryFailure`, which Next doesn't
+  recognise.
 - **Keep queries out of `"use client"` files:** a server component that
   imports from one gets references to its exports, not the queries.
 
@@ -1368,6 +1372,208 @@ The Pages Router has no server components: make a client per request in
 `getServerSideProps`, return `QueryClient.dehydrate(client)` as a prop,
 dispose the client, and render the page under a `HydrationBoundary` given
 that prop, as [Server rendering](#server-rendering) does.
+
+## React Router
+
+React Router's framework mode needs no integration package either. Each
+request gets its own client from a root middleware, which loaders read from
+the router's context and which is disposed once the response is sent:
+
+```ts query-context.ts
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { QueryClient } from "@monarcode/effetch-query";
+import {
+  createContext,
+  data,
+  type MiddlewareFunction,
+  type RouterContextProvider,
+} from "react-router";
+
+import { TodoApiLive } from "./todo-api.js";
+
+// Builds your services once per process, for every request's client.
+const appRuntime = ManagedRuntime.make(TodoApiLive);
+
+// `null` where the middleware didn't run: React Router runs none for a URL
+// no route matches.
+export const queryClientContext = createContext<QueryClient.QueryClient | null>(
+  null,
+);
+
+/** The request's client, in a loader or action. */
+export const getQueryClient = (
+  context: Readonly<RouterContextProvider>,
+): QueryClient.QueryClient => {
+  const client = context.get(queryClientContext);
+  if (client === null) {
+    throw data("app/root.tsx doesn't export queryClientMiddleware", {
+      status: 500,
+    });
+  }
+  return client;
+};
+
+// React Router resumes middleware once the page's shell is ready, while the
+// body still streams, so the client is disposed when the body ends.
+export const queryClientMiddleware: MiddlewareFunction<Response> = async (
+  { context },
+  next,
+) => {
+  const client = QueryClient.make({ runtime: appRuntime });
+  context.set(queryClientContext, client);
+  const response = await next();
+  const release = () => {
+    client.dispose().catch(console.error);
+  };
+  const reader = response.body?.getReader();
+  if (reader === undefined) {
+    release();
+    return response;
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          release();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        controller.error(error);
+        release();
+      }
+    },
+    cancel(reason) {
+      release();
+      return reader.cancel(reason);
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+```
+
+`app/root.tsx` exports it, so it runs for every request that runs a loader:
+
+```ts
+import { queryClientMiddleware } from "./query-context.js";
+
+export const middleware = [queryClientMiddleware];
+```
+
+A route's loader prefetches into the request's client and returns its
+state, which the route hands to a `HydrationBoundary`:
+
+```tsx
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import { HydrationBoundary } from "@monarcode/effetch-query/react";
+import { type LoaderFunctionArgs, useLoaderData } from "react-router";
+
+import { getQueryClient } from "./query-context.js";
+import { TodoList, todoList } from "./todo-list.js";
+
+export async function loader({ context }: LoaderFunctionArgs) {
+  const client = getQueryClient(context);
+  await client.runPromise(Query.prefetch(todoList));
+  return { state: QueryClient.dehydrate(client, { pending: "promise" }) };
+}
+
+export default function TodosRoute() {
+  const { state } = useLoaderData<typeof loader>();
+  return (
+    <HydrationBoundary state={state}>
+      <TodoList />
+    </HydrationBoundary>
+  );
+}
+```
+
+The server render uses the request's client too. Reveal the entries
+(`npx react-router reveal`), then in `entry.server.tsx`'s `handleRequest`,
+which gets the router's context as `loadContext`, render this where it
+renders `<ServerRouter>`:
+
+```tsx
+import { QueryProvider } from "@monarcode/effetch-query/react";
+import {
+  type EntryContext,
+  type RouterContextProvider,
+  ServerRouter,
+} from "react-router";
+
+import { queryClientContext } from "./query-context.js";
+
+export function ServerApp(props: {
+  readonly request: Request;
+  readonly routerContext: EntryContext;
+  readonly loadContext: RouterContextProvider;
+}) {
+  const client = props.loadContext.get(queryClientContext);
+  const router = (
+    <ServerRouter context={props.routerContext} url={props.request.url} />
+  );
+  return client === null ? (
+    router
+  ) : (
+    <QueryProvider client={client}>{router}</QueryProvider>
+  );
+}
+```
+
+And in `entry.client.tsx`, give the browser one client for the page's
+lifetime:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { QueryProvider } from "@monarcode/effetch-query/react";
+import { StrictMode, startTransition } from "react";
+import { hydrateRoot } from "react-dom/client";
+import { HydratedRouter } from "react-router/dom";
+
+import { TodoApiLive } from "./todo-api.js";
+
+const queryClient = QueryClient.make({ layer: TodoApiLive });
+
+startTransition(() => {
+  hydrateRoot(
+    document,
+    <StrictMode>
+      <QueryProvider client={queryClient}>
+        <HydratedRouter />
+      </QueryProvider>
+    </StrictMode>,
+  );
+});
+```
+
+- **A query still loading crosses as a promise:** React Router streams the
+  promises in loader data. Start a prefetch without awaiting it,
+  `void client.runPromiseExit(Query.prefetch(query))`, and the page renders
+  at once while the value streams in (`runPromiseExit` never rejects, so a
+  prefetch cut short when the client is disposed isn't an unhandled
+  rejection). One still loading at the entry's `streamTimeout` is fetched
+  in the browser instead.
+- **On navigation**, React Router runs the loaders through a `.data`
+  request, which brings the page's state the same way, and the boundary
+  loads what's newer than the browser's cache. Only queries with a
+  `schema` cross ([Server rendering](#server-rendering)). Each navigation
+  runs the loaders again, with a new client, so they refetch on the server
+  whatever the browser has cached; where that's too much, export
+  `shouldRevalidate` from the route, or a `clientLoader` that prefetches
+  into the browser's client instead.
+- **Redirect from loaders.** A query whose run dies with `redirect()`,
+  made inside the Effect
+  (`Effect.suspend(() => Effect.die(redirect("/login")))`), makes
+  `runPromise` reject with the `Response`, and the router follows it. Load
+  such a query with `Query.fetch` in the loader: in a component its failure
+  is a `QueryFailure`, and React Router doesn't follow a `Response` thrown
+  while rendering anyway.
 
 ## The client
 

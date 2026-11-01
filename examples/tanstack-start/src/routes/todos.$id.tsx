@@ -8,7 +8,7 @@ import { todo } from "../todos.js";
 export const Route = createFileRoute("/todos/$id")({
 	// Started, not awaited: the page renders at once, and the todo streams in.
 	loader: ({ context, params }) => {
-		void context.queryClient.runPromise(
+		void context.queryClient.runPromiseExit(
 			Query.prefetch(todo(Number(params.id))),
 		);
 	},

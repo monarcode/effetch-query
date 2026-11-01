@@ -6,7 +6,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Query from "../Query.js";
 import { resumePolling, revalidate } from "./mountPolicy.js";
 import { StateAtom } from "./runtime.js";
-import { isShowable, thrownFailure, whenShowable } from "./suspense.js";
+import { isShowable, queryFailure, whenShowable } from "./suspense.js";
 
 /**
  * One reader of queries, such as a component's `useQuery` (DESIGN.md §4.2,
@@ -35,9 +35,8 @@ export interface QueryUse {
 	) => AsyncResult.AsyncResult<A, E>;
 	/**
 	 * What a suspense reader shows: a success, or the success before a
-	 * failure. Throws a promise to suspend on, or for a failure with no
-	 * success before it, its `QueryFailure` or its framework control flow
-	 * error (`thrownFailure`).
+	 * failure. Throws a promise to suspend on, or the `QueryFailure` of a
+	 * failure with no success before it.
 	 */
 	readonly suspend: <A, E>(
 		query: Query.Query<A, E>,
@@ -108,7 +107,7 @@ export const makeQueryUse = (
 				return result;
 			}
 			if (Option.isNone(result.previousSuccess)) {
-				throw thrownFailure(query, result.cause);
+				throw queryFailure(query, result.cause);
 			}
 			const success = result.previousSuccess.value;
 			return result.waiting ? waiting(success) : success;

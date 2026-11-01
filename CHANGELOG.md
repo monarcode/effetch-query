@@ -4,9 +4,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ## Unreleased
 
-The TanStack Router and Start integration, a Next.js App Router recipe,
-and clients made from an existing `ManagedRuntime`. Phase 17 (React
-Router) joins this release before it ships.
+The TanStack Router and Start integration, Next.js and React Router
+recipes, and clients made from an existing `ManagedRuntime`.
 
 ### Added
 
@@ -40,6 +39,12 @@ Router) joins this release before it ships.
   `./react`, no integration package. Each request's client for server
   components comes from React's `cache()` and is disposed with Next's
   `after()`; client components get theirs from a `QueryProvider`.
+- The README's "React Router" guide: framework mode with the core and
+  `./react`, no integration package. A root middleware makes each
+  request's client, which loaders read from the router's context and the
+  server render uses through `entry.server.tsx`, and disposes it once the
+  response's body is sent; loaders return the dehydrated state, promises
+  included, for a `HydrationBoundary`.
 
 ### Changed
 
@@ -48,10 +53,6 @@ Router) joins this release before it ships.
   a compile error.
 - The README's server rendering guide makes each request's client from a
   process-wide `ManagedRuntime`, so the app's layer is built once.
-- `useSuspenseQuery` and `useSuspenseInfiniteQuery` throw an error with a
-  string `digest`, such as what Next's `redirect()` and `notFound()`
-  throw, as it is rather than in a `QueryFailure`, so the framework
-  handles it.
 
 ### Fixed
 
