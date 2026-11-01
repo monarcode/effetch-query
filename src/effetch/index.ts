@@ -77,7 +77,7 @@ export interface EndpointsOptions<EB extends Fetch.AnySchema> {
 	 * the same paths: with `["wallet"]`, `GET /accounts/:id` is
 	 * `["wallet", "accounts", 1]`.
 	 */
-	readonly key?: Query.QueryKey | undefined;
+	readonly key?: Query.Key | undefined;
 	/**
 	 * The client's `defaultError`, for queries whose endpoint has no `error`
 	 * schema of its own. A definition can't read it from the client, which
@@ -286,7 +286,7 @@ export interface EndpointQuery<R extends string, A, E> {
 		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R>>
 	): Query.Query<A, E>;
 	/** The start every one of its keys has: the prefix and the path up to its first param. */
-	readonly key: Query.QueryKey;
+	readonly key: Query.Key;
 	/** The endpoint definition it calls. */
 	readonly endpoint: Fetch.UnboundEndpoint<
 		R,
@@ -329,7 +329,7 @@ export interface EndpointInfiniteQuery<R extends string, A, E, P> {
 		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R>>
 	): InfiniteQuery.InfiniteQuery<A, E, P>;
 	/** The start every one of its keys has: the prefix and the path up to its first param. */
-	readonly key: Query.QueryKey;
+	readonly key: Query.Key;
 	/** The endpoint definition it calls. */
 	readonly endpoint: Fetch.UnboundEndpoint<
 		R,
@@ -572,7 +572,7 @@ export const endpoints = <
 		schema: (
 			output: Schema.Codec<unknown, unknown>,
 			error: Schema.Codec<unknown, unknown>,
-		) => Query.QuerySchema<any, any>,
+		) => Query.Schema<any, any>,
 	) =>
 		endpoint.output === undefined
 			? undefined

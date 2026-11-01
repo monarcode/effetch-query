@@ -16,7 +16,9 @@ const clients: Array<QueryClient.QueryClient> = [];
  * A client whose atom runtime is built, so a fetch starts as soon as a query
  * is read: a check that nothing fetched can then run straight away.
  */
-export const makeClient = async (options?: Partial<QueryClient.Options>) => {
+export const makeClient = async (
+	options?: Partial<QueryClient.LayerOptions>,
+) => {
 	const client = QueryClient.make({
 		layer: servicesLayer("hello"),
 		...options,
@@ -82,7 +84,7 @@ export const gate = () => {
 
 /** A query whose run gets the number of the fetch it is. */
 export const tracked = <A, E = never>(
-	key: Query.QueryKey,
+	key: Query.Key,
 	run: (fetch: number) => Effect.Effect<A, E>,
 	options?: Query.Options<E>,
 ) => {
@@ -96,7 +98,7 @@ export const tracked = <A, E = never>(
 };
 
 /** A family whose members count their fetches, by argument. */
-export const trackedFamily = <Args>(key: Query.QueryKey) => {
+export const trackedFamily = <Args>(key: Query.Key) => {
 	const counts = new Map<string, number>();
 	const family = Query.family({
 		key,

@@ -11,15 +11,16 @@ import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-q
 import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
 import { /*useQuery*/useQuery } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
+import { /*connectQueryClient*/connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 
-export const key: Query./*QueryKey*/QueryKey = ["todos"];
+export const key: Query./*Key*/Key = ["todos"];
 export const make = QueryClient./*make*/make;
 const greeting = Query.make({ key: ["greeting"], run: Effect.succeed("hello") });
 export const read = () => {
 	const /*result*/result = useQuery(greeting);
 	return result;
 };
-export { endpoints, reactNativeSignals };
+export { connectQueryClient, endpoints, reactNativeSignals };
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -96,9 +97,9 @@ for (const [marker, file] of [
 // signature, the start of its docs]
 for (const [marker, file, signature, docs] of [
 	[
-		"QueryKey",
+		"Key",
 		"Query.d.ts",
-		"type QueryKey = readonly unknown[]",
+		"type Key = readonly unknown[]",
 		"Identifies a query in the cache",
 	],
 	[
@@ -124,6 +125,12 @@ for (const [marker, file, signature, docs] of [
 		"effetch/index.d.ts",
 		"(alias) const endpoints: <",
 		"Turns `Fetch.endpoint` definitions into queries",
+	],
+	[
+		"connectQueryClient",
+		"react/tanstack-router/index.d.ts",
+		"(alias) const connectQueryClient: (",
+		"Connects a query client to a TanStack Router",
 	],
 ]) {
 	const definitions = service.getDefinitionAtPosition(probe, at(marker)) ?? [];

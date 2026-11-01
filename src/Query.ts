@@ -5,7 +5,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Reactivity from "effect/reactivity/Reactivity";
-import type * as Schema from "effect/Schema";
+import type * as EffectSchema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
 import * as cache from "./internal/cache.js";
@@ -20,7 +20,7 @@ import * as QueryClient from "./QueryClient.js";
  * Identifies a query in the cache. Keys are hierarchical arrays: each segment
  * is compared with `Equal.equals`, so plain objects and arrays match by
  * structure, and a key matches every longer key it is a prefix of (see
- * {@link QueryTarget}).
+ * {@link Target}).
  *
  * Keep keys JSON-compatible (strings, numbers, booleans, `null`, and arrays
  * and plain objects of them): with server rendering, they're sent to the
@@ -30,26 +30,26 @@ import * as QueryClient from "./QueryClient.js";
  * ```ts
  * import { Query } from "@monarcode/effetch-query";
  *
- * const key: Query.QueryKey = ["todos", "detail", 1];
+ * const key: Query.Key = ["todos", "detail", 1];
  * ```
  *
  * @since 0.1.0
  */
-export type QueryKey = ReadonlyArray<unknown>;
+export type Key = ReadonlyArray<unknown>;
 
 /**
- * The type of {@link QueryTypeId}, the property that marks a {@link Query}.
+ * The type of {@link TypeId}, the property that marks a {@link Query}.
  *
  * @example
  * ```ts
  * import { Query } from "@monarcode/effetch-query";
  *
- * export const id: Query.QueryTypeId = Query.QueryTypeId;
+ * export const id: Query.TypeId = Query.TypeId;
  * ```
  *
  * @since 0.1.0
  */
-export type QueryTypeId = internal.QueryTypeId;
+export type TypeId = internal.QueryTypeId;
 
 /**
  * The property that marks a {@link Query}, so it can be told apart from other
@@ -63,14 +63,14 @@ export type QueryTypeId = internal.QueryTypeId;
  *
  * const me = Query.make({ key: ["me"], run: Effect.succeed("Ada") });
  *
- * console.log(Query.QueryTypeId in me); // true
+ * console.log(Query.TypeId in me); // true
  * ```
  *
  * @see {@link isQuery} to check a value
  *
  * @since 0.1.0
  */
-export const QueryTypeId: QueryTypeId = internal.QueryTypeId;
+export const TypeId: TypeId = internal.QueryTypeId;
 
 /**
  * Whether a value is a {@link Query}, as opposed to another atom or value.
@@ -128,9 +128,12 @@ export interface Query<A, E> extends Atom.Writable<
 	A
 > {
 	/** Marks the atom as a query. */
-	readonly [QueryTypeId]: QueryTypeId;
-	/** The query's key: a family's key with the argument appended. */
-	readonly key: QueryKey;
+	readonly [TypeId]: TypeId;
+	/**
+	 * The query's key; for a family's member, the family's key with its
+	 * argument appended.
+	 */
+	readonly key: Key;
 }
 
 /**
@@ -144,7 +147,7 @@ export interface Query<A, E> extends Atom.Writable<
  *
  * import { Query } from "@monarcode/effetch-query";
  *
- * const todo: Query.QueryFamily<number, string, never> = Query.family({
+ * const todo: Query.Family<number, string, never> = Query.family({
  *   key: ["todos", "detail"],
  *   run: (id: number) => Effect.succeed(`Todo ${id}`),
  * });
@@ -154,35 +157,35 @@ export interface Query<A, E> extends Atom.Writable<
  *
  * @since 0.1.0
  */
-export interface QueryFamily<Args, A, E> {
+export interface Family<Args, A, E> {
 	(args: Args): Query<A, E>;
 	/** The key every member's key starts with. */
-	readonly key: QueryKey;
+	readonly key: Key;
 }
 
 /**
  * What {@link invalidate}, {@link refetch} and {@link reset} act on: a
- * {@link Query} (that key only), a {@link QueryFamily} (all its members), or
- * a {@link QueryKey} (every query whose key starts with it).
+ * {@link Query} (that key only), a {@link Family} (all its members), or
+ * a {@link Key} (every query whose key starts with it).
  *
  * @example
  * ```ts
  * import { Query } from "@monarcode/effetch-query";
  *
  * // Every query under "todos": lists, details, …
- * export const everyTodo: Query.QueryTarget = ["todos"];
+ * export const everyTodo: Query.Target = ["todos"];
  * ```
  *
  * @since 0.1.0
  */
-export type QueryTarget =
+export type Target =
 	// A query is written with its value, so `Query<never, E>` (one that never
 	// succeeds) isn't a `Query<any, any>`: `any` doesn't extend `never`.
 	| Query<any, any>
 	| Query<never, any>
-	| QueryFamily<any, any, any>
-	| QueryFamily<any, never, any>
-	| QueryKey;
+	| Family<any, any, any>
+	| Family<any, never, any>
+	| Key;
 
 /**
  * What a query's `run` receives, for reading other queries: given to
@@ -216,9 +219,9 @@ export interface RunContext {
 
 /**
  * The options every query takes besides `key` and `run`, in
- * {@link MakeOptions} and {@link FamilyOptions}. Those shared with the
- * client's `queries.defaults` ({@link QueryClient.QueryDefaults}) override
- * them.
+ * {@link MakeOptions} and {@link FamilyOptions}. Each one a query sets
+ * overrides the client's `queries.defaults`
+ * ({@link QueryClient.QueryDefaults}).
  *
  * @example
  * ```ts
@@ -263,18 +266,18 @@ export interface Options<E> extends QueryClient.QueryDefaults<E> {
  *
  * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
  *
- * export const schema: Query.QuerySchema<ReadonlyArray<typeof Todo.Type>, never> = {
+ * export const schema: Query.Schema<ReadonlyArray<typeof Todo.Type>, never> = {
  *   success: Schema.Array(Todo),
  * };
  * ```
  *
  * @since 0.1.0
  */
-export interface QuerySchema<A, E> {
+export interface Schema<A, E> {
 	/** The value's schema. */
-	readonly success: Schema.Codec<A, unknown>;
+	readonly success: EffectSchema.Codec<A, unknown>;
 	/** The error's schema, needed only to send failures. */
-	readonly error?: Schema.Codec<E, unknown> | undefined;
+	readonly error?: EffectSchema.Codec<E, unknown> | undefined;
 }
 
 /**
@@ -297,7 +300,7 @@ export interface QuerySchema<A, E> {
  */
 export interface MakeOptions<A, E> extends Options<E> {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Key;
 	/**
 	 * Fetches the value: an Effect, or a function of a {@link RunContext}
 	 * for queries that read other queries. It runs with your services and
@@ -309,7 +312,7 @@ export interface MakeOptions<A, E> extends Options<E> {
 				ctx: RunContext,
 		  ) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>);
 	/** How the value crosses from server to browser; without one, it fetches in the browser. */
-	readonly schema?: QuerySchema<A, E> | undefined;
+	readonly schema?: Schema<A, E> | undefined;
 }
 
 /**
@@ -331,7 +334,7 @@ export interface MakeOptions<A, E> extends Options<E> {
  */
 export interface FamilyOptions<Args, A, E> extends Options<E> {
 	/** The family's key. Each member appends its argument. */
-	readonly key: QueryKey;
+	readonly key: Key;
 	/**
 	 * Fetches one member's value from its argument. It runs with your
 	 * services and the client, and its `Scope` closes when the fetch settles.
@@ -341,7 +344,7 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
 		ctx: RunContext,
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
 	/** How each member's value crosses from server to browser, as {@link MakeOptions.schema}. */
-	readonly schema?: QuerySchema<A, E> | undefined;
+	readonly schema?: Schema<A, E> | undefined;
 }
 
 /**
@@ -372,7 +375,7 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
 	});
 
 /**
- * Defines a {@link QueryFamily}: one query per argument, each cached on its
+ * Defines a {@link Family}: one query per argument, each cached on its
  * own.
  *
  * Members are weakly held where the runtime has `WeakRef` and
@@ -407,9 +410,9 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
  */
 export const family = <Args, A, E>(
 	options: FamilyOptions<Args, A, E>,
-): QueryFamily<Args, A, E> => {
+): Family<Args, A, E> => {
 	const hydration = options.schema && { codec: makeCodec(options.schema) };
-	const self: QueryFamily<Args, A, E> = Object.assign(
+	const self: Family<Args, A, E> = Object.assign(
 		Atom.family((args: Args) =>
 			internal.makeQuery({
 				key: [...options.key, args],
@@ -546,7 +549,7 @@ export const set = <A, E>(
  * and is undone the same way in a mutation's `optimistic`. Does nothing if
  * the query has no value.
  *
- * Given a {@link QueryFamily}, it writes every cached member, as
+ * Given a {@link Family}, it writes every cached member, as
  * TanStack's `setQueriesData` does: `f` gets each member's value and its
  * argument. Members are the family's own queries, not every query under
  * its key, and only those with a value are written: none is created. In a
@@ -584,11 +587,11 @@ export const update: {
 		f: (value: A) => A,
 	): Effect.Effect<void, never, QueryClient.QueryClient>;
 	<Args, A, E>(
-		family: QueryFamily<Args, A, E>,
+		family: Family<Args, A, E>,
 		f: (value: A, args: Args) => A,
 	): Effect.Effect<void, never, QueryClient.QueryClient>;
 } = <Args, A, E>(
-	target: Query<A, E> | QueryFamily<Args, A, E>,
+	target: Query<A, E> | Family<Args, A, E>,
 	f: (value: A, args: Args) => A,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
 	optimistic.write((registry) =>
@@ -620,7 +623,7 @@ export const update: {
  * @since 0.1.0
  */
 export const invalidate = (
-	target: QueryTarget,
+	target: Target,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
 	QueryClient.QueryClient.useSync(({ registry }) => {
 		for (const query of matching(registry, target)) {
@@ -651,7 +654,7 @@ export const invalidate = (
  * @since 0.1.0
  */
 export const refetch = (
-	target: QueryTarget,
+	target: Target,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
 	QueryClient.QueryClient.use(({ registry }) => {
 		const used = matching(registry, target).filter((query) =>
@@ -688,7 +691,7 @@ export const refetch = (
  * @since 0.1.0
  */
 export const reset = (
-	target: QueryTarget,
+	target: Target,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
 	QueryClient.QueryClient.useSync(({ registry }) => {
 		// Not in a batch: its commit rebuilds every stale node, so the queries

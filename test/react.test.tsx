@@ -16,7 +16,7 @@ import {
 } from "../src/index.js";
 import {
 	type InfinitePageControls,
-	MissingQueryProvider,
+	MissingQueryProviderError,
 	QueryFailure,
 	QueryProvider,
 	useMutation,
@@ -111,7 +111,7 @@ describe("QueryProvider and useQueryClient", () => {
 			return null;
 		};
 
-		expect(() => render(<Lost />)).toThrow(MissingQueryProvider);
+		expect(() => render(<Lost />)).toThrow(MissingQueryProviderError);
 	});
 
 	it("the other hooks throw outside a provider too", () => {
@@ -119,7 +119,7 @@ describe("QueryProvider and useQueryClient", () => {
 		const query = Query.make({ key: ["lost"], run: Effect.succeed(1) });
 
 		expect(() => render(<Shows query={query} />)).toThrow(
-			MissingQueryProvider,
+			MissingQueryProviderError,
 		);
 	});
 });
@@ -229,8 +229,8 @@ describe("useQuery", () => {
 	});
 
 	it("an unmount mid-fetch interrupts the fetch, which reaches no hook", async () => {
-		const keys: Array<Query.QueryKey> = [];
-		const settled = ({ key }: { readonly key: Query.QueryKey }) =>
+		const keys: Array<Query.Key> = [];
+		const settled = ({ key }: { readonly key: Query.Key }) =>
 			Effect.sync(() => keys.push(key));
 		const client = await makeClient({ queries: { onSettled: settled } });
 		const query = Query.make({ key: ["left"], run: Effect.never, gcTime: 0 });

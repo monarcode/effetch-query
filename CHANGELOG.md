@@ -2,6 +2,100 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-rc.0
+
+The first release candidate: the TanStack Router and Start integration,
+Next.js and React Router recipes, and clients made from an existing
+`ManagedRuntime`. The API is frozen until `0.1.0`: later candidates carry
+fixes only.
+
+### Added
+
+- `@monarcode/effetch-query/react/tanstack-router`: `connectQueryClient`,
+  which connects a query client to a TanStack Router, and so to TanStack
+  Start, where the router is made. On the server, the queries the loaders
+  loaded go with the page, and queries started while rendering stream in
+  as they start, those still loading as promises the browser waits for.
+  The request's client is disposed when the request ends. In the browser,
+  it all loads into the client before React hydrates, with no
+  `HydrationBoundary`. A query or mutation that fails or dies with the
+  router's `redirect()` navigates there, unless an Effect awaits the fetch:
+  a loader's redirect is left to the router, and a preload's is dropped, as
+  the router drops it. Options: `dehydrate` (`queries`, `failures`),
+  `handleRedirects` and `wrapQueryClient`. `@tanstack/react-router`
+  (`>=1.170.33 <2.0.0`) is an optional peer.
+- `QueryClient.make({ runtime })` and `QueryClient.layer({ runtime })`: a
+  client that uses the services of a `ManagedRuntime` you already have
+  rather than building a layer. Every client of one runtime, such as one
+  per request on a server, shares its build, and disposing a client leaves
+  the runtime running. The clients share the runtime's `Reactivity`, so an
+  invalidation by any of them, or by a service the runtime built, reaches
+  all of them.
+- `QueryClient.disposeAfter(client, response)`: returns the response with
+  its body wrapped so the client is disposed once the body has been sent,
+  fails or is cancelled. For a client per request on a server that answers
+  with a streamed `Response`, such as React Router's middleware, Hono,
+  `Bun.serve` or `Deno.serve`.
+- `QueryClient.LayerOptions`, `QueryClient.RuntimeOptions` and
+  `QueryClient.CommonOptions`: the two ways to give a client its services,
+  and the options both take.
+- `Mutation.isMutation`, to match `Query.isQuery` and
+  `InfiniteQuery.isInfiniteQuery`.
+- The README's "TanStack Router and Start" guide.
+- The README's "Next.js" guide: the App Router with the core and
+  `./react`, no integration package. Each request's client for server
+  components comes from React's `cache()` and is disposed with Next's
+  `after()`; client components get theirs from a `QueryProvider`.
+- The README's "React Router" guide: framework mode with the core and
+  `./react`, no integration package. A root middleware makes each
+  request's client, which loaders read from the router's context and the
+  server render uses through `entry.server.tsx`, and disposes it with
+  `QueryClient.disposeAfter`; loaders return the dehydrated state, promises
+  included, for a `HydrationBoundary`.
+- New examples, all on dummyjson.com's todos and auth APIs: `basic`, a
+  list with an optimistic toggle in one small React app; and three full
+  apps with the same pages, sign-in and look: `tanstack-start` (effetch
+  endpoints), `tanstack-start-httpclient` (Effect's `HttpClient`, with
+  `Query.family` and `Mutation.make`) and `react-router` (framework mode,
+  effetch endpoints). The examples are plain code now, typechecked with the
+  package; `test/examples` builds `tanstack-start` and `react-router`,
+  serves them against an in-memory dummyjson, and hydrates their pages in
+  happy-dom.
+
+### Changed
+
+- **Breaking:** names follow Effect 4's conventions, ahead of the API
+  freeze. Types drop their namespace's prefix: `Query.QueryKey` is
+  `Query.Key`, `Query.QueryTarget` is `Query.Target`, `Query.QueryFamily`
+  is `Query.Family`, `Query.QuerySchema` is `Query.Schema`,
+  `InfiniteQuery.InfiniteQueryFamily` is `InfiniteQuery.Family` and
+  `InfiniteQuery.PageSchema` is `InfiniteQuery.Schema`. Type ids are
+  `TypeId`, as `Atom.TypeId` is: `Query.TypeId`, `Mutation.TypeId` and
+  `InfiniteQuery.TypeId`. Defects end in `Error`, as effetch's errors do:
+  `QueryClient.NonJsonKeyError`, `QueryClient.DuplicateQueryKeyError` and
+  `MissingQueryProviderError`, `_tag` included. `QueryFailure` keeps its
+  name.
+- `QueryClient.Options` is now a union, `LayerOptions | RuntimeOptions`,
+  rather than an interface. Passing `runtime` with `layer` or `memoMap` is
+  a compile error.
+- The README's server rendering guide makes each request's client from a
+  process-wide `ManagedRuntime`, so the app's layer is built once.
+- The `todos` and `ssr` examples are replaced by the new ones, and no
+  example carries its own tests any more.
+- The README is rewritten: why effetch-query exists and how it relates to
+  TanStack Query, a step-by-step start, and every example built on effetch,
+  with a "Without effetch" section for queries over any Effect.
+
+### Fixed
+
+- A query `hydrate` or `HydrationBoundary` loaded is no longer fetched
+  again in the browser when React reads it while hydrating server HTML in
+  slices: the value React's server snapshot showed was dropped before the
+  query was subscribed to.
+- `hydrate` and `HydrationBoundary` take a streamed result whose promise
+  is a thenable whose `then` returns nothing, as React's RSC client hands
+  over, rather than throwing.
+
 ## 0.1.0-alpha.3
 
 Server rendering: send the cache with the page, and pick it up in the

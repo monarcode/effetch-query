@@ -44,6 +44,19 @@ const cached = async (
 	return { query, current };
 };
 
+describe("Mutation.isMutation", () => {
+	it("tells mutations from other values", () => {
+		const ping = Mutation.make({ run: () => Effect.void });
+
+		expect(Mutation.isMutation(ping)).toBe(true);
+		expect(Mutation.isMutation({ run: () => Effect.void })).toBe(false);
+		expect(
+			Mutation.isMutation(Query.make({ key: ["k"], run: Effect.void })),
+		).toBe(false);
+		expect(Mutation.isMutation(null)).toBe(false);
+	});
+});
+
 describe("Mutation.run", () => {
 	it("runs with the client's services and returns the value", async () => {
 		const client = await makeClient();

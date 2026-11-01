@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
 import { InfiniteQuery, Query, QueryClient } from "../src/index.js";
+import { dehydrate } from "../src/internal/dehydrate.js";
 import { hashKey } from "../src/internal/hashKey.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
 import {
@@ -74,15 +75,17 @@ describe("hashKey", () => {
 		["a function", () => 1],
 		["a class instance", new (class Filter {})()],
 		["a symbol", Symbol("todos")],
-	])("fails with NonJsonKey for %s", (_, segment) => {
+	])("fails with NonJsonKeyError for %s", (_, segment) => {
 		const key = ["todos", { segment }];
 		try {
 			hashKey(key);
 			expect.unreachable();
 		} catch (error) {
-			expect(error).toBeInstanceOf(QueryClient.NonJsonKey);
-			expect(error).toMatchObject({ _tag: "NonJsonKey", key });
-			expect((error as QueryClient.NonJsonKey).message).toContain("todos");
+			expect(error).toBeInstanceOf(QueryClient.NonJsonKeyError);
+			expect(error).toMatchObject({ _tag: "NonJsonKeyError", key });
+			expect((error as QueryClient.NonJsonKeyError).message).toContain(
+				"todos",
+			);
 		}
 	});
 });
@@ -164,7 +167,9 @@ describe("schema", () => {
 		});
 		const query = at(new Date(0));
 
-		expect(() => hydrationOf(query).hash()).toThrow(QueryClient.NonJsonKey);
+		expect(() => hydrationOf(query).hash()).toThrow(
+			QueryClient.NonJsonKeyError,
+		);
 	});
 });
 
@@ -341,6 +346,31 @@ describe("dehydrate and hydrate", () => {
 		unmount();
 	});
 
+	it("show a hydrated value to React's server snapshot, and keep it for a later read", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		await server.runPromise(Query.prefetch(todos));
+		const sent = overTheWire(QueryClient.dehydrate(server));
+		await dispose(server);
+
+		const browser = await makeClient();
+		QueryClient.hydrate(browser, sent);
+		const snapshot = Atom.getServerValue(todos, browser.registry);
+		expect(Atom.getServerValue(todos, browser.registry)).toBe(snapshot);
+		// React hydrates in slices, so the registry may sweep in between.
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		const unmount = use(browser.registry, todos);
+
+		expect(AsyncResult.value(snapshot)).toEqual(
+			Option.some([{ id: 1, title: "Fetch 1" }]),
+		);
+		expect(await valueOf(browser.registry, todos)).toEqual([
+			{ id: 1, title: "Fetch 1" },
+		]);
+		expect(state.runs).toBe(1);
+		unmount();
+	});
+
 	it("keep the server's timestamp, so the query refetches once stale", async () => {
 		useFakeTimers();
 		const { state, todos } = todoList();
@@ -495,8 +525,26 @@ describe("dehydrate and hydrate", () => {
 		);
 
 		expect(() => QueryClient.dehydrate(server)).toThrow(
-			QueryClient.DuplicateQueryKey,
+			QueryClient.DuplicateQueryKeyError,
 		);
+	});
+
+	it("send a query that replaced one an earlier batch sent", async () => {
+		const server = await makeClient();
+		const first = todoList({ gcTime: 0 }).todos;
+		const second = todoList().todos;
+		const sent = new Map<string, Query.Query<any, any>>();
+		await server.runPromise(Query.prefetch(first));
+		expect(dehydrate(server.registry, {}, sent)).toHaveLength(1);
+		await vi.waitFor(() =>
+			expect(server.registry.getNodes().has(first)).toBe(false),
+		);
+		await server.runPromise(Query.prefetch(second));
+
+		const batch = Hydration.toValues(dehydrate(server.registry, {}, sent));
+
+		expect(batch.map((entry) => entry.key)).toEqual([...sent.keys()]);
+		expect([...sent.values()]).toEqual([second]);
 	});
 
 	it("fail for a key that isn't JSON, only when it's sent", async () => {
@@ -509,7 +557,7 @@ describe("dehydrate and hydrate", () => {
 		await server.runPromise(Query.prefetch(at(new Date(0))));
 
 		expect(() => QueryClient.dehydrate(server)).toThrow(
-			QueryClient.NonJsonKey,
+			QueryClient.NonJsonKeyError,
 		);
 		expect(QueryClient.dehydrate(server, { queries: ["todos"] })).toEqual([]);
 	});
@@ -579,6 +627,73 @@ describe("streaming", () => {
 			{ id: 1, title: "Fetch 1" },
 		]);
 		expect(state.runs).toBe(1);
+		unmount();
+	});
+
+	it("waits for a result handed over as a thenable whose then returns nothing", async () => {
+		const { state, todos } = todoList();
+		const server = await makeClient();
+		const { wait, open } = gate();
+		state.hold = wait;
+		void server.runPromise(Query.prefetch(todos));
+		const [entry] = Hydration.toValues(
+			QueryClient.dehydrate(server, { pending: "promise" }),
+		);
+		expect(entry?.resultPromise).toBeInstanceOf(Promise);
+		const sent = entry as Hydration.DehydratedAtomValue;
+		// As React's RSC client hands a streamed promise to client components.
+		const thenable = {
+			// oxlint-disable-next-line unicorn/no-thenable -- a thenable is the point
+			then: (resolve: (value: unknown) => void) => {
+				void sent.resultPromise?.then(resolve);
+			},
+		} as unknown as Promise<unknown>;
+
+		const browser = await makeClient();
+		const loaded: Hydration.DehydratedAtomValue = {
+			...sent,
+			resultPromise: thenable,
+		};
+		QueryClient.hydrate(browser, [loaded]);
+		state.hold = undefined;
+		open();
+
+		expect(await browser.runPromise(Query.fetch(todos))).toEqual([
+			{ id: 1, title: "Fetch 1" },
+		]);
+		expect(state.runs).toBe(1);
+	});
+
+	it("leaves a thenable alone that a fetching query doesn't wait for", async () => {
+		const { state, todos } = todoList();
+		const { wait, open } = gate();
+		state.hold = wait;
+		const browser = await makeClient();
+		const unmount = use(browser.registry, todos);
+		const hash = hydrationOf(todos).hash();
+		const then = vi.fn();
+		const thenable = {
+			// oxlint-disable-next-line unicorn/no-thenable -- a thenable is the point
+			then,
+		} as unknown as Promise<unknown>;
+
+		const entry: Hydration.DehydratedAtomValue = {
+			"~effect/reactivity/Hydration/DehydratedAtom": true,
+			key: hash,
+			value: { _tag: "Initial", waiting: true },
+			dehydratedAt: Date.now(),
+			resultPromise: thenable,
+		};
+		QueryClient.hydrate(browser, [entry]);
+		await Promise.resolve();
+
+		// A connection that drops rejects the thenable: nothing is listening.
+		expect(then).not.toHaveBeenCalled();
+		state.hold = undefined;
+		open();
+		expect(await valueOf(browser.registry, todos)).toEqual([
+			{ id: 1, title: "Fetch 1" },
+		]);
 		unmount();
 	});
 

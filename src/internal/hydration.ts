@@ -2,7 +2,7 @@ import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
-import { NonJsonKey } from "../HydrationError.js";
+import { NonJsonKeyError } from "../HydrationError.js";
 import type * as InfiniteQuery from "../InfiniteQuery.js";
 import type * as Query from "../Query.js";
 
@@ -27,9 +27,7 @@ export interface Hydration<A, E> {
  * members share it, and a definition that never crosses the wire never
  * builds one.
  */
-export const makeCodec = <A, E>(
-	schema: Query.QuerySchema<A, E>,
-): Codec<A, E> => {
+export const makeCodec = <A, E>(schema: Query.Schema<A, E>): Codec<A, E> => {
 	let built: Codec<A, E> | undefined;
 	const codec = (): Codec<A, E> => {
 		if (built === undefined) {
@@ -57,8 +55,8 @@ export const makeCodec = <A, E>(
  * params as JSON values unless it names their schema.
  */
 export const infiniteSchema = <A, E, P>(
-	schema: InfiniteQuery.PageSchema<A, E, P>,
-): Query.QuerySchema<InfiniteQuery.InfiniteData<A, P>, E> => ({
+	schema: InfiniteQuery.Schema<A, E, P>,
+): Query.Schema<InfiniteQuery.InfiniteData<A, P>, E> => ({
 	success: Schema.Struct({
 		pages: Schema.Array(schema.page),
 		pageParams: Schema.Array(schema.pageParam ?? Schema.Json),
@@ -103,7 +101,7 @@ export const hashOption = (hash: () => string): Option.Option<string> => {
 	try {
 		return Option.some(hash());
 	} catch (error) {
-		if (error instanceof NonJsonKey) {
+		if (error instanceof NonJsonKeyError) {
 			return Option.none();
 		}
 		throw error;

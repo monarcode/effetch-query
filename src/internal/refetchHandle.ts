@@ -12,7 +12,7 @@ import { forkWithClient, refreshIfBuilt } from "./runtime.js";
 export interface RefetchHandle {
 	readonly refetching: Atom.Atom<boolean>;
 	/** Refetches the target's queries in use; resolves when they've all settled. */
-	readonly refetch: (target: Query.QueryTarget) => Promise<void>;
+	readonly refetch: (target: Query.Target) => Promise<void>;
 }
 
 export const makeRefetchHandle = (

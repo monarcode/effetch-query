@@ -1,6 +1,6 @@
 import * as Data from "effect/Data";
 
-import type { QueryKey } from "./Query.js";
+import type * as Query from "./Query.js";
 
 /**
  * Thrown when a query key has to become a string, to send a query from the
@@ -15,16 +15,16 @@ import type { QueryKey } from "./Query.js";
  * import { QueryClient } from "@monarcode/effetch-query";
  *
  * export const explain = (error: unknown): string =>
- *   error instanceof QueryClient.NonJsonKey
+ *   error instanceof QueryClient.NonJsonKeyError
  *     ? `Can't send ${String(error.segment)} in a key`
  *     : String(error);
  * ```
  *
  * @since 0.1.0
  */
-export class NonJsonKey extends Data.TaggedError("NonJsonKey")<{
+export class NonJsonKeyError extends Data.TaggedError("NonJsonKeyError")<{
 	/** The key that can't be sent. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** The first value in it that isn't JSON. */
 	readonly segment: unknown;
 	/** The key and the value, for logs. */
@@ -43,16 +43,18 @@ export class NonJsonKey extends Data.TaggedError("NonJsonKey")<{
  * import { QueryClient } from "@monarcode/effetch-query";
  *
  * export const explain = (error: unknown): string =>
- *   error instanceof QueryClient.DuplicateQueryKey
+ *   error instanceof QueryClient.DuplicateQueryKeyError
  *     ? `Two queries use the key ${JSON.stringify(error.key)}`
  *     : String(error);
  * ```
  *
  * @since 0.1.0
  */
-export class DuplicateQueryKey extends Data.TaggedError("DuplicateQueryKey")<{
+export class DuplicateQueryKeyError extends Data.TaggedError(
+	"DuplicateQueryKeyError",
+)<{
 	/** The key both queries have. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** The key, for logs. */
 	readonly message: string;
 }> {}

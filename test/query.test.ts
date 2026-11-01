@@ -60,9 +60,7 @@ describe("Query.make and Query.family", () => {
 
 		expect(Query.isQuery(query)).toBe(true);
 		expect(Query.isQuery(Atom.make(0))).toBe(false);
-		expect(Query.isQuery({ [Query.QueryTypeId]: Query.QueryTypeId })).toBe(
-			false,
-		);
+		expect(Query.isQuery({ [Query.TypeId]: Query.TypeId })).toBe(false);
 	});
 });
 

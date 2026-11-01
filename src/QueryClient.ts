@@ -14,19 +14,20 @@ import * as Scope from "effect/Scope";
 
 import { observeNodes } from "./internal/cache.js";
 import * as hydration from "./internal/dehydrate.js";
+import * as disposal from "./internal/disposeAfter.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
 import type { Mutation } from "./Mutation.js";
-import type { QueryKey, QueryTarget } from "./Query.js";
+import type * as Query from "./Query.js";
 import type { Signals } from "./Signals.js";
 
-export { DuplicateQueryKey, NonJsonKey } from "./HydrationError.js";
+export { DuplicateQueryKeyError, NonJsonKeyError } from "./HydrationError.js";
 
 /**
  * Declares the services your queries and mutations run with. Augment it once,
  * next to your composition root, and every definition, client hook and
  * {@link QueryClient.runPromise} is typed against it:
  *
- * - {@link make} requires a layer that provides these services.
+ * - {@link make} requires a layer or a runtime that provides these services.
  * - An Effect that needs a service outside them doesn't compile.
  *
  * Without the augmentation, {@link Services} is `never`, so anything that
@@ -123,12 +124,14 @@ export type Hook<Event> = (
 ) => Effect.Effect<void, never, Requirements>;
 
 /**
- * A query cache with its own {@link AtomRegistry.AtomRegistry} and its own
- * build of your layer. Create one with {@link make} (or {@link layer} in
- * Effect programs). Every query, mutation and Effect-side cache function runs
- * with it, as the {@link QueryClient} service.
+ * A query cache with its own {@link AtomRegistry.AtomRegistry}, and your
+ * services from its own build of your layer or from your runtime. Create one
+ * with {@link make} (or {@link layer} in Effect programs). Every query,
+ * mutation and Effect-side cache function runs with it, as the
+ * {@link QueryClient} service.
  *
- * A client is cheap to create. On a server, create one per request and
+ * A client is cheap to create. On a server, create one per request from
+ * your process's runtime ({@link RuntimeOptions}) and
  * {@link QueryClient.dispose} it when the response is done.
  *
  * @example
@@ -214,7 +217,9 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
 	Context.Service<QueryClient>("@monarcode/effetch-query/QueryClient");
 
 /**
- * Options for {@link make} and {@link layer}.
+ * Options for {@link make} and {@link layer}: your services, as a layer
+ * ({@link LayerOptions}) or a runtime that already provides them
+ * ({@link RuntimeOptions}), with the {@link CommonOptions}.
  *
  * @example
  * ```ts
@@ -236,7 +241,27 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
  *
  * @since 0.1.0
  */
-export interface Options {
+export type Options = LayerOptions | RuntimeOptions;
+
+/**
+ * {@link Options} that give the client a layer, which it builds itself.
+ *
+ * @example
+ * ```ts
+ * import type * as Layer from "effect/Layer";
+ *
+ * import type { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const AppLayer: Layer.Layer<QueryClient.Services>;
+ *
+ * export const options: QueryClient.LayerOptions = { layer: AppLayer };
+ * ```
+ *
+ * @see {@link RuntimeOptions} to use a runtime you already have
+ *
+ * @since 0.1.0
+ */
+export interface LayerOptions extends CommonOptions {
 	/**
 	 * Provides the services declared in {@link Register}. The client builds it
 	 * the first time it's needed and keeps it until
@@ -245,16 +270,89 @@ export interface Options {
 	 */
 	readonly layer: Layer.Layer<Services, unknown>;
 	/**
-	 * The memo map to build `layer` with. Pass your `ManagedRuntime`'s
-	 * `memoMap` so layers it has built are shared rather than built twice.
-	 * Default: a new one, or for {@link layer} the memo map of the layer graph
-	 * the client is built in.
+	 * The memo map to build `layer` with, so layers built with it before are
+	 * shared rather than built twice: pass a `ManagedRuntime`'s `memoMap` when
+	 * the client adds services of its own to the runtime's (with none, pass
+	 * the runtime itself, {@link RuntimeOptions}). Default: a new one, or for
+	 * {@link layer} the memo map of the layer graph the client is built in.
 	 *
 	 * Clients that share a memo map also share one `Reactivity`, so a
 	 * `Reactivity.invalidate` in one refetches the matching queries of all of
 	 * them. No cached values cross between clients.
 	 */
 	readonly memoMap?: Layer.MemoMap | undefined;
+	/** Not with a layer: see {@link RuntimeOptions}. */
+	readonly runtime?: undefined;
+}
+
+/**
+ * {@link Options} that give the client a `ManagedRuntime` providing your
+ * services, built once for every client that uses it. Share one runtime per
+ * process: on a server, each request's client then reuses its services
+ * rather than building them again.
+ *
+ * The client doesn't own the runtime: {@link QueryClient.dispose} leaves it
+ * running. The runtime builds its layer the first time any client needs it;
+ * if that fails, or the runtime has been disposed, everything that needs it
+ * dies.
+ *
+ * The client builds its own parts with the runtime's `memoMap`, so it shares
+ * the runtime's `Reactivity` with the services the runtime built (an SQL
+ * client publishes on it) and with the runtime's other clients: a
+ * `Reactivity.invalidate` in any of them refetches the matching queries of
+ * all. No cached values cross between clients.
+ *
+ * @example
+ * ```ts
+ * import type * as Layer from "effect/Layer";
+ * import * as ManagedRuntime from "effect/ManagedRuntime";
+ *
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const AppLayer: Layer.Layer<QueryClient.Services>;
+ * const appRuntime = ManagedRuntime.make(AppLayer);
+ *
+ * // A client per request, sharing the runtime's services.
+ * export const handle = async (request: Request) => {
+ *   const queryClient = QueryClient.make({ runtime: appRuntime });
+ *   try {
+ *     return new Response(new URL(request.url).pathname);
+ *   } finally {
+ *     await queryClient.dispose();
+ *   }
+ * };
+ * ```
+ *
+ * @see {@link LayerOptions} to give the client a layer instead
+ *
+ * @since 0.1.0
+ */
+export interface RuntimeOptions extends CommonOptions {
+	/** Provides the services declared in {@link Register}. */
+	readonly runtime: ManagedRuntime.ManagedRuntime<Services, unknown>;
+	/** Not with a runtime, which provides the services. */
+	readonly layer?: undefined;
+	/** Not with a runtime: the client uses the runtime's. */
+	readonly memoMap?: undefined;
+}
+
+/**
+ * The {@link Options} every client takes, whether it's given a layer or a
+ * runtime.
+ *
+ * @example
+ * ```ts
+ * import type { QueryClient } from "@monarcode/effetch-query";
+ *
+ * export const common: QueryClient.CommonOptions = {
+ *   queries: { defaults: { staleTime: "1 minute" } },
+ *   mutations: { defaults: { concurrent: false } },
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface CommonOptions {
 	/** Where focus and reconnect come from. Default: the browser's. */
 	readonly signals?: Signals | undefined;
 	/** Defaults and app-wide hooks for every query. */
@@ -356,7 +454,7 @@ export interface QueryDefaults<E = unknown> {
  */
 export interface QuerySucceeded {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** The fetched value. */
 	readonly value: unknown;
 }
@@ -379,7 +477,7 @@ export interface QuerySucceeded {
  */
 export interface QueryFailed {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** Why the fetch failed, after `retry`. */
 	readonly cause: Cause.Cause<unknown>;
 }
@@ -402,7 +500,7 @@ export interface QueryFailed {
  */
 export interface QuerySettled {
 	/** The query's key. */
-	readonly key: QueryKey;
+	readonly key: Query.Key;
 	/** How the fetch ended, after `retry`. */
 	readonly exit: Exit.Exit<unknown, unknown>;
 }
@@ -579,7 +677,8 @@ export interface MutationSettled {
 /**
  * Creates a {@link QueryClient}. Nothing is built until the client is first
  * used: then it builds `layer` once and keeps it until
- * {@link QueryClient.dispose}.
+ * {@link QueryClient.dispose}. Given a `runtime` instead, it uses the
+ * runtime's services and builds none of its own ({@link RuntimeOptions}).
  *
  * @example
  * ```ts
@@ -589,14 +688,15 @@ export interface MutationSettled {
  * import { QueryClient } from "@monarcode/effetch-query";
  *
  * declare const AppLayer: Layer.Layer<QueryClient.Services>;
- * const appRuntime = ManagedRuntime.make(AppLayer);
  *
  * export const queryClient = QueryClient.make({
  *   layer: AppLayer,
- *   // Share layers already built by the app's runtime.
- *   memoMap: appRuntime.memoMap,
  *   queries: { defaults: { staleTime: "1 minute" } },
  * });
+ *
+ * // Or with the services of a runtime you already have.
+ * const appRuntime = ManagedRuntime.make(AppLayer);
+ * export const sharedClient = QueryClient.make({ runtime: appRuntime });
  * ```
  *
  * @see {@link layer} to create one in an Effect program
@@ -604,12 +704,19 @@ export interface MutationSettled {
  * @since 0.1.0
  */
 export const make = (options: Options): QueryClient => {
-	const memoMap = options.memoMap ?? Layer.makeMemoMapUnsafe();
-	// `Reactivity.layer` is last so it wins over one in `options.layer`: the
-	// runtime's atoms build the same layer with the same memo map, so both
-	// see one instance.
+	const appRuntime = options.runtime;
+	const memoMap =
+		appRuntime?.memoMap ?? options.memoMap ?? Layer.makeMemoMapUnsafe();
+	// Read when it's needed: disposing a runtime replaces its `contextEffect`.
+	const app =
+		appRuntime === undefined
+			? options.layer
+			: Layer.effectContext(Effect.suspend(() => appRuntime.contextEffect));
+	// `Reactivity.layer` is last so it wins over one in the app's services:
+	// the runtime's atoms build the same layer with the same memo map, so
+	// both see one instance.
 	const services = Layer.mergeAll(
-		Layer.orDie(options.layer),
+		Layer.orDie(app),
 		Layer.sync(QueryClient, () => client),
 		Reactivity.layer,
 	);
@@ -681,7 +788,8 @@ export const make = (options: Options): QueryClient => {
  *
  * Unless `options.memoMap` is set, the client builds `options.layer` with
  * the memo map of the layer graph it's built in, so services that graph also
- * builds are built once.
+ * builds are built once. A client given `options.runtime` uses the runtime's
+ * services instead.
  *
  * @example
  * ```ts
@@ -709,10 +817,11 @@ export const make = (options: Options): QueryClient => {
 export const layer = (options: Options): Layer.Layer<QueryClient> =>
 	Layer.fromBuildMemo((memoMap, scope) =>
 		Effect.suspend(() => {
-			const client = make({
-				...options,
-				memoMap: options.memoMap ?? memoMap,
-			});
+			const client = make(
+				options.runtime === undefined
+					? { ...options, memoMap: options.memoMap ?? memoMap }
+					: options,
+			);
 			return Effect.as(
 				Scope.addFinalizer(
 					scope,
@@ -763,7 +872,7 @@ export type DehydratedState = ReadonlyArray<Hydration.DehydratedAtom>;
  */
 export interface DehydrateOptions {
 	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
-	readonly queries?: QueryTarget | undefined;
+	readonly queries?: Query.Target | undefined;
 	/**
 	 * A query still fetching, with nothing to show yet: `"promise"` sends a
 	 * promise of its result, for streaming server rendering, and the browser
@@ -792,8 +901,8 @@ export interface DehydrateOptions {
  * the server. It reads without fetching: a stale query is sent as it is.
  * Values a schema can't encode are left out.
  *
- * Throws {@link NonJsonKey} for a key that isn't JSON, and
- * {@link DuplicateQueryKey} when two queries it sends have one key.
+ * Throws {@link NonJsonKeyError} for a key that isn't JSON, and
+ * {@link DuplicateQueryKeyError} when two queries it sends have one key.
  *
  * @example
  * ```ts
@@ -829,8 +938,8 @@ export const dehydrate = (
  * Loads a cache {@link dehydrate} sent into a client, as TanStack's
  * `hydrate`. A query that isn't cached shows its value the first time it's
  * read, without fetching, and refetches once it's stale. A cached query
- * takes it only if it's newer than the last data it has. A query the server was
- * still loading waits for its result instead of fetching.
+ * takes it only if it's newer than the last data it has. A query the server
+ * was still loading waits for its result instead of fetching.
  *
  * Values its schema can't decode are dropped, and the query fetches. State
  * from Effect's own `Hydration.dehydrate`, for other atoms, is loaded too.
@@ -853,3 +962,51 @@ export const hydrate = (
 	client: QueryClient,
 	state: Iterable<Hydration.DehydratedAtom>,
 ): void => hydration.hydrate(client.registry, state);
+
+/**
+ * Returns `response` with its body wrapped so that `client` is disposed once
+ * the body has been sent: when it ends, fails, or the reader cancels it (a
+ * client that disconnects). A response with no body disposes the client at
+ * once. Use it for a client made per request on a server that answers with
+ * a streamed `Response`, where the request's handler returns before its
+ * streamed results are sent: React Router's middleware, Hono, `Bun.serve`,
+ * `Deno.serve`.
+ *
+ * Send the response it returns: one that's discarded is never read, so the
+ * client is never disposed. Only the status, status text and headers are
+ * kept, not a runtime's own options (Cloudflare's `encodeBody`, say), and
+ * the body goes out as a stream, so a fixed body loses the length the
+ * runtime would have sent. A body already read or locked throws, after the
+ * client is disposed. A failed {@link QueryClient.dispose} is logged with
+ * `console.error`, not thrown.
+ *
+ * The core uses `ReadableStream` and `Response` only when this is called,
+ * so it still loads where they don't exist, such as React Native.
+ *
+ * @example
+ * ```ts
+ * import type * as Layer from "effect/Layer";
+ * import * as ManagedRuntime from "effect/ManagedRuntime";
+ *
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const AppLayer: Layer.Layer<QueryClient.Services>;
+ * declare const render: (client: QueryClient.QueryClient) => Promise<Response>;
+ *
+ * const appRuntime = ManagedRuntime.make(AppLayer);
+ *
+ * export const handle = async (): Promise<Response> => {
+ *   const client = QueryClient.make({ runtime: appRuntime });
+ *   return QueryClient.disposeAfter(client, await render(client));
+ * };
+ * ```
+ *
+ * @see {@link make} for the client
+ * @see {@link dehydrate} to send its queries, still loading ones included
+ *
+ * @since 0.1.0
+ */
+export const disposeAfter: (
+	client: QueryClient,
+	response: Response,
+) => Response = disposal.disposeAfter;

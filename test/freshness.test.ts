@@ -387,7 +387,7 @@ describe("the client's query defaults (G9)", () => {
 
 describe("the client's query hooks (G9)", () => {
 	// `makeClient` fetches a warm-up query, whose hooks run too.
-	const isWarmUp = (key: Query.QueryKey) => key[0] === "warm-up";
+	const isWarmUp = (key: Query.Key) => key[0] === "warm-up";
 
 	const setup = async () => {
 		const calls: Array<string> = [];

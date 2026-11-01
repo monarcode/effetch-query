@@ -76,7 +76,7 @@ describe("InfiniteQuery.family", () => {
 				number
 			>
 		>();
-		expectTypeOf(pages).toExtend<Query.QueryTarget>();
+		expectTypeOf(pages).toExtend<Query.Target>();
 	});
 });
 

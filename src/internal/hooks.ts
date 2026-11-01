@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 
-import type { QueryKey } from "../Query.js";
+import type { Key as QueryKey } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { type ClientState, track } from "./runtime.js";
 

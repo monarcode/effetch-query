@@ -3,6 +3,8 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import type * as Option from "effect/Option";
+import type * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Reactivity from "effect/reactivity/Reactivity";
@@ -42,11 +44,25 @@ export interface ClientState {
 	/** Each query's latest fetch, by its place in `fetchCount`. */
 	readonly fetchedAt: WeakMap<Query<any, any>, number>;
 	/**
+	 * How many Effects wait on each query's value (`fetchValue`): they get a
+	 * failure themselves, so `FetchSettled` says so (see `events.ts`).
+	 */
+	readonly awaited: Map<Query<any, any>, number>;
+	/**
 	 * Results the server was still loading when it sent the cache, by hash:
 	 * the query's next fetch waits for one instead of fetching (see
 	 * `dehydrate.ts`).
 	 */
 	readonly streamed: Map<string, Promise<unknown>>;
+	/**
+	 * Values decoded from the registry's preload map, by the JSON they came
+	 * from: React reads a query's server snapshot again and again while it
+	 * hydrates, and needs one object each time (see `queryAtom.ts`).
+	 */
+	readonly preloads: WeakMap<
+		object,
+		Option.Option<AsyncResult.AsyncResult<any, any>>
+	>;
 	/** Run by `dispose()`: settles the promises `dehydrate` handed out. */
 	readonly onDispose: Set<() => void>;
 }
@@ -59,7 +75,9 @@ export const makeClientState = (): ClientState => ({
 	suspensions: new Map(),
 	fetchCount: 0,
 	fetchedAt: new WeakMap(),
+	awaited: new Map(),
 	streamed: new Map(),
+	preloads: new WeakMap(),
 	onDispose: new Set(),
 });
 

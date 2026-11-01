@@ -4,7 +4,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Hydration from "effect/reactivity/Hydration";
 import type * as Schema from "effect/Schema";
 
-import { DuplicateQueryKey } from "../HydrationError.js";
+import { DuplicateQueryKeyError } from "../HydrationError.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { hydrateValue } from "./cache.js";
@@ -89,20 +89,32 @@ const settled = <A, E>(
 	});
 };
 
-/** `QueryClient.dehydrate` (DESIGN.md §3.12). */
+/**
+ * `QueryClient.dehydrate` (DESIGN.md §3.12). `sent` carries what earlier
+ * batches sent, for a stream of them (`routerSsr.ts`): a query already in it
+ * is skipped, and every query sent is added.
+ */
 export const dehydrate = (
 	registry: AtomRegistry.AtomRegistry,
 	options: QueryClient.DehydrateOptions = {},
+	sent: Map<string, Query.Query<any, any>> = new Map(),
 ): Array<Hydration.DehydratedAtom> => {
 	const { pending = "omit", failures = "omit" } = options;
 	const matches =
 		options.queries === undefined ? () => true : matcher(options.queries);
 	const dehydratedAt = Date.now();
-	const sent = new Set<string>();
 	const entries: Array<Hydration.DehydratedAtomValue> = [];
-	for (const query of registry.get(StateAtom).index) {
+	const { index } = registry.get(StateAtom);
+	for (const query of index) {
 		const { hydration } = internals(query);
-		if (hydration === undefined || !matches(query)) {
+		if (
+			hydration === undefined ||
+			!matches(query) ||
+			Option.exists(
+				hashOption(hydration.hash),
+				(hash) => sent.get(hash) === query,
+			)
+		) {
 			continue;
 		}
 		const entry = toEntry(registry, query, hydration, pending, failures);
@@ -110,13 +122,16 @@ export const dehydrate = (
 			continue;
 		}
 		const key = hydration.hash();
-		if (sent.has(key)) {
-			throw new DuplicateQueryKey({
+		const earlier = sent.get(key);
+		// One sent in an earlier batch counts only while it's still cached: a
+		// query that replaced it is sent too, and loads over it.
+		if (earlier !== undefined && index.has(earlier)) {
+			throw new DuplicateQueryKeyError({
 				key: query.key,
 				message: `Two cached queries have the key ${key}, so the browser can't tell them apart`,
 			});
 		}
-		sent.add(key);
+		sent.set(key, query);
 		entries.push({
 			"~effect/reactivity/Hydration/DehydratedAtom": true,
 			key,
@@ -281,7 +296,7 @@ const stream = (
 	registry: AtomRegistry.AtomRegistry,
 	client: ClientState,
 	entry: Hydration.DehydratedAtomValue,
-	promise: Promise<unknown>,
+	resultPromise: PromiseLike<unknown>,
 	query: Query.Query<any, any> | undefined,
 ): void => {
 	registry.preloadedSerializable.delete(entry.key);
@@ -296,6 +311,9 @@ const stream = (
 			return;
 		}
 	}
+	// A framework's deserializer may hand over a thenable whose `then`
+	// returns nothing, as React's RSC client does.
+	const promise = Promise.resolve(resultPromise);
 	client.streamed.set(entry.key, promise);
 	// A result no fetch has taken when it lands is loaded as a value, so it
 	// keeps the server's timestamp rather than taking the time of a read

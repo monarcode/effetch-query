@@ -1,15 +1,24 @@
 # Examples
 
-Complete programs using effetch-query. Each one is typechecked
-(`pnpm run typecheck`) and tested (`pnpm test`) with the package, so they
-always match the current API. Each folder has its own `tsconfig.json`,
-because each registers its own services (`Register`).
+Complete programs using effetch-query, to read and copy. Each one is
+typechecked with the package (`pnpm run typecheck`), so they always match
+the current API. Each folder has its own `tsconfig.json`, because each
+registers its own services (`Register`). `tanstack-start` and
+`react-router` are also the package's integration tests:
+[`test/examples/`](../test/examples) builds them, serves them and drives
+them in a browser environment.
 
-| Example                       | What it shows                                                                                                          |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [`effect-only/`](effect-only) | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched, what's written.       |
-| [`todos/`](todos)             | A React app over effetch endpoints: a paged list, a detail, an optimistic toggle, a missing todo and a refresh button. |
-| [`ssr/`](ssr)                 | Server rendering: a client per request, the cache sent with the HTML, and the page hydrated without a fetch.           |
+All but `effect-only` use [dummyjson.com](https://dummyjson.com)'s todos and
+auth APIs. dummyjson answers writes but saves nothing, so a reload shows its
+todos as they were.
+
+| Example                                                   | What it shows                                                                                      |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [`effect-only/`](effect-only)                             | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched.   |
+| [`basic/`](basic)                                         | The smallest React app: a query, and a mutation that shows its change at once.                     |
+| [`tanstack-start/`](tanstack-start)                       | A full TanStack Start app on effetch endpoints.                                                    |
+| [`tanstack-start-httpclient/`](tanstack-start-httpclient) | The same app on Effect's `HttpClient`, with no effetch: the queries and mutations written by hand. |
+| [`react-router/`](react-router)                           | The same app in React Router's framework mode, on effetch endpoints.                               |
 
 ## `effect-only/`
 
@@ -24,86 +33,137 @@ program against them with `QueryClient.layer`:
 4. `todos` is fetched again, and read again, because it was invalidated.
 5. A missing todo fails with the store's own `TodoNotFound`, caught by tag.
 
-Five cache operations, three reads. The test,
-[`effect-only.test.ts`](effect-only/effect-only.test.ts), checks each step.
+Five cache operations, three reads: `main` returns what each step saw.
 
-## `todos/`
+## `basic/`
 
-A small todo app, written the way a real one would be:
-
-```text
-todos/
-├── api.ts           the effetch client, its endpoints as queries and mutations
-├── client.ts        the query client, over an HttpClient
-├── App.tsx          the components
-├── main.tsx         the browser entry: the client over FetchHttpClient
-├── fake-api.ts      an in-memory API for the tests
-└── App.test.tsx     tests that drive the app through the DOM
-```
-
-- **[`api.ts`](todos/api.ts)** defines the effetch client and registers it
-  (`Register["services"]`). `endpoints` turns three `Fetch.endpoint`
-  definitions into `todos` (an infinite query, a page at a time through the
-  `skip` query field), `todo` and `toggleTodo`. The toggle updates every
-  cached page of every list (`Query.update` on the family) and the detail
-  optimistically, writes the server's todo when it succeeds, and
-  invalidates the list.
-- **[`App.tsx`](todos/App.tsx)**:
-  - the list reads `todos({ query: { limit: 2 } })` with
-    `useInfiniteQuery`, loads more with its `fetchNextPage` (a `FlatList`'s
-    `onEndReached` in React Native), and refreshes every loaded page with
-    `useRefetch` (a `RefreshControl` in React Native);
-  - each item toggles with its own `useMutation`, and shows when its save
-    failed;
-  - the detail reads `todo({ params: { id } })` with `useSuspenseQuery`. A
-    missing todo reaches an error boundary as a `QueryFailure`, whose
-    "Try again" button refetches it with `useResetQueryFailure`.
-- **[`App.test.tsx`](todos/App.test.tsx)** renders the app over
-  [`fake-api.ts`](todos/fake-api.ts), which serves pages, and can hold
-  responses and fail the next request. It checks the toggle shows before
-  the server answers, on the first page and a later one, that a rejected
-  toggle is undone, that a missing todo can be retried once it exists, that
-  "load more" keeps the list shown while the next page loads, and that a
-  refresh shows the server's latest list.
-
-To run it against a real server, serve `main.tsx` with any bundler (Vite,
-for example) and an API at `https://todos.example`, or change `baseUrl` in
-`api.ts`.
-
-## `ssr/`
-
-A page rendered on the server and picked up in the browser, with plain
-React (`renderToString` and `hydrateRoot`), so it carries over to any
-server or framework:
+Ten todos with a checkbox each, in one small React app:
 
 ```text
-ssr/
-├── services.ts      the services: a product catalog and the signed-in viewer
-├── app.tsx          two queries with a schema, and the components
-├── page.tsx         the tree both sides render, under a HydrationBoundary
-├── server.tsx       renders a page per request
-├── browser.tsx      hydrates the server's page
-├── main.tsx         the browser entry: the catalog over the server's API
-└── ssr.test.tsx     tests that render on the server and hydrate the HTML
+basic/
+├── api.ts         the effetch client, its todos query and toggle mutation
+├── App.tsx        the list
+└── main.tsx       the browser entry: the query client over FetchHttpClient
 ```
 
-- **[`app.tsx`](ssr/app.tsx)** defines `products` and `greeting`. Each has a
-  `schema`, which is what lets it cross to the browser, and a `staleTime`,
-  so the browser doesn't refetch what the server just loaded.
-- **[`server.tsx`](ssr/server.tsx)** makes a client per request, with that
-  request's viewer, sharing one memo map so the catalog is built once per
-  process. It prefetches both queries, renders the page, embeds
-  `QueryClient.dehydrate`'s result (escaped, so a value can't close its
-  script tag) and disposes the client.
-- **[`browser.tsx`](ssr/browser.tsx)** reads the embedded data, makes the
-  app's client and hydrates the same tree, whose `HydrationBoundary` loads
-  the server's cache before the first render.
-- **[`ssr.test.tsx`](ssr/ssr.test.tsx)** renders on the "server", loads the
-  HTML into the page and hydrates it. It checks the HTML has the data, that
-  hydrating changes nothing in the page, logs no mismatch and reads nothing
-  from the catalog, that two requests at once each get their own viewer,
-  and that a product named `</script>` can't break out of the embedded
-  data.
+- **[`api.ts`](basic/api.ts)** defines the effetch client, registers it
+  (`Register["services"]`), and turns two `Fetch.endpoint`s into `todos`
+  and `toggleTodo`. The toggle writes its change to the list before the
+  request (`optimistic`), and dummyjson's answer after it (`onSuccess`).
+  It invalidates nothing: dummyjson saves nothing, so a refetch would bring
+  the old todo back.
+- **[`App.tsx`](basic/App.tsx)** reads the list with `useQuery`, and runs
+  each toggle with its own `useMutation`.
 
-To run it for real, serve `server.tsx`'s pages from any server, bundle
-`main.tsx` as `/main.js`, and serve the catalog as JSON at `/api/products`.
+```bash
+pnpm exec vite examples/basic
+```
+
+## The full apps
+
+`tanstack-start`, `tanstack-start-httpclient` and `react-router` are one app
+three ways, with the same pages, sign-in and look:
+
+| Page         | What it shows                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `/login`     | Sign in as `emilys` / `emilyspass`. A failed sign-in shows dummyjson's message. Already signed in, it redirects home. |
+| `/`          | The user's todos, loaded on the server. Toggle and delete show at once, and are undone if dummyjson fails them.       |
+| `/todos`     | Every todo, ten at a time, with "Load more": an infinite query paged by `skip`.                                       |
+| `/todos/:id` | One todo, streamed: the loader starts it without waiting. A missing one shows dummyjson's message and "Try again".    |
+
+How they work:
+
+- **A client per request.** On the server, each request gets its own query
+  client, with that request's token. In the browser, the page keeps one.
+  The pages arrive with their queries' values, and hydrate without a fetch.
+- **Signing in.** `login` is a mutation. It keeps the access token in a
+  `session` cookie, which the browser reads for every request, and writes
+  the user to `viewer`, so the next page has them without a fetch. The
+  cookie is readable from JavaScript, so the browser can call dummyjson
+  itself; a production app would keep it `httpOnly`, and call its own
+  server instead.
+- **Signed out**, `viewer` (`GET /auth/me`) dies with the router's
+  `redirect()` to `/login`, and the loaders that fetch it follow it. Signing
+  out clears the cookie and resets every query.
+- **Writes keep dummyjson's answer.** As in `basic`, nothing is invalidated
+  after a write: the cache keeps what dummyjson answered.
+- **One look.** [`ui/`](ui) is a stylesheet and presentational components
+  that take data and callbacks, so each app's own code is only its data
+  and routing.
+- **Tested end to end.** [`test/examples/`](../test/examples) builds
+  `tanstack-start` and `react-router` with `VITE_DUMMYJSON_URL` set to an
+  in-memory dummyjson, serves them, then loads their pages into happy-dom
+  and hydrates them with the app from source. One suite runs on both: the
+  redirect, a page hydrated without a fetch, signing in and out, the
+  toggle and its undo, delete, refresh, a change kept across pages,
+  "Load more", the streamed page, a missing todo and "Try again", a page
+  that fails to load, and not found.
+
+To run one against dummyjson.com, then open the address it prints:
+
+```bash
+pnpm exec vite dev examples/tanstack-start
+```
+
+```bash
+pnpm exec vite dev examples/tanstack-start-httpclient
+```
+
+```bash
+pnpm exec react-router dev examples/react-router
+```
+
+### `tanstack-start/`
+
+```text
+tanstack-start/
+├── src/dummyjson.ts    the effetch client, with the session's bearer token
+├── src/session.ts      the session cookie, read on the server and in the browser
+├── src/api.ts          the endpoints as queries and mutations, viewer and login
+├── src/router.tsx      a router and query client per request
+├── src/todo-item.tsx   a todo row, with its toggle and delete
+├── src/page-error.tsx  the page shown when a page fails to load
+└── src/routes/         the pages: __root, login, _app (signed in) and its children
+```
+
+`getRouter` makes the query client and connects it to the router
+(`connectQueryClient`). Loaders fetch into it; queries cross to the browser
+with the page, and stream in when they're still loading.
+
+### `tanstack-start-httpclient/`
+
+The same app, with the same routes, but its data layer is Effect's own:
+
+- **[`src/dummyjson.ts`](tanstack-start-httpclient/src/dummyjson.ts)** is
+  a `DummyJson` service over `HttpClient`: `prependUrl`, a bearer token
+  from the session, and each response decoded with its Schema, or failed
+  with dummyjson's message as an `ApiError`.
+- **[`src/api.ts`](tanstack-start-httpclient/src/api.ts)** defines each
+  query and mutation by hand, with `Query.make`, `Query.family`,
+  `InfiniteQuery.make` and `Mutation.make`, its key and its schema.
+
+Compare its `src/api.ts` with `tanstack-start`'s to see what effetch's
+`endpoints` writes for you.
+
+### `react-router/`
+
+```text
+react-router/
+├── app/dummyjson.ts       the effetch client, as in tanstack-start
+├── app/api.ts             the queries and mutations, as in tanstack-start
+├── app/query-client.ts    a query client with a token
+├── app/query-context.ts   the root middleware: a client per request, disposed after it
+├── app/entry.server.tsx   the server render, with the request's client
+├── app/browser.tsx        the app in the browser: its client, for components and client loaders
+├── app/entry.client.tsx   the page's client, and hydration
+├── app/root.tsx           the document, the middleware and the not-found page
+├── app/routes.ts          the routes
+└── app/routes/            the pages: login, signed-in (the layout) and its children
+```
+
+On the first page, each loader fetches into the request's client and
+returns `QueryClient.dehydrate(client)`, which the route hands to a
+`HydrationBoundary`. After that, each route's `clientLoader` fetches into
+the page's own client, which `BrowserApp` puts in the router's context, as
+the Start apps' loaders do in the browser: what the page has cached isn't
+fetched again, and dummyjson's unsaved changes stay until a reload.

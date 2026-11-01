@@ -1,26 +1,26 @@
 import type * as Cause from "effect/Cause";
 import type * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
+import * as Predicate from "effect/Predicate";
 import type * as Types from "effect/Types";
 
 import * as internal from "./internal/mutation.js";
-import type { QueryTarget } from "./Query.js";
+import type * as Query from "./Query.js";
 import type * as QueryClient from "./QueryClient.js";
 
 /**
- * The type of {@link MutationTypeId}, the property that marks a
- * {@link Mutation}.
+ * The type of {@link TypeId}, the property that marks a {@link Mutation}.
  *
  * @example
  * ```ts
  * import { Mutation } from "@monarcode/effetch-query";
  *
- * export const id: Mutation.MutationTypeId = Mutation.MutationTypeId;
+ * export const id: Mutation.TypeId = Mutation.TypeId;
  * ```
  *
  * @since 0.1.0
  */
-export type MutationTypeId = internal.MutationTypeId;
+export type TypeId = internal.MutationTypeId;
 
 /**
  * The property that marks a {@link Mutation}.
@@ -33,12 +33,38 @@ export type MutationTypeId = internal.MutationTypeId;
  *
  * const ping = Mutation.make({ run: () => Effect.void });
  *
- * console.log(Mutation.MutationTypeId in ping); // true
+ * console.log(Mutation.TypeId in ping); // true
+ * ```
+ *
+ * @see {@link isMutation} to check a value
+ *
+ * @since 0.1.0
+ */
+export const TypeId: TypeId = internal.MutationTypeId;
+
+/**
+ * Whether a value is a {@link Mutation}. A mutation's variables can't be
+ * known from the value, so it narrows to `Mutation<never, unknown, unknown>`,
+ * which every mutation is.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Mutation } from "@monarcode/effetch-query";
+ *
+ * const ping = Mutation.make({ run: () => Effect.void });
+ *
+ * Mutation.isMutation(ping); // true
+ * Mutation.isMutation({ run: () => Effect.void }); // false
  * ```
  *
  * @since 0.1.0
  */
-export const MutationTypeId: MutationTypeId = internal.MutationTypeId;
+export const isMutation = (
+	value: unknown,
+): value is Mutation<never, unknown, unknown> =>
+	Predicate.hasProperty(value, TypeId);
 
 /**
  * A mutation's definition: what a run does with its `Variables`, succeeding
@@ -62,7 +88,7 @@ export const MutationTypeId: MutationTypeId = internal.MutationTypeId;
  */
 export interface Mutation<Variables, A, E> {
 	/** Marks a mutation, and carries its types. */
-	readonly [MutationTypeId]: {
+	readonly [TypeId]: {
 		readonly _Variables: Types.Contravariant<Variables>;
 		readonly _A: Types.Covariant<A>;
 		readonly _E: Types.Covariant<E>;
@@ -158,8 +184,8 @@ export interface MakeOptions<
 	 * one.
 	 */
 	readonly invalidates?:
-		| ReadonlyArray<QueryTarget>
-		| ((value: A, variables: Variables) => ReadonlyArray<QueryTarget>)
+		| ReadonlyArray<Query.Target>
+		| ((value: A, variables: Variables) => ReadonlyArray<Query.Target>)
 		| undefined;
 }
 

@@ -538,7 +538,7 @@ export interface UseRefetchResult {
  *
  * @since 0.1.0
  */
-export const useRefetch = (target: Query.QueryTarget): UseRefetchResult => {
+export const useRefetch = (target: Query.Target): UseRefetchResult => {
 	const registry = useRegistry();
 	const handle = useHandle(() => makeRefetchHandle(registry), [registry]);
 	const isRefetching = useAtomValue(handle.refetching);

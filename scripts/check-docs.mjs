@@ -10,6 +10,7 @@ const entries = [
 	"src/react/index.ts",
 	"src/react-native/index.ts",
 	"src/effetch/index.ts",
+	"src/react/tanstack-router/index.ts",
 ].map((file) => path.join(root, file));
 const markdown = ["README.md"]
 	.map((file) => path.join(root, file))
@@ -35,7 +36,16 @@ const parsed = ts.getParsedCommandLineOfConfigFile(
 		},
 	},
 );
-const options = { ...parsed.options, noEmit: true, plugins: [] };
+const options = {
+	...parsed.options,
+	noEmit: true,
+	plugins: [],
+	paths: {
+		...parsed.options.paths,
+		// The README's Next.js recipe; Next isn't a dependency.
+		"next/server": ["./scripts/docs-types/next-server.d.ts"],
+	},
+};
 const problems = [];
 
 const program = ts.createProgram(entries, options);

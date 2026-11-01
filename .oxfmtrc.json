@@ -17,7 +17,15 @@
 			"options": { "useTabs": false, "tabWidth": 2 }
 		}
 	],
-	"ignorePatterns": ["node_modules", "dist", "coverage", ".smoke"],
+	"ignorePatterns": [
+		"node_modules",
+		"dist",
+		"coverage",
+		".smoke",
+		"build",
+		".react-router",
+		"routeTree.gen.ts"
+	],
 	"sortImports": {
 		"customGroups": [
 			{

@@ -1,7 +1,7 @@
 import * as Formatter from "effect/Formatter";
 
-import { NonJsonKey } from "../HydrationError.js";
-import type { QueryKey } from "../Query.js";
+import { NonJsonKeyError } from "../HydrationError.js";
+import type { Key as QueryKey } from "../Query.js";
 
 const isPlainObject = (value: object): boolean => {
 	const prototype = Object.getPrototypeOf(value);
@@ -12,8 +12,8 @@ const isPlainObject = (value: object): boolean => {
  * The string a query is found by across the wire (DESIGN.md §3.12): its key
  * as JSON with object keys sorted, as TanStack's `hashKey`, after a prefix
  * that keeps it apart from other serializable atoms and tells kinds of
- * queries with one key apart. Throws {@link NonJsonKey} for a segment that
- * isn't JSON.
+ * queries with one key apart. Throws {@link NonJsonKeyError} for a segment
+ * that isn't JSON.
  */
 export const hashKey = (key: QueryKey, kind?: string | undefined): string => {
 	const canonical = (value: unknown): unknown => {
@@ -42,7 +42,7 @@ export const hashKey = (key: QueryKey, kind?: string | undefined): string => {
 		return notJson(value);
 	};
 	const notJson = (segment: unknown): never => {
-		throw new NonJsonKey({
+		throw new NonJsonKeyError({
 			key,
 			segment,
 			message: `The query key ${Formatter.format(key)} can't be sent to the browser: ${Formatter.format(segment)} isn't JSON`,

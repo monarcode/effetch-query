@@ -4,6 +4,7 @@ import * as Effetch from "../src/effetch/index.js";
 import * as Core from "../src/index.js";
 import * as ReactNative from "../src/react-native/index.js";
 import * as React from "../src/react/index.js";
+import * as TanStackRouter from "../src/react/tanstack-router/index.js";
 
 describe("public entry points", () => {
 	it("@monarcode/effetch-query exports exactly these values", () => {
@@ -16,7 +17,7 @@ describe("public entry points", () => {
 			"Signals",
 		]);
 		expect(Object.keys(Core.InfiniteQuery).sort()).toEqual([
-			"InfiniteQueryTypeId",
+			"TypeId",
 			"family",
 			"fetchNextPage",
 			"fetchPreviousPage",
@@ -24,12 +25,13 @@ describe("public entry points", () => {
 			"make",
 		]);
 		expect(Object.keys(Core.Mutation).sort()).toEqual([
-			"MutationTypeId",
+			"TypeId",
+			"isMutation",
 			"make",
 			"run",
 		]);
 		expect(Object.keys(Core.Query).sort()).toEqual([
-			"QueryTypeId",
+			"TypeId",
 			"family",
 			"fetch",
 			"get",
@@ -43,10 +45,11 @@ describe("public entry points", () => {
 			"update",
 		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([
-			"DuplicateQueryKey",
-			"NonJsonKey",
+			"DuplicateQueryKeyError",
+			"NonJsonKeyError",
 			"QueryClient",
 			"dehydrate",
+			"disposeAfter",
 			"hydrate",
 			"layer",
 			"make",
@@ -57,7 +60,7 @@ describe("public entry points", () => {
 	it("@monarcode/effetch-query/react exports exactly these values", () => {
 		expect(Object.keys(React).sort()).toEqual([
 			"HydrationBoundary",
-			"MissingQueryProvider",
+			"MissingQueryProviderError",
 			"QueryFailure",
 			"QueryProvider",
 			"useInfiniteQuery",
@@ -78,5 +81,11 @@ describe("public entry points", () => {
 
 	it("@monarcode/effetch-query/effetch exports exactly these values", () => {
 		expect(Object.keys(Effetch).sort()).toEqual(["endpoints"]);
+	});
+
+	it("@monarcode/effetch-query/react/tanstack-router exports exactly these values", () => {
+		expect(Object.keys(TanStackRouter).sort()).toEqual([
+			"connectQueryClient",
+		]);
 	});
 });
