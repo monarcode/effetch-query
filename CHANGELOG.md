@@ -71,6 +71,9 @@ recipes, and clients made from an existing `ManagedRuntime`.
   a compile error.
 - The README's server rendering guide makes each request's client from a
   process-wide `ManagedRuntime`, so the app's layer is built once.
+- The README is rewritten: why effetch-query exists and how it relates to
+  TanStack Query, a step-by-step start, and every example built on effetch,
+  with a "Without effetch" section for queries over any Effect.
 
 ### Fixed
 

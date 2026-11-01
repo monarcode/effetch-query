@@ -288,9 +288,9 @@ describe("the README's React Router recipe", () => {
 		const normalize = (code: string) =>
 			code
 				.slice(code.indexOf("import"))
-				.replace('import { TodoApiLive } from "./todo-api.js";', "")
+				.replace('import { ApiClientLive } from "./api.js";', "")
 				.replace('import { servicesLayer } from "./services.js";', "")
-				.replace("TodoApiLive", 'servicesLayer("hello")')
+				.replace("ApiClientLive", 'servicesLayer("hello")')
 				.replace(/\s+/g, " ")
 				.trim();
 
