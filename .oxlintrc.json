@@ -9,7 +9,8 @@
 		"**/node_modules/**",
 		"**/dist/**",
 		"**/coverage/**",
-		"**/.smoke/**"
+		"**/.smoke/**",
+		"**/routeTree.gen.ts"
 	],
 	"rules": {
 		"no-unused-vars": "off",

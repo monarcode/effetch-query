@@ -4,6 +4,7 @@ import * as Effetch from "../src/effetch/index.js";
 import * as Core from "../src/index.js";
 import * as ReactNative from "../src/react-native/index.js";
 import * as React from "../src/react/index.js";
+import * as TanStackRouter from "../src/react/tanstack-router/index.js";
 
 describe("public entry points", () => {
 	it("@monarcode/effetch-query exports exactly these values", () => {
@@ -78,5 +79,11 @@ describe("public entry points", () => {
 
 	it("@monarcode/effetch-query/effetch exports exactly these values", () => {
 		expect(Object.keys(Effetch).sort()).toEqual(["endpoints"]);
+	});
+
+	it("@monarcode/effetch-query/react/tanstack-router exports exactly these values", () => {
+		expect(Object.keys(TanStackRouter).sort()).toEqual([
+			"connectQueryClient",
+		]);
 	});
 });

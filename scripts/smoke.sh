@@ -35,7 +35,9 @@ for required in \
 	package/dist/react-native/index.js \
 	package/dist/react-native/index.d.ts \
 	package/dist/effetch/index.js \
-	package/dist/effetch/index.d.ts; do
+	package/dist/effetch/index.d.ts \
+	package/dist/react/tanstack-router/index.js \
+	package/dist/react/tanstack-router/index.d.ts; do
 	if ! grep -qx "$required" <<<"$contents"; then
 		echo "✗ Missing from tarball: $required" >&2
 		exit 1
@@ -66,6 +68,8 @@ react_types_version="$(dev_version @types/react)"
 atom_react_version="$(dev_version @effect/atom-react)"
 effetch_version="$(dev_version @monarcode/effetch)"
 scheduler_version="$(dev_version scheduler)"
+tanstack_router_version="$(dev_version @tanstack/react-router)"
+node_types_version="$(dev_version @types/node)"
 
 common_options='
 		"target": "ES2022",
@@ -104,7 +108,7 @@ cat >package.json <<'JSON'
 JSON
 npm install --silent --no-audit --no-fund --no-package-lock \
 	"$tarball" "effect@$effect_version" "typescript@$typescript_version"
-for optional in react @effect/atom-react @monarcode/effetch; do
+for optional in react @effect/atom-react @monarcode/effetch @tanstack/react-router; do
 	if [ -d "node_modules/$optional" ]; then
 		echo "✗ $optional was installed, but it's an optional peer" >&2
 		exit 1
@@ -369,6 +373,103 @@ TS
 typecheck react.ts
 echo "› Running react.ts"
 node react.ts
+
+# Node's types are for TanStack's server rendering, which a server imports.
+echo "› Installing TanStack Router (@tanstack/react-router@$tanstack_router_version)"
+npm install --silent --no-audit --no-fund --no-package-lock \
+	"@tanstack/react-router@$tanstack_router_version" "@types/node@$node_types_version"
+
+cat >tanstack-router.ts <<'TS'
+/// <reference types="node" />
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import {
+	createRootRouteWithContext,
+	createRoute,
+	createRouter,
+	Outlet,
+	Scripts,
+} from "@tanstack/react-router";
+import {
+	createRequestHandler,
+	defaultStreamHandler,
+} from "@tanstack/react-router/ssr/server";
+import { createElement, Fragment } from "react";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import { useSuspenseQuery } from "@monarcode/effetch-query/react";
+import * as TanStackRouter from "@monarcode/effetch-query/react/tanstack-router";
+
+const exported = JSON.stringify(Object.keys(TanStackRouter).sort());
+if (exported !== '["connectQueryClient"]') {
+	throw new Error(`Unexpected tanstack-router exports: ${exported}`);
+}
+
+let fetches = 0;
+const greeting = Query.make({
+	key: ["greeting"],
+	run: Effect.sync(() => {
+		fetches += 1;
+		return "Hello from the loader";
+	}),
+	schema: { success: Schema.String },
+	staleTime: "1 minute",
+});
+
+const rootRoute = createRootRouteWithContext<{
+	readonly queryClient: QueryClient.QueryClient;
+}>()({
+	component: () =>
+		createElement(Fragment, null, createElement(Outlet), createElement(Scripts)),
+});
+const indexRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/",
+	loader: ({ context }) => context.queryClient.runPromise(Query.fetch(greeting)),
+	component: () => createElement("p", null, useSuspenseQuery(greeting).value),
+});
+
+const queryClient = QueryClient.make({ layer: Layer.empty });
+const response = await createRequestHandler({
+	request: new Request("http://localhost/"),
+	createRouter: () => {
+		const router = createRouter({
+			routeTree: rootRoute.addChildren([indexRoute]),
+			context: { queryClient },
+		});
+		TanStackRouter.connectQueryClient({ router, queryClient });
+		return router;
+	},
+})(defaultStreamHandler);
+const html = await response.text();
+
+// The page has the loader's query, and its state for the browser.
+if (
+	!html.includes("<p>Hello from the loader</p>") ||
+	!html.includes('effetch-query:[\\"greeting\\"]') ||
+	fetches !== 1
+) {
+	throw new Error(`Unexpected page after ${fetches} fetches: ${html}`);
+}
+
+// The request's client is disposed when the request ends.
+let disposed = false;
+try {
+	queryClient.registry.get(greeting);
+} catch {
+	disposed = true;
+}
+if (!disposed) {
+	throw new Error("The request's query client wasn't disposed");
+}
+
+console.log("tanstack-router: ok");
+TS
+
+typecheck tanstack-router.ts
+echo "› Running tanstack-router.ts"
+node tanstack-router.ts
 
 echo "› Checking the editor experience (definitions, hovers)"
 cp "$root/scripts/editor-check.mjs" .

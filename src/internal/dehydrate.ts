@@ -89,20 +89,31 @@ const settled = <A, E>(
 	});
 };
 
-/** `QueryClient.dehydrate` (DESIGN.md §3.12). */
+/**
+ * `QueryClient.dehydrate` (DESIGN.md §3.12). `sent` carries what earlier
+ * batches sent, for a stream of them (`routerSsr.ts`): a query already in it
+ * is skipped, and every query sent is added.
+ */
 export const dehydrate = (
 	registry: AtomRegistry.AtomRegistry,
 	options: QueryClient.DehydrateOptions = {},
+	sent: Map<string, Query.Query<any, any>> = new Map(),
 ): Array<Hydration.DehydratedAtom> => {
 	const { pending = "omit", failures = "omit" } = options;
 	const matches =
 		options.queries === undefined ? () => true : matcher(options.queries);
 	const dehydratedAt = Date.now();
-	const sent = new Set<string>();
 	const entries: Array<Hydration.DehydratedAtomValue> = [];
 	for (const query of registry.get(StateAtom).index) {
 		const { hydration } = internals(query);
-		if (hydration === undefined || !matches(query)) {
+		if (
+			hydration === undefined ||
+			!matches(query) ||
+			Option.exists(
+				hashOption(hydration.hash),
+				(hash) => sent.get(hash) === query,
+			)
+		) {
 			continue;
 		}
 		const entry = toEntry(registry, query, hydration, pending, failures);
@@ -116,7 +127,7 @@ export const dehydrate = (
 				message: `Two cached queries have the key ${key}, so the browser can't tell them apart`,
 			});
 		}
-		sent.add(key);
+		sent.set(key, query);
 		entries.push({
 			"~effect/reactivity/Hydration/DehydratedAtom": true,
 			key,

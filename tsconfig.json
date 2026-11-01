@@ -21,7 +21,10 @@
 			"@monarcode/effetch-query/react-native": [
 				"./src/react-native/index.js"
 			],
-			"@monarcode/effetch-query/effetch": ["./src/effetch/index.js"]
+			"@monarcode/effetch-query/effetch": ["./src/effetch/index.js"],
+			"@monarcode/effetch-query/react/tanstack-router": [
+				"./src/react/tanstack-router/index.js"
+			]
 		},
 		"plugins": [{ "name": "@effect/language-service" }]
 	},

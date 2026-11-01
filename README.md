@@ -60,6 +60,7 @@ endpoints turn into queries and mutations in one line.
   - [Sending the cache](#sending-the-cache)
   - [Loading it in the browser](#loading-it-in-the-browser)
   - [Streaming](#streaming)
+- [TanStack Router and Start](#tanstack-router-and-start)
 - [The client](#the-client)
   - [Client options](#client-options)
   - [App-wide hooks](#app-wide-hooks)
@@ -1132,6 +1133,115 @@ sends promises to the browser, such as React Server Components' props.
 Dispose the client once its promises settle; a promise still pending at
 `dispose()` resolves to nothing, and the browser fetches that query.
 
+## TanStack Router and Start
+
+`connectQueryClient` from `@monarcode/effetch-query/react/tanstack-router`
+connects a client to a TanStack Router, and so to TanStack Start, as
+TanStack's `setupRouterSsrQueryIntegration` does for TanStack Query. Install
+`@tanstack/react-router` (or `@tanstack/react-start`) alongside, and call it
+where the router is made:
+
+```tsx router.tsx
+import * as Effect from "effect/Effect";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import { connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
+import {
+  createRootRouteWithContext,
+  createRoute,
+  createRouter,
+  Outlet,
+} from "@tanstack/react-router";
+
+import { TodoApiLive } from "./todo-api.js";
+import { TodoList, todoList } from "./todo-list.js";
+
+const rootRoute = createRootRouteWithContext<{
+  readonly queryClient: QueryClient.QueryClient;
+}>()({ component: Outlet });
+
+const todosRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  // TanStack's `ensureQueryData`: the cached value while it's fresh.
+  loader: ({ context }) =>
+    context.queryClient.runPromise(Query.fetch(todoList)),
+  component: TodoList,
+});
+
+// Builds your app's layer (TodoApiLive here, or all your services merged)
+// once per process, for every request's client to share.
+const appRuntime = ManagedRuntime.make(TodoApiLive);
+
+// Start calls `getRouter` once per request on the server, and once in the
+// browser, so each request gets its own client.
+export function getRouter() {
+  void appRuntime.runPromiseExit(Effect.void);
+  const queryClient = QueryClient.make({
+    layer: TodoApiLive,
+    memoMap: appRuntime.memoMap,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([todosRoute]),
+    context: { queryClient },
+    // Loaders always run, and the queries' staleTime decides what's fetched.
+    defaultPreloadStaleTime: 0,
+  });
+  connectQueryClient({ router, queryClient });
+  return router;
+}
+```
+
+- **On the server**, what the loaders loaded goes with the page. Queries
+  started while rendering follow as they start, those still loading as
+  promises the browser waits for: an unawaited
+  `void context.queryClient.runPromise(Query.prefetch(query))` in a loader
+  lets the page render at once, and the value streams in. The client is
+  disposed when the request ends.
+- **Your app's layer is built once per process** when every request's
+  client shares a `ManagedRuntime`'s `memoMap`. The runtime keeps a layer
+  only once it has built it itself, hence the `runPromiseExit` before
+  making the client; without it, each request would build the layer (a
+  database pool, say) and release it when its client is disposed.
+- **In the browser**, it all loads into the client before React hydrates:
+  no `HydrationBoundary`, and nothing is fetched while it's fresh. Only
+  queries with a `schema` cross ([Server rendering](#server-rendering)).
+- **Preloading** a route on hover runs its loader, and `Query.fetch` fetches
+  only what's stale. With the router's default `defaultPreloadStaleTime`,
+  the router would skip loaders for 30 seconds on its own.
+
+A query or mutation that fails or dies with the router's `redirect()`
+navigates there in the browser. Use `Effect.die`, so the redirect stays out
+of the error type. In a loader, `runPromise` rejects with it, and the router
+follows it, on the server too:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+import { redirect } from "@tanstack/react-router";
+
+declare const signedInUser: Effect.Effect<string | null>;
+
+export const viewer = Query.make({
+  key: ["viewer"],
+  run: Effect.flatMap(signedInUser, (name) =>
+    name === null
+      ? Effect.die(redirect({ to: "/login" }))
+      : Effect.succeed(name),
+  ),
+  schema: { success: Schema.String },
+});
+```
+
+| Option            | What it does                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| `dehydrate`       | `queries` to send only some queries, `failures: "include"` to send failures, as `QueryClient.dehydrate`. |
+| `handleRedirects` | Default `true`: follow a `redirect()` a query or mutation fails or dies with, in the browser.            |
+| `wrapQueryClient` | Default `true`: wrap the router's `Wrap` in a `QueryProvider` for the client.                            |
+
 ## The client
 
 ### Client options
@@ -1262,6 +1372,7 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `retry: 3`                                            | `retry: Schedule` (default none)                                                             |
 | `onMutate` returning a rollback context               | `optimistic`, undone automatically                                                           |
 | `dehydrate`, `hydrate`, `HydrationBoundary`           | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema` |
+| `setupRouterSsrQueryIntegration`                      | `connectQueryClient` (`./react/tanstack-router`)                                             |
 | `useInfiniteQuery`, `fetchNextPage`                   | `InfiniteQuery.family`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                    |
 | `getNextPageParam`, `getPreviousPageParam`            | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
 | `setQueriesData`                                      | `Query.update(family, (value, args) => …)`                                                   |
@@ -1271,12 +1382,13 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ### API
 
-| Import                                  | Exports                                                                                                                                                                                                                             |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`              | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                          |
-| `@monarcode/effetch-query/react`        | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProvider` |
-| `@monarcode/effetch-query/react-native` | `reactNativeSignals`                                                                                                                                                                                                                |
-| `@monarcode/effetch-query/effetch`      | `endpoints`                                                                                                                                                                                                                         |
+| Import                                           | Exports                                                                                                                                                                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                          |
+| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProvider` |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                |
+| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                         |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.
@@ -1302,6 +1414,9 @@ the package:
   that drive it.
 - [`ssr/`](examples/ssr): a page rendered on the server with a client per
   request, then hydrated in the browser without a fetch.
+- [`tanstack-start/`](examples/tanstack-start): a TanStack Start app with
+  loaders, a streamed detail page and a redirect, built and served by its
+  tests, then hydrated without a fetch.
 
 Its [README](examples/README.md) walks through each one.
 

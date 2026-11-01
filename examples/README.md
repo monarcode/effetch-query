@@ -5,11 +5,12 @@ Complete programs using effetch-query. Each one is typechecked
 always match the current API. Each folder has its own `tsconfig.json`,
 because each registers its own services (`Register`).
 
-| Example                       | What it shows                                                                                                          |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [`effect-only/`](effect-only) | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched, what's written.       |
-| [`todos/`](todos)             | A React app over effetch endpoints: a paged list, a detail, an optimistic toggle, a missing todo and a refresh button. |
-| [`ssr/`](ssr)                 | Server rendering: a client per request, the cache sent with the HTML, and the page hydrated without a fetch.           |
+| Example                             | What it shows                                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [`effect-only/`](effect-only)       | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched, what's written.       |
+| [`todos/`](todos)                   | A React app over effetch endpoints: a paged list, a detail, an optimistic toggle, a missing todo and a refresh button. |
+| [`ssr/`](ssr)                       | Server rendering: a client per request, the cache sent with the HTML, and the page hydrated without a fetch.           |
+| [`tanstack-start/`](tanstack-start) | A TanStack Start app: loaders, a streamed page and a redirect, built and served by its tests, then hydrated.           |
 
 ## `effect-only/`
 
@@ -107,3 +108,51 @@ ssr/
 
 To run it for real, serve `server.tsx`'s pages from any server, bundle
 `main.tsx` as `/main.js`, and serve the catalog as JSON at `/api/products`.
+
+## `tanstack-start/`
+
+A TanStack Start app connected with `connectQueryClient`:
+
+```text
+tanstack-start/
+├── vite.config.ts        Start's Vite plugin
+├── src/api.ts            Start server functions over an in-memory store
+├── src/services.ts       TodoApi and Session over them, merged as AppLayer
+├── src/todos.ts          the queries
+├── src/router.tsx        getRouter: a client per router, connected to it
+├── src/routes/           the list, a streamed detail, a guarded account page
+├── render.mjs            renders pages with the built app, for the tests
+└── start.test.tsx        tests that build the app, serve it and hydrate it
+```
+
+- **[`src/services.ts`](tanstack-start/src/services.ts)** defines two
+  services, `TodoApi` and `Session`, whose live layers call Start server
+  functions, in-process on the server and over HTTP from the browser, and
+  merges them into `AppLayer`, which registers them (`Register`).
+- **[`src/todos.ts`](tanstack-start/src/todos.ts)** defines three queries
+  with a `schema`. `viewer` dies with a `redirect()` to `/login` when
+  nobody is signed in.
+- **[`src/router.tsx`](tanstack-start/src/router.tsx)** is Start's
+  `getRouter`: a query client per router, so per request on the server,
+  passed to the routes in the router's context and connected to it. Every
+  client shares one process-wide `ManagedRuntime`'s memo map, so
+  `AppLayer` is built once, not per request.
+- **[`src/routes/`](tanstack-start/src/routes)**: the list's loader awaits
+  `Query.fetch(todos)`; the detail's starts `Query.prefetch(todo(id))`
+  without waiting, so the page renders at once and the todo streams in;
+  the account page's loader fetches `viewer`, and the router follows its
+  redirect.
+- **[`start.test.tsx`](tanstack-start/start.test.tsx)** builds the app with
+  Vite, renders pages with the built server in a process of its own
+  ([`render.mjs`](tanstack-start/render.mjs)), then loads each page into
+  the test's browser, runs its scripts and hydrates it with the app's
+  router over a fake API that counts its reads. It checks that the list
+  and the streamed detail hydrate with no mismatch and no read, that
+  navigating reads once, that the account page redirects on the server,
+  and that a missing todo shows its error once the browser fetches it.
+
+To run it, start Vite in the example's folder:
+
+```bash
+pnpm exec vite dev examples/tanstack-start
+```

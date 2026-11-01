@@ -5,7 +5,7 @@ export default defineConfig({
 		// The examples import the package by name, as an app does.
 		alias: [
 			{
-				find: /^@monarcode\/effetch-query(\/[\w-]+)?$/,
+				find: /^@monarcode\/effetch-query((?:\/[\w-]+)*)$/,
 				replacement: `${import.meta.dirname}/src$1/index.ts`,
 			},
 		],
