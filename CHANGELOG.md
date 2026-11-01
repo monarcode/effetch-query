@@ -29,6 +29,11 @@ recipes, and clients made from an existing `ManagedRuntime`.
   the runtime running. The clients share the runtime's `Reactivity`, so an
   invalidation by any of them, or by a service the runtime built, reaches
   all of them.
+- `QueryClient.disposeAfter(client, response)`: returns the response with
+  its body wrapped so the client is disposed once the body has been sent,
+  fails or is cancelled. For a client per request on a server that answers
+  with a streamed `Response`, such as React Router's middleware, Hono,
+  `Bun.serve` or `Deno.serve`.
 - `QueryClient.LayerOptions`, `QueryClient.RuntimeOptions` and
   `QueryClient.CommonOptions`: the two ways to give a client its services,
   and the options both take.
@@ -42,8 +47,8 @@ recipes, and clients made from an existing `ManagedRuntime`.
 - The README's "React Router" guide: framework mode with the core and
   `./react`, no integration package. A root middleware makes each
   request's client, which loaders read from the router's context and the
-  server render uses through `entry.server.tsx`, and disposes it once the
-  response's body is sent; loaders return the dehydrated state, promises
+  server render uses through `entry.server.tsx`, and disposes it with
+  `QueryClient.disposeAfter`; loaders return the dehydrated state, promises
   included, for a `HydrationBoundary`.
 
 ### Changed

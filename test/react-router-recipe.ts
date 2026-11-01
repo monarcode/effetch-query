@@ -35,45 +35,12 @@ export const getQueryClient = (
 };
 
 // React Router resumes middleware once the page's shell is ready, while the
-// body still streams, so the client is disposed when the body ends.
+// body still streams, so the client is disposed once the body is sent.
 export const queryClientMiddleware: MiddlewareFunction<Response> = async (
 	{ context },
 	next,
 ) => {
 	const client = QueryClient.make({ runtime: appRuntime });
 	context.set(queryClientContext, client);
-	const response = await next();
-	const release = () => {
-		client.dispose().catch(console.error);
-	};
-	const reader = response.body?.getReader();
-	if (reader === undefined) {
-		release();
-		return response;
-	}
-	const body = new ReadableStream<Uint8Array>({
-		async pull(controller) {
-			try {
-				const { done, value } = await reader.read();
-				if (done) {
-					controller.close();
-					release();
-				} else {
-					controller.enqueue(value);
-				}
-			} catch (error) {
-				controller.error(error);
-				release();
-			}
-		},
-		cancel(reason) {
-			release();
-			return reader.cancel(reason);
-		},
-	});
-	return new Response(body, {
-		status: response.status,
-		statusText: response.statusText,
-		headers: response.headers,
-	});
+	return QueryClient.disposeAfter(client, await next());
 };

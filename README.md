@@ -1138,7 +1138,10 @@ export const state = QueryClient.dehydrate(client, { pending: "promise" });
 A promise doesn't survive `JSON.stringify`: use it where your framework
 sends promises to the browser, such as React Server Components' props.
 Dispose the client once its promises settle; a promise still pending at
-`dispose()` resolves to nothing, and the browser fetches that query.
+`dispose()` resolves to nothing, and the browser fetches that query. On a
+server that answers with a streamed `Response`,
+`QueryClient.disposeAfter(client, response)` disposes the client once the
+body has been sent.
 
 ## TanStack Router and Start
 
@@ -1377,7 +1380,8 @@ that prop, as [Server rendering](#server-rendering) does.
 
 React Router's framework mode needs no integration package either. Each
 request gets its own client from a root middleware, which loaders read from
-the router's context and which is disposed once the response is sent:
+the router's context, and `QueryClient.disposeAfter` disposes it once the
+response is sent:
 
 ```ts query-context.ts
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -1415,47 +1419,14 @@ export const getQueryClient = (
 };
 
 // React Router resumes middleware once the page's shell is ready, while the
-// body still streams, so the client is disposed when the body ends.
+// body still streams, so the client is disposed once the body is sent.
 export const queryClientMiddleware: MiddlewareFunction<Response> = async (
   { context },
   next,
 ) => {
   const client = QueryClient.make({ runtime: appRuntime });
   context.set(queryClientContext, client);
-  const response = await next();
-  const release = () => {
-    client.dispose().catch(console.error);
-  };
-  const reader = response.body?.getReader();
-  if (reader === undefined) {
-    release();
-    return response;
-  }
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.close();
-          release();
-        } else {
-          controller.enqueue(value);
-        }
-      } catch (error) {
-        controller.error(error);
-        release();
-      }
-    },
-    cancel(reason) {
-      release();
-      return reader.cancel(reason);
-    },
-  });
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
+  return QueryClient.disposeAfter(client, await next());
 };
 ```
 

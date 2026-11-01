@@ -48,6 +48,7 @@ describe("public entry points", () => {
 			"NonJsonKey",
 			"QueryClient",
 			"dehydrate",
+			"disposeAfter",
 			"hydrate",
 			"layer",
 			"make",

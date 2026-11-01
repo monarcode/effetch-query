@@ -6,6 +6,7 @@ import * as Hydration from "effect/reactivity/Hydration";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import { dehydrate, hydrate } from "./dehydrate.js";
+import { disposeInBackground } from "./disposeAfter.js";
 import { subscribe } from "./events.js";
 import { StateAtom } from "./runtime.js";
 
@@ -77,15 +78,7 @@ const connectServer = ({
 		onServerSsrAttach: [
 			...(router.serverSsrLifecycle?.onServerSsrAttach ?? []),
 			(serverSsr: ServerSsr) =>
-				serverSsr.onCleanup(() => {
-					// A rejection left unhandled would end a Node server's process.
-					client.dispose().catch((error: unknown) => {
-						console.error(
-							"Disposing the request's query client failed:",
-							error,
-						);
-					});
-				}),
+				serverSsr.onCleanup(() => disposeInBackground(client)),
 		],
 	};
 	const theirs = router.options.dehydrate;

@@ -14,6 +14,7 @@ import * as Scope from "effect/Scope";
 
 import { observeNodes } from "./internal/cache.js";
 import * as hydration from "./internal/dehydrate.js";
+import * as disposal from "./internal/disposeAfter.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
 import type { Mutation } from "./Mutation.js";
 import type { QueryKey, QueryTarget } from "./Query.js";
@@ -960,3 +961,50 @@ export const hydrate = (
 	client: QueryClient,
 	state: Iterable<Hydration.DehydratedAtom>,
 ): void => hydration.hydrate(client.registry, state);
+
+/**
+ * Returns `response` with its body wrapped so that `client` is disposed once
+ * the body has been sent: when it ends, fails, or the reader cancels it (a
+ * client that disconnects). A response with no body disposes the client at
+ * once. Use it for a client made per request on a server that answers with
+ * a streamed `Response`, where the request's handler returns before its
+ * streamed results are sent: React Router's middleware, Hono, `Bun.serve`,
+ * `Deno.serve`.
+ *
+ * Send the response it returns: one that's discarded is never read, so the
+ * client is never disposed. Only the status, status text and headers are
+ * kept, not a runtime's own options (Cloudflare's `encodeBody`, say), and
+ * the body goes out as a stream, so a fixed body loses the length the
+ * runtime would have sent. A body already read or locked throws, after the
+ * client is disposed. A failed {@link QueryClient.dispose} is logged with
+ * `console.error`, not thrown.
+ * The core uses `ReadableStream` and `Response` only when this is called,
+ * so it still loads where they don't exist, such as React Native.
+ *
+ * @example
+ * ```ts
+ * import type * as Layer from "effect/Layer";
+ * import * as ManagedRuntime from "effect/ManagedRuntime";
+ *
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * declare const AppLayer: Layer.Layer<QueryClient.Services>;
+ * declare const render: (client: QueryClient.QueryClient) => Promise<Response>;
+ *
+ * const appRuntime = ManagedRuntime.make(AppLayer);
+ *
+ * export const handle = async (): Promise<Response> => {
+ *   const client = QueryClient.make({ runtime: appRuntime });
+ *   return QueryClient.disposeAfter(client, await render(client));
+ * };
+ * ```
+ *
+ * @see {@link make} for the client
+ * @see {@link dehydrate} to send its queries, still loading ones included
+ *
+ * @since 0.1.0
+ */
+export const disposeAfter: (
+	client: QueryClient,
+	response: Response,
+) => Response = disposal.disposeAfter;
