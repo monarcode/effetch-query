@@ -23,7 +23,7 @@ import {
 import * as Mutation from "../Mutation.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
-import { wireErrors } from "./wireErrors.js";
+import { statusErrorSchemas, wireErrors } from "./wireErrors.js";
 
 /**
  * A schema whose decoding and encoding need nothing outside your registered
@@ -53,6 +53,33 @@ export interface RegisteredSchema extends Fetch.AnySchema {
 }
 
 /**
+ * A `statusErrors` map (`Fetch.StatusErrorMap`) whose schemas need nothing
+ * outside your registered services, as {@link RegisteredSchema}. The adapter
+ * accepts only these, on the client and on each endpoint: its queries and
+ * mutations decode the errors, and its queries send them to the browser.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { RegisteredStatusErrors } from "@monarcode/effetch-query/effetch";
+ *
+ * class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+ *   message: Schema.String,
+ * }) {}
+ *
+ * export const statusErrors = { 404: TodoNotFound } satisfies RegisteredStatusErrors;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type RegisteredStatusErrors = {
+	readonly [status: number]:
+		| RegisteredSchema
+		| ReadonlyArray<RegisteredSchema>;
+};
+
+/**
  * Options for {@link endpoints}.
  *
  * @example
@@ -71,7 +98,10 @@ export interface RegisteredSchema extends Fetch.AnySchema {
  *
  * @since 0.1.0
  */
-export interface EndpointsOptions<EB extends Fetch.AnySchema> {
+export interface EndpointsOptions<
+	EB extends Fetch.AnySchema,
+	SE extends Fetch.StatusErrorMap | undefined = undefined,
+> {
 	/**
 	 * Put before every key these endpoints make, when another backend has
 	 * the same paths: with `["wallet"]`, `GET /accounts/:id` is
@@ -85,6 +115,15 @@ export interface EndpointsOptions<EB extends Fetch.AnySchema> {
 	 * shown as {@link EndpointQuery.error}.
 	 */
 	readonly defaultError?: EB | undefined;
+	/**
+	 * The client's `statusErrors`, so its queries can send those errors to
+	 * the browser (`QueryClient.dehydrate` with `failures: "include"`). A
+	 * definition can't read them from the client, which only exists once its
+	 * layer is built. It's typed as the client's. Without it, the client's
+	 * errors are still decoded and typed, but a query that fails with one
+	 * isn't sent: the browser fetches it again.
+	 */
+	readonly statusErrors?: SE | undefined;
 }
 
 /**
@@ -301,7 +340,8 @@ export interface EndpointQuery<R extends string, A, E> {
 		R,
 		Fetch.AnySchema | undefined,
 		Fetch.AnySchema | undefined,
-		Fetch.AnySchema | undefined
+		Fetch.AnySchema | undefined,
+		Fetch.StatusErrorMap | undefined
 	>;
 	/**
 	 * The schema error bodies are decoded with: the endpoint's, else the
@@ -344,7 +384,8 @@ export interface EndpointInfiniteQuery<R extends string, A, E, P> {
 		R,
 		Fetch.AnySchema | undefined,
 		Fetch.AnySchema | undefined,
-		Fetch.AnySchema | undefined
+		Fetch.AnySchema | undefined,
+		Fetch.StatusErrorMap | undefined
 	>;
 	/** The schema error bodies are decoded with, as {@link EndpointQuery.error}. */
 	readonly error: Fetch.AnySchema | undefined;
@@ -376,13 +417,16 @@ export interface EndpointInfiniteQuery<R extends string, A, E, P> {
 export interface Endpoints<
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
 	EB extends Fetch.AnySchema,
+	SE extends Fetch.StatusErrorMap | undefined = undefined,
 > {
 	/**
 	 * A family of queries that call an endpoint defined with
 	 * `Fetch.endpoint`, one query per `params` and `query`. The value is the
 	 * endpoint's `output`, and the error every error the call can fail with:
 	 * `NetworkError`, `HttpError` with the decoded error body, `DecodeError`
-	 * when it has an `output`, and the client's plugins' errors.
+	 * when it has an `output`, the client's plugins' errors, and the errors
+	 * the endpoint's and the client's `statusErrors` decode, matched by their
+	 * `_tag` with `Effect.catchTag` or `AsyncResult.builder`'s `onErrorTag`.
 	 *
 	 * Only `GET`, `HEAD`, `OPTIONS` and `TRACE` endpoints: a call with a body
 	 * is a {@link Endpoints.mutation}, or a {@link Query.family} of your own.
@@ -391,24 +435,27 @@ export interface Endpoints<
 	 * `schema` to write (`QueryClient.dehydrate`): the value with `output`,
 	 * and, with `failures: "include"`, effetch's errors: an `HttpError`
 	 * without its headers, though with its request URL and response text,
-	 * so keep secrets out of the URLs your server calls. A query that failed
-	 * with a plugin's error isn't sent.
+	 * so keep secrets out of the URLs your server calls. Errors from
+	 * `statusErrors` go as their schemas encode them, the client's only when
+	 * given to {@link endpoints} ({@link EndpointsOptions.statusErrors}). A
+	 * query that failed with a plugin's error isn't sent.
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
 		O extends RegisteredSchema | undefined,
 		Own extends RegisteredSchema | undefined,
 		I extends RegisteredSchema | undefined,
+		OwnSE extends RegisteredStatusErrors | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE>,
 		options?: EndpointQueryOptions<
-			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>,
+			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 			Ps
 		>,
 	) => EndpointQuery<
 		R,
 		Fetch.Success<O>,
-		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>
+		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>
 	>;
 	/**
 	 * A family of infinite queries that call an endpoint page by page, one
@@ -425,18 +472,19 @@ export interface Endpoints<
 		Own extends RegisteredSchema | undefined,
 		I extends RegisteredSchema | undefined,
 		P,
+		OwnSE extends RegisteredStatusErrors | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE>,
 		options: EndpointInfiniteQueryOptions<
 			Fetch.Success<O>,
-			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>,
+			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 			P,
 			Ps
 		>,
 	) => EndpointInfiniteQuery<
 		R,
 		Fetch.Success<O>,
-		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>,
+		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 		P
 	>;
 	/**
@@ -450,18 +498,19 @@ export interface Endpoints<
 		O extends RegisteredSchema | undefined,
 		Own extends RegisteredSchema | undefined,
 		I extends RegisteredSchema | undefined,
+		OwnSE extends RegisteredStatusErrors | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE>,
 		options?: EndpointMutationOptions<
 			EndpointVariables<R, I, Ps>,
 			Fetch.Success<O>,
-			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>,
+			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 			Ps
 		>,
 	) => Mutation.Mutation<
 		EndpointVariables<R, I, Ps>,
 		Fetch.Success<O>,
-		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps>
+		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>
 	>;
 }
 
@@ -471,6 +520,7 @@ interface AnyEndpoint {
 	readonly path: string;
 	readonly output: Fetch.AnySchema | undefined;
 	readonly error: Fetch.AnySchema | undefined;
+	readonly statusErrors?: Fetch.StatusErrorMap | undefined;
 }
 
 type Call = (options: unknown) => Effect.Effect<unknown, unknown, never>;
@@ -488,8 +538,10 @@ interface AnyClient {
  *
  * The adapter adds no behaviour of its own: a query is a
  * {@link Query.family} member keyed by its route, and a mutation is a
- * {@link Mutation.make} whose `run` calls the endpoint. It needs
- * `@monarcode/effetch` 0.1.
+ * {@link Mutation.make} whose `run` calls the endpoint. Give it the
+ * `defaultError` and `statusErrors` the client was made with
+ * ({@link EndpointsOptions}). It needs `@monarcode/effetch` 0.1, from
+ * `0.1.0-rc.2`.
  *
  * @example
  * ```ts
@@ -538,10 +590,11 @@ export const endpoints = <
 	Id extends QueryClient.Requirements,
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
 	EB extends RegisteredSchema,
+	SE extends RegisteredStatusErrors | undefined = undefined,
 >(
-	client: Context.Key<Id, Fetch.Client<Ps, EB>>,
-	options?: EndpointsOptions<NoInfer<EB>>,
-): Endpoints<Ps, EB> => {
+	client: Context.Key<Id, Fetch.Client<Ps, EB, SE>>,
+	options?: EndpointsOptions<NoInfer<EB>, NoInfer<SE>>,
+): Endpoints<Ps, EB, SE> => {
 	const prefix = options?.key ?? [];
 	// The types above check each call against the client's; past them, one
 	// untyped path serves every endpoint.
@@ -574,8 +627,9 @@ export const endpoints = <
 		});
 		return self;
 	};
-	// An endpoint's queries cross the wire with its `output` and effetch's
-	// errors, keyed apart by method: `GET` and `HEAD` of one path share keys.
+	// An endpoint's queries cross the wire with its `output`, effetch's
+	// errors and the endpoint's and client's status errors, keyed apart by
+	// method: `GET` and `HEAD` of one path share keys.
 	const hydrationOf = (
 		endpoint: AnyEndpoint,
 		schema: (
@@ -593,6 +647,10 @@ export const endpoints = <
 								(endpoint.error ?? options?.defaultError) as
 									| Schema.Codec<unknown, unknown>
 									| undefined,
+								statusErrorSchemas(
+									endpoint.statusErrors,
+									options?.statusErrors,
+								),
 							),
 						),
 					),
@@ -674,5 +732,9 @@ export const endpoints = <
 			run: call(endpoint, { headers, plugins }),
 		});
 	};
-	return { query, infiniteQuery, mutation } as unknown as Endpoints<Ps, EB>;
+	return { query, infiniteQuery, mutation } as unknown as Endpoints<
+		Ps,
+		EB,
+		SE
+	>;
 };

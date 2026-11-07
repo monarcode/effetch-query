@@ -4,8 +4,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ## Unreleased
 
-An addition agreed as an exception to the API freeze, from cashmore-mobile's
-home screen, as the rc.1 additions were.
+Additions agreed as exceptions to the API freeze, as the rc.1 additions
+were.
 
 ### Added
 
@@ -19,6 +19,22 @@ home screen, as the rc.1 additions were.
   group: `Query.group([a, b])` is a type error (`Query.GroupTargets`).
   `Query.Target` now includes `Query.Group`, so code that narrows a target
   by hand (`Array.isArray(target) ? … : target.key`) needs a case for it.
+- Errors by status through `./effetch`, for effetch's new `statusErrors`
+  (status → the schema of your own error). Queries, infinite queries and
+  mutations made from an endpoint with `statusErrors` fail with those
+  errors, typed, so `Effect.catchTag` and `onErrorTag` narrow them; the
+  client's map is typed from its service. `endpoints(Client, {
+  statusErrors })` takes the client's map, as it takes `defaultError`, so
+  `QueryClient.dehydrate` with `failures: "include"` sends those errors as
+  themselves; without it they're typed but not sent. New type:
+  `RegisteredStatusErrors`; `EndpointQuery.endpoint` and
+  `EndpointInfiniteQuery.endpoint` carry the map. Endpoints without
+  `statusErrors` keep their types and dehydrated payloads.
+
+### Changed
+
+- `@monarcode/effetch` peer range is now `>=0.1.0-rc.2 <0.2.0`: the
+  adapter's types use effetch's `StatusErrorMap`.
 
 ## 0.1.0-rc.1
 

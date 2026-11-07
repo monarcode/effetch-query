@@ -41,6 +41,7 @@ it. It works with any Effect too.
   - [5. Changing data](#5-changing-data)
 - [Queries in depth](#queries-in-depth)
   - [From endpoints to queries](#from-endpoints-to-queries)
+  - [Errors by status](#errors-by-status)
   - [Keys](#keys)
   - [Freshness and refetching](#freshness-and-refetching)
   - [Query options](#query-options)
@@ -535,7 +536,8 @@ query's or mutation's options.
   puts a prefix before every key.
 - **Errors are typed from the endpoint and the client:** `todo`'s error is
   `NetworkError | DecodeError | HttpError.With<{ message: string }>`, with
-  your plugins' errors if you use any.
+  your plugins' errors if you use any, and your own errors by status
+  ([Errors by status](#errors-by-status)).
 - **`query` takes endpoints without a body** (`GET`, `HEAD`, `OPTIONS`,
   `TRACE`). Everything else is a `mutation`, whose variables are the call's
   options.
@@ -550,6 +552,70 @@ query's or mutation's options.
 
 Make one `api.query` per endpoint: two of the same route would share keys
 but not their cache.
+
+### Errors by status
+
+effetch's `statusErrors` turns error responses into your own errors: a
+status maps to the schema of the error it means, or to a list tried in
+order, where a literal field picks one. Queries and mutations made from such
+an endpoint fail with those errors, typed, so you handle them by their tag:
+
+```tsx
+import * as Effect from "effect/Effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+  message: Schema.String,
+}) {}
+
+class NotYourTodo extends Schema.TaggedError<NotYourTodo>()("NotYourTodo", {
+  code: Schema.Literal("NOT_OWNER"), // only a 403 with this code
+  message: Schema.String,
+}) {}
+
+const findTodo = api.query(
+  Fetch.endpoint("GET /todos/:id", {
+    output: Todo,
+    statusErrors: { 404: TodoNotFound, 403: [NotYourTodo] },
+  }),
+);
+
+// In a loader: a missing todo is no todo.
+export const loadTodo = (id: number) =>
+  Query.fetch(findTodo({ params: { id } })).pipe(
+    Effect.catchTag("TodoNotFound", () => Effect.succeed(undefined)),
+  );
+
+export function TodoTitle({ id }: { readonly id: number }) {
+  return AsyncResult.builder(useQuery(findTodo({ params: { id } })))
+    .onInitial(() => <p>Loading…</p>)
+    .onErrorTag("TodoNotFound", () => <p>This todo was deleted.</p>)
+    .onErrorTag("NotYourTodo", (error) => <p>{error.message}</p>)
+    .onError(() => <p>Couldn't load it.</p>)
+    .onSuccess((todo) => <h1>{todo.title}</h1>)
+    .orNull();
+}
+```
+
+- **A response no schema decodes** (another 403, a body that isn't JSON)
+  fails with the `HttpError` it would without them, so `HttpError` stays in
+  the error type.
+- **The client's `statusErrors`** (`Fetch.make({ statusErrors })`) apply to
+  every endpoint, and are typed from the client's service. Give them to
+  `endpoints` too, `endpoints(ApiClient, { defaultError, statusErrors })`,
+  for server rendering: a definition can't read them from the client.
+- **Server rendering sends them as themselves** with
+  `failures: "include"`: a `TodoNotFound` on the server is a `TodoNotFound`
+  in the browser, with no refetch.
+- Their schemas, like `output`'s, can only need your registered services.
 
 ### Keys
 
@@ -824,6 +890,8 @@ export function TodoTitle({ id }: { readonly id: number | null }) {
 ```
 
 `waiting` is true while a fetch runs, including a background refetch.
+Rather than checking statuses, an endpoint can turn them into errors of
+your own ([Errors by status](#errors-by-status)).
 
 ### Suspense and error boundaries
 
@@ -1320,7 +1388,9 @@ export async function renderPage(): Promise<string> {
   errors never reach the page, and the browser fetches it again. To send
   failures, pass `failures: "include"`. An effetch `HttpError` goes without
   its headers, but with its URL and response text, so keep secrets out of
-  the URLs your server calls.
+  the URLs your server calls. Errors from `statusErrors` go as their schemas
+  encode them, the client's only when given to `endpoints`
+  ([Errors by status](#errors-by-status)).
 - **Keys must be JSON.** A key that isn't throws `NonJsonKeyError`, and two
   queries with one key throw `DuplicateQueryKeyError`.
 - `queries: ["todos"]` sends only the queries under a key, as

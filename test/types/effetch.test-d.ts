@@ -1,15 +1,23 @@
 import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import type * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
 import { endpoints } from "../../src/effetch/index.js";
-import type { InfiniteQuery, Mutation, Query } from "../../src/index.js";
-import { useMutation } from "../../src/react/index.js";
-import { ApiError, type Denied, TestApi } from "../services.js";
+import { type InfiniteQuery, type Mutation, Query } from "../../src/index.js";
+import { useMutation, useQuery } from "../../src/react/index.js";
+import {
+	ApiError,
+	clientStatusErrors,
+	type Denied,
+	type SessionExpired,
+	TestApi,
+} from "../services.js";
 
 class Unregistered extends Context.Service<
 	Unregistered,
@@ -26,7 +34,22 @@ type CallErrors<EB, Decode = Fetch.DecodeError> =
 	| Fetch.NetworkError
 	| Fetch.HttpError.With<EB>
 	| Decode
-	| Denied;
+	| Denied
+	| SessionExpired;
+
+class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+	message: Schema.String,
+}) {}
+
+class InvalidRole extends Schema.TaggedError<InvalidRole>()("InvalidRole", {
+	code: Schema.Literal("INVALID_ROLE"),
+	message: Schema.String,
+}) {}
+
+class RoleTaken extends Schema.TaggedError<RoleTaken>()("RoleTaken", {
+	code: Schema.Literal("ROLE_TAKEN"),
+	message: Schema.String,
+}) {}
 
 describe("Endpoints.query", () => {
 	it("takes A from the output and E from the error schema and the plugins", () => {
@@ -228,5 +251,108 @@ describe("endpoints", () => {
 
 		// @ts-expect-error: decoding the output needs Unregistered
 		api.query(Fetch.endpoint("GET /needy", { output: needy }));
+	});
+});
+
+describe("status errors", () => {
+	const getTodo = Fetch.endpoint("GET /todos/:id", {
+		output: Todo,
+		statusErrors: { 404: TodoNotFound },
+	});
+	const assignRole = Fetch.endpoint("POST /users/:id/roles", {
+		input: Schema.Struct({ role: Schema.String }),
+		output: Todo,
+		statusErrors: { 400: [InvalidRole, RoleTaken] },
+	});
+
+	it("add the endpoint's and the client's to a query's errors", () => {
+		const todo = api.query(getTodo);
+
+		expectTypeOf(todo({ params: { id: 1 } })).toEqualTypeOf<
+			Query.Query<Todo, CallErrors<typeof ApiError.Type> | TodoNotFound>
+		>();
+	});
+
+	it("add them to an infinite query's and a mutation's errors", () => {
+		const pages = api.infiniteQuery(
+			Fetch.endpoint("GET /todos", {
+				output: Schema.Array(Todo),
+				statusErrors: { 404: TodoNotFound },
+			}),
+			{
+				pageParam: "page",
+				initialPageParam: 1,
+				nextPageParam: () => undefined,
+			},
+		);
+		const assign = api.mutation(assignRole);
+
+		expectTypeOf(pages()).toEqualTypeOf<
+			InfiniteQuery.InfiniteQuery<
+				ReadonlyArray<Todo>,
+				CallErrors<typeof ApiError.Type> | TodoNotFound,
+				number
+			>
+		>();
+		expectTypeOf(assign).toExtend<
+			Mutation.Mutation<
+				any,
+				Todo,
+				CallErrors<typeof ApiError.Type> | InvalidRole | RoleTaken
+			>
+		>();
+	});
+
+	it("narrow with catchTag and onErrorTag", () => {
+		const todo = api.query(getTodo);
+
+		const found = Query.fetch(todo({ params: { id: 1 } })).pipe(
+			Effect.catchTag("TodoNotFound", (error) =>
+				Effect.succeed({ id: 0, title: error.message }),
+			),
+			Effect.catchTag("SessionExpired", () =>
+				Effect.succeed({ id: 0, title: "" }),
+			),
+		);
+		expectTypeOf<Effect.Error<typeof found>>().toEqualTypeOf<
+			| Fetch.NetworkError
+			| Fetch.HttpError.With<typeof ApiError.Type>
+			| Fetch.DecodeError
+			| Denied
+		>();
+		const shown = AsyncResult.builder(useQuery(todo({ params: { id: 1 } })))
+			.onErrorTag("TodoNotFound", (error) => error.message)
+			.orNull();
+		expectTypeOf(shown).toEqualTypeOf<string | null>();
+	});
+
+	it("show the endpoint's map on its definition", () => {
+		const todo = api.query(getTodo);
+
+		expectTypeOf(todo.endpoint.statusErrors).toEqualTypeOf<
+			Fetch.StatusErrorMap | undefined
+		>();
+	});
+
+	it("check the client's statusErrors against the client's", () => {
+		endpoints(TestApi, { statusErrors: clientStatusErrors });
+		// @ts-expect-error: the client maps 401 to SessionExpired
+		endpoints(TestApi, { statusErrors: { 401: TodoNotFound } });
+	});
+
+	it("reject a status error schema that needs an unregistered service", () => {
+		const needy = TodoNotFound as unknown as Schema.Codec<
+			TodoNotFound,
+			unknown,
+			Unregistered
+		>;
+
+		api.query(
+			// @ts-expect-error: decoding the error needs Unregistered
+			Fetch.endpoint("GET /needy", {
+				output: Todo,
+				statusErrors: { 404: needy },
+			}),
+		);
 	});
 });

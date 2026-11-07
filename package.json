@@ -85,7 +85,7 @@
 		"@effect/atom-react": "4.1.1",
 		"@effect/language-service": "0.87.5",
 		"@effect/vitest": "4.1.1",
-		"@monarcode/effetch": "0.1.0-rc.1",
+		"@monarcode/effetch": "file:../effetch",
 		"@react-router/dev": "8.5.1",
 		"@tanstack/react-router": "1.170.46",
 		"@tanstack/react-start": "1.169.4",
@@ -109,9 +109,14 @@
 		"vite": "8.3.5",
 		"vitest": "5.0.5"
 	},
+	"dependenciesMeta": {
+		"@monarcode/effetch": {
+			"injected": true
+		}
+	},
 	"peerDependencies": {
 		"@effect/atom-react": "^4.1.0",
-		"@monarcode/effetch": ">=0.1.0-rc.1 <0.2.0",
+		"@monarcode/effetch": ">=0.1.0-rc.2 <0.2.0",
 		"@tanstack/react-router": ">=1.170.33 <2.0.0",
 		"effect": "^4.1.0",
 		"react": ">=19.0.0 <20.0.0"
