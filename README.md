@@ -637,14 +637,17 @@ export const refreshEverything = () =>
 | `Query.invalidate(target)` | Marks queries stale: those in use refetch now, the rest when next used.                        |
 | `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
 | `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
+| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.           |
 
 To read the cache where you can't wait for a promise, such as a form
 listener, `QueryClient.get(queryClient, query)` returns the cached value as
 an `Option`, as `Query.get` does.
 
 A **target** is one query (`todo({ params: { id: 1 } })`), a family of
-queries (`todos`, every call of the endpoint), or a key (`["todos"]`,
-every query whose key starts with it).
+queries (`todos`, every call of the endpoint), a key (`["todos"]`,
+every query whose key starts with it), or a group of these
+(`Query.group(todos, ["profile"])`, every query one of them matches; see
+[Pull to refresh](#pull-to-refresh)).
 
 ## Mutations in depth
 
@@ -1044,6 +1047,45 @@ export function RefreshButton() {
 }
 // React Native: <FlatList refreshing={isRefetching} onRefresh={refetch} … />
 ```
+
+A screen that shows queries from several features, each with its own key,
+refreshes them together with `Query.group`. Define the group once: it's a
+target like any other, so a mutation can invalidate it too.
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useRefetch } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+const profile = api.query(
+  Fetch.endpoint("GET /me", { output: Schema.Struct({ name: Schema.String }) }),
+);
+
+// Everything the home screen shows. The spinner stops once all of it has settled.
+export const home = Query.group(todos, profile);
+
+export const archiveDone = api.mutation(
+  Fetch.endpoint("POST /todos/archive", { output: Schema.Array(Todo) }),
+  { invalidates: [home] },
+);
+
+export function HomeRefresh() {
+  const { refetch, isRefetching } = useRefetch(home);
+  return (
+    <button disabled={isRefetching} onClick={() => void refetch()}>
+      Refresh
+    </button>
+  );
+}
+```
+
+Pass the group, not an array: `useRefetch([todos, profile])` compiles,
+because an array is a key, but it matches no query.
 
 ### Atoms
 

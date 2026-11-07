@@ -592,7 +592,9 @@ export interface UseRefetchResult {
  * Refetches queries on demand, such as for pull to refresh, with a flag that
  * is true only while this component's own refetch runs, unlike a query's
  * `waiting`, which a background revalidation also sets. It refetches the
- * target's queries in use, as {@link Query.refetch} does.
+ * target's queries in use, as {@link Query.refetch} does. For a screen made
+ * of queries with different keys, pass a {@link Query.group} of them: it's
+ * refetching until every one has settled.
  *
  * @example
  * ```ts

@@ -2,6 +2,24 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## Unreleased
+
+An addition agreed as an exception to the API freeze, from cashmore-mobile's
+home screen, as the rc.1 additions were.
+
+### Added
+
+- `Query.group(...targets)` combines queries, families, keys and other
+  groups into one `Query.Group`, a target of its own: `Query.refetch`,
+  `invalidate`, `reset`, a mutation's `invalidates` and `useRefetch` act on
+  every query one of its targets matches, each once. One `useRefetch(home)`
+  now refreshes a screen built from several features, and stays refetching
+  until every one of them in use has settled. Groups don't go to writes
+  (`Query.set`, `update`), and an array of queries is still a key, not a
+  group: `Query.group([a, b])` is a type error (`Query.GroupTargets`).
+  `Query.Target` now includes `Query.Group`, so code that narrows a target
+  by hand (`Array.isArray(target) ? … : target.key`) needs a case for it.
+
 ## 0.1.0-rc.1
 
 Fixes from using the RC in cashmore-mobile, and two additions agreed as

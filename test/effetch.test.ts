@@ -191,6 +191,26 @@ describe("queries", () => {
 		expect(server.hits("GET /todos/comments")).toBe(1);
 	});
 
+	it("a group of endpoint families matches each family's own queries only", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		use(client.registry, todo({ params: { id: 1 } }));
+		use(client.registry, todos({ query: { page: 2 } }));
+		use(client.registry, comments({ params: { id: 1 } }));
+		use(client.registry, recentComments());
+		await vi.waitFor(() => {
+			expect(server.hits("GET /todos")).toBe(1);
+			expect(server.hits("GET /todos/comments")).toBe(1);
+		});
+
+		await client.runPromise(Query.refetch(Query.group(todo, recentComments)));
+
+		expect(server.hits("GET /todos/1")).toBe(2);
+		expect(server.hits("GET /todos/comments")).toBe(2);
+		expect(server.hits("GET /todos")).toBe(1);
+		expect(server.hits("GET /todos/1/comments")).toBe(1);
+	});
+
 	it("a builder's prefix keeps its endpoints apart from the same paths elsewhere", async () => {
 		const server = todosServer();
 		const client = await serve(server.handle);

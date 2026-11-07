@@ -492,6 +492,13 @@ describe("dehydrate and hydrate", () => {
 		expect(
 			keys(QueryClient.dehydrate(server, { queries: ["todos"] })),
 		).toEqual(['effetch-query:["todos"]']);
+		expect(
+			keys(
+				QueryClient.dehydrate(server, {
+					queries: Query.group(todos, ["other"]),
+				}),
+			).sort(),
+		).toEqual(['effetch-query:["other"]', 'effetch-query:["todos"]']);
 	});
 
 	it("leave failures out unless asked, so the browser fetches them", async () => {

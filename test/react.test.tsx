@@ -633,6 +633,49 @@ describe("useRefetch", () => {
 		expect(fetches.count).toBe(3);
 	});
 
+	it("refetches a group made on each render, refetching until every member settles", async () => {
+		const client = await makeClient();
+		const walletGate = gate();
+		const transactionsGate = gate();
+		const wallet = tracked(["wallet"], (fetch) =>
+			fetch === 1
+				? Effect.succeed(fetch)
+				: Effect.as(walletGate.wait, fetch),
+		);
+		const transactions = tracked(["transactions"], (fetch) =>
+			fetch === 1
+				? Effect.succeed(fetch)
+				: Effect.as(transactionsGate.wait, fetch),
+		);
+		const refetches = new Set<() => Promise<void>>();
+		let controls: ReturnType<typeof useRefetch> | undefined;
+		const Home = () => {
+			useQuery(wallet.query);
+			useQuery(transactions.query);
+			controls = useRefetch(Query.group(wallet.query, transactions.query));
+			refetches.add(controls.refetch);
+			return null;
+		};
+		const view = render(withClient(client, <Home />));
+		view.rerender(withClient(client, <Home />));
+
+		let done: Promise<void> = Promise.resolve();
+		act(() => {
+			done = controls?.refetch() ?? done;
+		});
+		expect(controls?.isRefetching).toBe(true);
+		await act(async () => walletGate.open());
+		expect(controls?.isRefetching).toBe(true);
+		await act(async () => transactionsGate.open());
+		await act(() => done);
+
+		expect(controls?.isRefetching).toBe(false);
+		expect([wallet.fetches.count, transactions.fetches.count]).toEqual([
+			2, 2,
+		]);
+		expect(refetches.size).toBe(1);
+	});
+
 	it("resolves at once, and isn't refetching, once its client is disposed", async () => {
 		const client = await makeClient();
 		let controls: ReturnType<typeof useRefetch> | undefined;
