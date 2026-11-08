@@ -31,6 +31,22 @@ were.
   `EndpointInfiniteQuery.endpoint` carry the map. Endpoints without
   `statusErrors` keep their types and dehydrated payloads.
 
+- `QueryProvider` can own its client: give it `make` instead of `client`,
+  and a `resetKey` such as the signed-in account's ID. It makes a client on
+  the first render and a new one each time `resetKey` changes, rendering
+  the tree with the new client from that render, and disposes the old one,
+  and its own when it unmounts (a tick later, so StrictMode keeps one
+  client). A failed dispose is logged with `console.error`. Into a
+  replacement client, a `HydrationBoundary` below loads only state
+  dehydrated after the change, so one account's server state never reaches
+  another's cache. For the browser and React Native, above every `Suspense`
+  boundary: on the server, keep `client`, one per request. New type:
+  `OwnedQueryProviderProps`; `QueryProviderProps` gains `make?: undefined`
+  and `resetKey?: undefined`, so the two forms can't mix. `QueryProvider`
+  now takes either props type, so `React.ComponentProps<typeof
+  QueryProvider>` has an optional `client`: a wrapper that reads it should
+  type its props as `QueryProviderProps`.
+
 ### Changed
 
 - `@monarcode/effetch` peer range is now `>=0.1.0-rc.2 <0.2.0`: the

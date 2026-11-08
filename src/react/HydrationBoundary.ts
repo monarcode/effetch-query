@@ -5,7 +5,7 @@ import type * as Hydration from "effect/reactivity/Hydration";
 import * as React from "react";
 
 import { hydrate, hydrateFresh, partition } from "../internal/dehydrate.js";
-import { useRegistry } from "./QueryProvider.js";
+import { useHydrateSince, useRegistry } from "./QueryProvider.js";
 
 /**
  * Props for {@link HydrationBoundary}.
@@ -42,6 +42,11 @@ export interface HydrationBoundaryProps {
  * React shows the new one. Otherwise it loads as `QueryClient.hydrate`
  * does: a cached query takes only newer data, and a query the server was
  * still loading waits for its result.
+ *
+ * Under a {@link QueryProvider} that owns its client, once `resetKey`
+ * replaces the client, it loads into the new one only what the server
+ * dehydrated after the change, by the server's clock: earlier state belongs
+ * to the previous account, so the new client fetches it itself.
  *
  * @example
  * ```tsx
@@ -86,18 +91,19 @@ export const HydrationBoundary = ({
 	children,
 }: HydrationBoundaryProps): React.ReactElement => {
 	const registry = useRegistry();
+	const since = useHydrateSince();
 	// Loading what isn't cached only stores it until it's read, so it's safe
 	// in render, and repeating it is harmless.
 	const cached = React.useMemo(() => {
 		if (state === undefined) {
 			return undefined;
 		}
-		const entries = partition(registry, state);
+		const entries = partition(registry, state, since);
 		if (entries.fresh.length > 0) {
 			hydrateFresh(registry, entries.fresh);
 		}
 		return entries.cached.length > 0 ? entries.cached : undefined;
-	}, [registry, state]);
+	}, [registry, state, since]);
 	React.useEffect(
 		function hydrateCachedQueries() {
 			if (cached !== undefined) {

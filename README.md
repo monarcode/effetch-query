@@ -57,6 +57,7 @@ it. It works with any Effect too.
   - [Load more](#load-more)
   - [Pull to refresh](#pull-to-refresh)
   - [Atoms](#atoms)
+  - [Signing out and switching accounts](#signing-out-and-switching-accounts)
 - [React Native](#react-native)
 - [Without effetch](#without-effetch)
 - [Server rendering](#server-rendering)
@@ -1181,6 +1182,51 @@ export function OpenTitles() {
 
 `useQuery` also refetches on mount and focus; `useAtomValue` only reads.
 `useQueryClient()` returns the client, to run Effects from a component.
+
+### Signing out and switching accounts
+
+A cache must not outlive the account that filled it. Give `QueryProvider`
+a `make` instead of a `client`, and the account's ID as `resetKey`: it makes
+a client for each account, and disposes the one before.
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { QueryProvider } from "@monarcode/effetch-query/react";
+import type { ReactNode } from "react";
+
+import { ApiClientLive } from "./api.js";
+
+declare function useAccountId(): string; // e.g. the signed-in user's ID
+
+export function Providers({ children }: { readonly children: ReactNode }) {
+  const accountId = useAccountId();
+  return (
+    <QueryProvider
+      make={() => QueryClient.make({ layer: ApiClientLive })}
+      resetKey={accountId}
+    >
+      {children}
+    </QueryProvider>
+  );
+}
+```
+
+- **Nothing of the old account shows.** When `resetKey` changes, the tree
+  renders with the new client from that very render, and fetches afresh.
+  The old client is disposed: its cache goes, and its fetches and mutation
+  runs are interrupted.
+- **`make` runs once per `resetKey`**, not on every render, so an inline
+  arrow is fine. Under StrictMode, too, there's one client.
+- **A `HydrationBoundary` below doesn't carry state across accounts:** into
+  a new client, it loads only what the server dehydrated after the change
+  (by the server's clock). What came before belongs to the previous
+  account, so the new client fetches it.
+- **For the browser and React Native.** Effects don't run in server
+  rendering, so a client made there is never disposed. On the server, keep
+  `client` with one client per request ([Server rendering](#server-rendering)).
+- **Above every `Suspense` boundary.** A first render that React throws
+  away before showing it leaves its client undisposed.
+- With `client`, the provider never disposes it: the client is yours.
 
 ## React Native
 

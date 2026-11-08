@@ -196,12 +196,13 @@ const cachedByHash = (
 /**
  * Splits a state into entries for what isn't cached, which loading only
  * stores until it's read, and entries for what is, which loading changes
- * in place. `HydrationBoundary` loads the first during render and the
+ * in place, leaving out entries dehydrated at or before `since`. `HydrationBoundary` loads the first during render and the
  * second after commit, as atom-react's does.
  */
 export const partition = (
 	registry: AtomRegistry.AtomRegistry,
 	state: Iterable<Hydration.DehydratedAtom>,
+	since?: number | undefined,
 ): {
 	readonly fresh: Array<Hydration.DehydratedAtomValue>;
 	readonly cached: Array<Hydration.DehydratedAtomValue>;
@@ -211,6 +212,9 @@ export const partition = (
 	const fresh: Array<Hydration.DehydratedAtomValue> = [];
 	const cached: Array<Hydration.DehydratedAtomValue> = [];
 	for (const entry of Hydration.toValues(Array.from(state))) {
+		if (since !== undefined && entry.dehydratedAt <= since) {
+			continue;
+		}
 		const exists = isOwnKey(entry.key)
 			? byHash.has(entry.key)
 			: nodes.has(entry.key);

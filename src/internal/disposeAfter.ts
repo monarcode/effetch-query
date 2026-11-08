@@ -4,9 +4,12 @@ import type * as QueryClient from "../QueryClient.js";
  * Disposes a client nothing awaits, logging a failure: a rejection left
  * unhandled would end a Node server's process.
  */
-export const disposeInBackground = (client: QueryClient.QueryClient): void => {
+export const disposeInBackground = (
+	client: QueryClient.QueryClient,
+	owner = "the request's query client",
+): void => {
 	client.dispose().catch((error: unknown) => {
-		console.error("Disposing the request's query client failed:", error);
+		console.error(`Disposing ${owner} failed:`, error);
 	});
 };
 
