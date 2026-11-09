@@ -35,6 +35,7 @@ describe("public entry points", () => {
 			"family",
 			"fetch",
 			"get",
+			"group",
 			"invalidate",
 			"isQuery",
 			"make",

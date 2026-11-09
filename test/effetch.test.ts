@@ -17,7 +17,9 @@ import { disposeClients, makeClient, use } from "./helpers.js";
 import {
 	ApiError,
 	type ApiRequest,
+	clientStatusErrors,
 	servicesLayer,
+	SessionExpired,
 	TestApi,
 } from "./services.js";
 
@@ -39,6 +41,30 @@ const createTodo = Fetch.endpoint("POST /todos", {
 });
 const removeTodo = Fetch.endpoint("DELETE /todos/:id");
 const signOut = Fetch.endpoint("POST /auth/logout");
+
+class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+	message: Schema.String,
+}) {}
+
+class InvalidRole extends Schema.TaggedError<InvalidRole>()("InvalidRole", {
+	code: Schema.Literal("INVALID_ROLE"),
+	message: Schema.String,
+}) {}
+
+class RoleTaken extends Schema.TaggedError<RoleTaken>()("RoleTaken", {
+	code: Schema.Literal("ROLE_TAKEN"),
+	message: Schema.String,
+}) {}
+
+const findTodo = Fetch.endpoint("GET /todos/:id", {
+	output: Todo,
+	statusErrors: { 404: TodoNotFound },
+});
+const assignRole = Fetch.endpoint("POST /users/:id/roles", {
+	input: Schema.Struct({ role: Schema.String }),
+	output: Schema.Struct({ role: Schema.String }),
+	statusErrors: { 400: [InvalidRole, RoleTaken] },
+});
 
 const api = endpoints(TestApi, { defaultError: ApiError });
 const todo = api.query(getTodo);
@@ -189,6 +215,26 @@ describe("queries", () => {
 		expect(server.hits("GET /todos")).toBe(1);
 		expect(server.hits("GET /todos/1/comments")).toBe(1);
 		expect(server.hits("GET /todos/comments")).toBe(1);
+	});
+
+	it("a group of endpoint families matches each family's own queries only", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		use(client.registry, todo({ params: { id: 1 } }));
+		use(client.registry, todos({ query: { page: 2 } }));
+		use(client.registry, comments({ params: { id: 1 } }));
+		use(client.registry, recentComments());
+		await vi.waitFor(() => {
+			expect(server.hits("GET /todos")).toBe(1);
+			expect(server.hits("GET /todos/comments")).toBe(1);
+		});
+
+		await client.runPromise(Query.refetch(Query.group(todo, recentComments)));
+
+		expect(server.hits("GET /todos/1")).toBe(2);
+		expect(server.hits("GET /todos/comments")).toBe(2);
+		expect(server.hits("GET /todos")).toBe(1);
+		expect(server.hits("GET /todos/1/comments")).toBe(1);
 	});
 
 	it("a builder's prefix keeps its endpoints apart from the same paths elsewhere", async () => {
@@ -431,6 +477,106 @@ describe("mutations", () => {
 				? exit.cause.reasons[0].error._tag
 				: undefined,
 		).toBe("HttpError");
+	});
+});
+
+describe("status errors", () => {
+	const shared = endpoints(TestApi, {
+		defaultError: ApiError,
+		statusErrors: clientStatusErrors,
+	});
+	const found = shared.query(findTodo);
+
+	it("fail a query with the endpoint's error", async () => {
+		const client = await serve();
+
+		const error = await failure(client, found({ params: { id: 9 } }));
+
+		expect(error).toBeInstanceOf(TodoNotFound);
+		expect(error).toMatchObject({ message: "not found" });
+	});
+
+	it("fail a query with the client's error", async () => {
+		const client = await serve(() =>
+			Response.json({ message: "signed out" }, { status: 401 }),
+		);
+
+		const error = await failure(client, found({ params: { id: 1 } }));
+
+		expect(error).toBeInstanceOf(SessionExpired);
+	});
+
+	it("fail a mutation with the error a literal field picks, else an HttpError", async () => {
+		const answers = [
+			{ code: "ROLE_TAKEN", message: "taken" },
+			{ code: "INVALID_ROLE", message: "no such role" },
+			{ code: "MISSING_FIELD", message: "role is required" },
+		];
+		const client = await serve(() =>
+			Response.json(answers.shift(), { status: 400 }),
+		);
+		const assign = shared.mutation(assignRole);
+		const run = () =>
+			client.runPromise(
+				Effect.flip(
+					Mutation.run(assign, { params: { id: 1 }, body: { role: "x" } }),
+				),
+			);
+
+		expect(await run()).toBeInstanceOf(RoleTaken);
+		expect(await run()).toBeInstanceOf(InvalidRole);
+		const other = await run();
+		expect(other).toBeInstanceOf(Fetch.HttpError);
+		expect(other).toMatchObject({
+			status: 400,
+			body: { message: "role is required" },
+		});
+	});
+
+	it("go to the browser as themselves, with the client's given to endpoints", async () => {
+		const server = await serve(({ url }) =>
+			url.pathname === "/todos/1"
+				? Response.json({ message: "signed out" }, { status: 401 })
+				: undefined,
+		);
+		await failure(server, found({ params: { id: 9 } }));
+		await failure(server, found({ params: { id: 1 } }));
+		const sent = JSON.parse(
+			JSON.stringify(QueryClient.dehydrate(server, { failures: "include" })),
+		);
+		const handler = todosServer();
+		const browser = await serve(handler.handle);
+
+		QueryClient.hydrate(browser, sent);
+		const shown = (query: Query.Query<any, any>) => {
+			const result = browser.registry.get(query);
+			return AsyncResult.isFailure(result)
+				? Option.getOrUndefined(Cause.findErrorOption(result.cause))
+				: undefined;
+		};
+
+		expect(shown(found({ params: { id: 9 } }))).toBeInstanceOf(TodoNotFound);
+		expect(shown(found({ params: { id: 9 } }))).toMatchObject({
+			message: "not found",
+		});
+		expect(shown(found({ params: { id: 1 } }))).toBeInstanceOf(
+			SessionExpired,
+		);
+		expect(handler.hits("GET /todos/9") + handler.hits("GET /todos/1")).toBe(
+			0,
+		);
+	});
+
+	it("leave out the client's errors when endpoints isn't given them", async () => {
+		const server = await serve(() =>
+			Response.json({ message: "signed out" }, { status: 401 }),
+		);
+		const unshared = api.query(findTodo);
+		await failure(server, unshared({ params: { id: 1 } }));
+
+		expect(QueryClient.dehydrate(server, { failures: "include" })).toEqual(
+			[],
+		);
 	});
 });
 

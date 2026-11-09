@@ -56,8 +56,11 @@ if [ -n "$forbidden" ]; then
 	exit 1
 fi
 
+# A `file:` devDependency (a sibling checkout, before its release) resolves
+# from here, and installs as a copy (`--install-links`), not a symlink. Its
+# version may still be the last release's, below our peer range.
 dev_version() {
-	node -p "require('./package.json').devDependencies['$1']"
+	node -p "const v = require('./package.json').devDependencies['$1']; v.startsWith('file:') ? 'file:' + require('path').resolve(v.slice(5)) : v"
 }
 effect_version="$(dev_version effect)"
 typescript_version="$(dev_version typescript)"
@@ -219,6 +222,9 @@ echo "› Running core.ts"
 node core.ts
 
 echo "› Installing @monarcode/effetch@$effetch_version"
+if [[ $effetch_version == file:* ]]; then
+	export npm_config_install_links=true npm_config_legacy_peer_deps=true
+fi
 npm install --silent --no-audit --no-fund --no-package-lock \
 	"@monarcode/effetch@$effetch_version"
 

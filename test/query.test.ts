@@ -9,7 +9,7 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Query, QueryClient } from "../src/index.js";
+import { Mutation, Query, QueryClient } from "../src/index.js";
 import { type CacheEvent, subscribe } from "../src/internal/events.js";
 import { StateAtom } from "../src/internal/runtime.js";
 import {
@@ -506,6 +506,157 @@ describe("Query.refetch", () => {
 		expect(await client.runPromise(Query.get(me.query))).toEqual(
 			Option.none(),
 		);
+	});
+});
+
+describe("Query.group", () => {
+	const setup = async () => {
+		const client = await makeClient();
+		const wallet = tracked(["wallet"], (fetch) => Effect.succeed(fetch));
+		const transactions = trackedFamily<number>(["transactions"]);
+		const promos = tracked(["promos", "home"], (fetch) =>
+			Effect.succeed(fetch),
+		);
+		const other = tracked(["settings"], (fetch) => Effect.succeed(fetch));
+		const queries = [
+			wallet.query,
+			transactions.family(1),
+			transactions.family(2),
+			promos.query,
+			other.query,
+		];
+		for (const query of queries) {
+			client.registry.mount(query);
+			await valueOf(client.registry, query);
+		}
+		const fetches = () => [
+			wallet.fetches.count,
+			transactions.fetches(1),
+			transactions.fetches(2),
+			promos.fetches.count,
+			other.fetches.count,
+		];
+		return { client, wallet, transactions, promos, other, fetches };
+	};
+
+	it("matches the queries its queries, families and keys match", async () => {
+		const { client, wallet, transactions, fetches } = await setup();
+		const home = Query.group(wallet.query, transactions.family, ["promos"]);
+
+		await client.runPromise(Query.invalidate(home));
+
+		expect(fetches()).toEqual([2, 2, 2, 2, 1]);
+	});
+
+	it("flattens nested groups, and keeps each target once", () => {
+		const wallet = Query.make({ key: ["wallet"], run: Effect.succeed(1) });
+		const promos: Query.Key = ["promos"];
+		const inner = Query.group(wallet, promos);
+
+		expect(Query.group(inner, wallet, Query.group()).targets).toEqual([
+			wallet,
+			promos,
+		]);
+	});
+
+	it("acts once on a query that several of its targets match", async () => {
+		const { client, transactions, fetches } = await setup();
+		const overlapping = Query.group(
+			transactions.family,
+			transactions.family(1),
+			["transactions", 1],
+			Query.group(transactions.family(1)),
+		);
+
+		await client.runPromise(Query.refetch(overlapping));
+
+		expect(fetches()).toEqual([1, 2, 2, 1, 1]);
+	});
+
+	it("refetch completes once every member in use has settled", async () => {
+		useFakeTimers();
+		const client = await makeClient();
+		const fast = tracked(["fast"], (fetch) =>
+			Effect.succeed(fetch).pipe(Effect.delay("100 millis")),
+		);
+		const slow = tracked(["slow"], (fetch) =>
+			Effect.succeed(fetch).pipe(Effect.delay("1 second")),
+		);
+		client.registry.mount(fast.query);
+		client.registry.mount(slow.query);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		let done = false;
+		const refetching = client
+			.runPromise(Query.refetch(Query.group(fast.query, slow.query)))
+			.then(() => {
+				done = true;
+			});
+		await vi.advanceTimersByTimeAsync(500);
+		expect(show(client.registry.get(fast.query))).toBe("Success 2");
+		expect(done).toBe(false);
+
+		await vi.advanceTimersByTimeAsync(500);
+		await refetching;
+		expect(show(client.registry.get(slow.query))).toBe("Success 2");
+	});
+
+	it("refetch skips members that aren't in use", async () => {
+		const client = await makeClient();
+		const used = tracked(["used"], (fetch) => Effect.succeed(fetch));
+		const idle = tracked(["idle"], (fetch) => Effect.succeed(fetch));
+		client.registry.mount(used.query);
+		await valueOf(client.registry, used.query);
+		const unmount = client.registry.mount(idle.query);
+		await valueOf(client.registry, idle.query);
+		unmount();
+
+		await client.runPromise(
+			Query.refetch(Query.group(used.query, idle.query)),
+		);
+
+		expect([used.fetches.count, idle.fetches.count]).toEqual([2, 1]);
+	});
+
+	it("reset drops every member's value, and refetches those in use", async () => {
+		const client = await makeClient();
+		const used = tracked(["used"], (fetch) => Effect.succeed(fetch));
+		const idle = tracked(["idle"], (fetch) => Effect.succeed(fetch));
+		const other = tracked(["other"], (fetch) => Effect.succeed(fetch));
+		client.registry.mount(used.query);
+		client.registry.mount(other.query);
+		await valueOf(client.registry, used.query);
+		await valueOf(client.registry, other.query);
+		await client.runPromise(Query.set(idle.query, 7));
+
+		await client.runPromise(Query.reset(Query.group(used.query, idle.query)));
+		await valueOf(client.registry, used.query);
+
+		expect(QueryClient.get(client, idle.query)).toEqual(Option.none());
+		expect([used.fetches.count, idle.fetches.count]).toEqual([2, 0]);
+		expect(other.fetches.count).toBe(1);
+	});
+
+	it("isn't an array of targets: that's a key, which matches nothing", async () => {
+		const { client, wallet, transactions, fetches } = await setup();
+
+		await client.runPromise(
+			Query.invalidate([wallet.query, transactions.family]),
+		);
+
+		expect(fetches()).toEqual([1, 1, 1, 1, 1]);
+	});
+
+	it("is a mutation's invalidates target", async () => {
+		const { client, wallet, transactions, fetches } = await setup();
+		const transfer = Mutation.make({
+			run: (amount: number) => Effect.succeed(amount),
+			invalidates: [Query.group(wallet.query, transactions.family)],
+		});
+
+		await client.runPromise(Mutation.run(transfer, 10));
+
+		expect(fetches()).toEqual([2, 2, 2, 1, 1]);
 	});
 });
 

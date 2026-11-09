@@ -204,3 +204,51 @@ describe("the cache API", () => {
 		>();
 	});
 });
+
+describe("Query.group", () => {
+	const wallet = Query.make({ key: ["wallet"], run: Effect.succeed(1) });
+	const transactions = Query.family({
+		key: ["transactions"],
+		run: (page: number) => Effect.succeed([`${page}`]),
+	});
+	const home = Query.group(wallet, transactions, ["promos"]);
+
+	it("takes any targets, groups included, and is a target", () => {
+		expectTypeOf(home).toEqualTypeOf<Query.Group>();
+		expectTypeOf(Query.group(home, wallet)).toExtend<Query.Target>();
+		expectTypeOf(Query.invalidate(home));
+		expectTypeOf(Query.refetch(home));
+		expectTypeOf(Query.reset(home));
+	});
+
+	it("isn't an array of targets, which is a key", () => {
+		const both = [wallet, transactions] as const;
+
+		expectTypeOf(both).toExtend<Query.Key>();
+		expectTypeOf(both).not.toExtend<Query.Group>();
+		expectTypeOf<Query.Group>().not.toExtend<Query.Key>();
+	});
+
+	it("rejects an array of targets, which would be a key", () => {
+		const page: Query.Key = ["page", 1];
+
+		// @ts-expect-error: pass the targets one by one
+		Query.group([wallet, transactions]);
+		// @ts-expect-error: a key can't hold a query
+		Query.group(["promos", wallet]);
+		expectTypeOf(
+			Query.group(page, ["promos", 1], home),
+		).toEqualTypeOf<Query.Group>();
+		const dynamic: ReadonlyArray<Query.Target> = [wallet, page];
+		expectTypeOf(Query.group(...dynamic)).toEqualTypeOf<Query.Group>();
+	});
+
+	it("can't be written to", () => {
+		// @ts-expect-error: a group isn't one query or family
+		expectTypeOf(Query.update(home, (value: number) => value));
+		// @ts-expect-error: a group isn't one query
+		expectTypeOf(Query.set(home, 1));
+		// @ts-expect-error: a group isn't one query
+		expectTypeOf(Query.get(home));
+	});
+});

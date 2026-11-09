@@ -12,7 +12,10 @@ import {
 	type QueryClient,
 } from "../../src/index.js";
 import {
+	type OwnedQueryProviderProps,
 	type QueryFailure,
+	QueryProvider,
+	type QueryProviderProps,
 	useInfiniteQuery,
 	type UseInfiniteQueryResult,
 	useMutation,
@@ -33,6 +36,35 @@ const todo = Query.family({
 	key: ["todos", "detail"],
 	run: (id: number) =>
 		id === 0 ? Effect.fail(new Missing()) : Effect.succeed({ id }),
+});
+
+describe("QueryProvider", () => {
+	type Props = Parameters<typeof QueryProvider>[0];
+	const client = {} as QueryClient.QueryClient;
+
+	it("takes a client you own, or a make it owns", () => {
+		expectTypeOf({ client }).toExtend<Props>();
+		expectTypeOf({ make: () => client }).toExtend<Props>();
+		expectTypeOf({
+			make: () => client,
+			resetKey: "account",
+		}).toExtend<Props>();
+		expectTypeOf<Props>().toEqualTypeOf<
+			QueryProviderProps | OwnedQueryProviderProps
+		>();
+	});
+
+	it("rejects a client and a make together", () => {
+		// @ts-expect-error: a provider either borrows a client or owns one
+		const both: Props = { client, make: () => client };
+		expectTypeOf(both).toExtend<Props>();
+	});
+
+	it("rejects a resetKey without make", () => {
+		// @ts-expect-error: only an owned client is reset
+		const keyed: Props = { client, resetKey: "account" };
+		expectTypeOf(keyed).toExtend<Props>();
+	});
 });
 
 describe("useQuery", () => {

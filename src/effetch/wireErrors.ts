@@ -11,11 +11,13 @@ import * as Fetch from "@monarcode/effetch";
  * issue. So each goes as a struct of what is, and comes back as the class:
  * an `HttpError` without headers, so `set-cookie` and the like never reach
  * the page, its body encoded with the endpoint's error schema; the others
- * without `cause` or `issue`. URLs and response text do go. A plugin's own
+ * without `cause` or `issue`. URLs and response text do go. The errors of
+ * `statusErrors` maps go as their own schemas encode them. A plugin's own
  * error has no schema here, so a query failing with one isn't sent.
  */
 export const wireErrors = (
 	body: Schema.Codec<unknown, unknown> | undefined,
+	statusErrors: ReadonlyArray<Schema.Codec<unknown, unknown>> = [],
 ): Schema.Codec<unknown, unknown> =>
 	Schema.Union([
 		Schema.TaggedStruct("HttpError", {
@@ -92,4 +94,25 @@ export const wireErrors = (
 				}),
 			),
 		),
+		// After effetch's own, whose `_tag`s are literals: a status error
+		// schema loose enough to accept an encoded `HttpError` can't take it.
+		...statusErrors,
 	]) as unknown as Schema.Codec<unknown, unknown>;
+
+/**
+ * The schemas `statusErrors` maps list, flattened, each once: the endpoint's,
+ * then the client's. They go to the browser with their own encoding.
+ */
+export const statusErrorSchemas = (
+	...maps: ReadonlyArray<Fetch.StatusErrorMap | undefined>
+): ReadonlyArray<Schema.Codec<unknown, unknown>> => {
+	const schemas = new Set<Schema.Codec<unknown, unknown>>();
+	for (const map of maps) {
+		for (const entry of Object.values(map ?? {})) {
+			for (const schema of Array.isArray(entry) ? entry : [entry]) {
+				schemas.add(schema as Schema.Codec<unknown, unknown>);
+			}
+		}
+	}
+	return Array.from(schemas);
+};

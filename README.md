@@ -24,7 +24,7 @@ typed HTTP client for Effect: effetch makes the call, effetch-query caches
 it. It works with any Effect too.
 
 > **Release candidate.** The API is frozen for `0.1.0`: the
-> `0.1.0-rc.N` releases only fix bugs.
+> `0.1.0-rc.N` releases fix bugs and only ever add to it.
 
 ## Contents
 
@@ -41,6 +41,7 @@ it. It works with any Effect too.
   - [5. Changing data](#5-changing-data)
 - [Queries in depth](#queries-in-depth)
   - [From endpoints to queries](#from-endpoints-to-queries)
+  - [Errors by status](#errors-by-status)
   - [Keys](#keys)
   - [Freshness and refetching](#freshness-and-refetching)
   - [Query options](#query-options)
@@ -56,6 +57,7 @@ it. It works with any Effect too.
   - [Load more](#load-more)
   - [Pull to refresh](#pull-to-refresh)
   - [Atoms](#atoms)
+  - [Signing out and switching accounts](#signing-out-and-switching-accounts)
 - [React Native](#react-native)
 - [Without effetch](#without-effetch)
 - [Server rendering](#server-rendering)
@@ -535,7 +537,8 @@ query's or mutation's options.
   puts a prefix before every key.
 - **Errors are typed from the endpoint and the client:** `todo`'s error is
   `NetworkError | DecodeError | HttpError.With<{ message: string }>`, with
-  your plugins' errors if you use any.
+  your plugins' errors if you use any, and your own errors by status
+  ([Errors by status](#errors-by-status)).
 - **`query` takes endpoints without a body** (`GET`, `HEAD`, `OPTIONS`,
   `TRACE`). Everything else is a `mutation`, whose variables are the call's
   options.
@@ -550,6 +553,70 @@ query's or mutation's options.
 
 Make one `api.query` per endpoint: two of the same route would share keys
 but not their cache.
+
+### Errors by status
+
+effetch's `statusErrors` turns error responses into your own errors: a
+status maps to the schema of the error it means, or to a list tried in
+order, where a literal field picks one. Queries and mutations made from such
+an endpoint fail with those errors, typed, so you handle them by their tag:
+
+```tsx
+import * as Effect from "effect/Effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+  message: Schema.String,
+}) {}
+
+class NotYourTodo extends Schema.TaggedError<NotYourTodo>()("NotYourTodo", {
+  code: Schema.Literal("NOT_OWNER"), // only a 403 with this code
+  message: Schema.String,
+}) {}
+
+const findTodo = api.query(
+  Fetch.endpoint("GET /todos/:id", {
+    output: Todo,
+    statusErrors: { 404: TodoNotFound, 403: [NotYourTodo] },
+  }),
+);
+
+// In a loader: a missing todo is no todo.
+export const loadTodo = (id: number) =>
+  Query.fetch(findTodo({ params: { id } })).pipe(
+    Effect.catchTag("TodoNotFound", () => Effect.succeed(undefined)),
+  );
+
+export function TodoTitle({ id }: { readonly id: number }) {
+  return AsyncResult.builder(useQuery(findTodo({ params: { id } })))
+    .onInitial(() => <p>Loading…</p>)
+    .onErrorTag("TodoNotFound", () => <p>This todo was deleted.</p>)
+    .onErrorTag("NotYourTodo", (error) => <p>{error.message}</p>)
+    .onError(() => <p>Couldn't load it.</p>)
+    .onSuccess((todo) => <h1>{todo.title}</h1>)
+    .orNull();
+}
+```
+
+- **A response no schema decodes** (another 403, a body that isn't JSON)
+  fails with the `HttpError` it would without them, so `HttpError` stays in
+  the error type.
+- **The client's `statusErrors`** (`Fetch.make({ statusErrors })`) apply to
+  every endpoint, and are typed from the client's service. Give them to
+  `endpoints` too, `endpoints(ApiClient, { defaultError, statusErrors })`,
+  for server rendering: a definition can't read them from the client.
+- **Server rendering sends them as themselves** with
+  `failures: "include"`: a `TodoNotFound` on the server is a `TodoNotFound`
+  in the browser, with no refetch.
+- Their schemas, like `output`'s, can only need your registered services.
 
 ### Keys
 
@@ -637,14 +704,17 @@ export const refreshEverything = () =>
 | `Query.invalidate(target)` | Marks queries stale: those in use refetch now, the rest when next used.                        |
 | `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
 | `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
+| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.           |
 
 To read the cache where you can't wait for a promise, such as a form
 listener, `QueryClient.get(queryClient, query)` returns the cached value as
 an `Option`, as `Query.get` does.
 
 A **target** is one query (`todo({ params: { id: 1 } })`), a family of
-queries (`todos`, every call of the endpoint), or a key (`["todos"]`,
-every query whose key starts with it).
+queries (`todos`, every call of the endpoint), a key (`["todos"]`,
+every query whose key starts with it), or a group of these
+(`Query.group(todos, ["profile"])`, every query one of them matches; see
+[Pull to refresh](#pull-to-refresh)).
 
 ## Mutations in depth
 
@@ -821,6 +891,8 @@ export function TodoTitle({ id }: { readonly id: number | null }) {
 ```
 
 `waiting` is true while a fetch runs, including a background refetch.
+Rather than checking statuses, an endpoint can turn them into errors of
+your own ([Errors by status](#errors-by-status)).
 
 ### Suspense and error boundaries
 
@@ -1045,6 +1117,45 @@ export function RefreshButton() {
 // React Native: <FlatList refreshing={isRefetching} onRefresh={refetch} … />
 ```
 
+A screen that shows queries from several features, each with its own key,
+refreshes them together with `Query.group`. Define the group once: it's a
+target like any other, so a mutation can invalidate it too.
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useRefetch } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+const profile = api.query(
+  Fetch.endpoint("GET /me", { output: Schema.Struct({ name: Schema.String }) }),
+);
+
+// Everything the home screen shows. The spinner stops once all of it has settled.
+export const home = Query.group(todos, profile);
+
+export const archiveDone = api.mutation(
+  Fetch.endpoint("POST /todos/archive", { output: Schema.Array(Todo) }),
+  { invalidates: [home] },
+);
+
+export function HomeRefresh() {
+  const { refetch, isRefetching } = useRefetch(home);
+  return (
+    <button disabled={isRefetching} onClick={() => void refetch()}>
+      Refresh
+    </button>
+  );
+}
+```
+
+Pass the group, not an array: `useRefetch([todos, profile])` compiles,
+because an array is a key, but it matches no query.
+
 ### Atoms
 
 Queries are atoms from `effect/reactivity`, and `QueryProvider` shares the
@@ -1071,6 +1182,51 @@ export function OpenTitles() {
 
 `useQuery` also refetches on mount and focus; `useAtomValue` only reads.
 `useQueryClient()` returns the client, to run Effects from a component.
+
+### Signing out and switching accounts
+
+A cache must not outlive the account that filled it. Give `QueryProvider`
+a `make` instead of a `client`, and the account's ID as `resetKey`: it makes
+a client for each account, and disposes the one before.
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { QueryProvider } from "@monarcode/effetch-query/react";
+import type { ReactNode } from "react";
+
+import { ApiClientLive } from "./api.js";
+
+declare function useAccountId(): string; // e.g. the signed-in user's ID
+
+export function Providers({ children }: { readonly children: ReactNode }) {
+  const accountId = useAccountId();
+  return (
+    <QueryProvider
+      make={() => QueryClient.make({ layer: ApiClientLive })}
+      resetKey={accountId}
+    >
+      {children}
+    </QueryProvider>
+  );
+}
+```
+
+- **Nothing of the old account shows.** When `resetKey` changes, the tree
+  renders with the new client from that very render, and fetches afresh.
+  The old client is disposed: its cache goes, and its fetches and mutation
+  runs are interrupted.
+- **`make` runs once per `resetKey`**, not on every render, so an inline
+  arrow is fine. Under StrictMode, too, there's one client.
+- **A `HydrationBoundary` below doesn't carry state across accounts:** into
+  a new client, it loads only what the server dehydrated after the change
+  (by the server's clock). What came before belongs to the previous
+  account, so the new client fetches it.
+- **For the browser and React Native.** Effects don't run in server
+  rendering, so a client made there is never disposed. On the server, keep
+  `client` with one client per request ([Server rendering](#server-rendering)).
+- **Above every `Suspense` boundary.** A first render that React throws
+  away before showing it leaves its client undisposed.
+- With `client`, the provider never disposes it: the client is yours.
 
 ## React Native
 
@@ -1278,7 +1434,9 @@ export async function renderPage(): Promise<string> {
   errors never reach the page, and the browser fetches it again. To send
   failures, pass `failures: "include"`. An effetch `HttpError` goes without
   its headers, but with its URL and response text, so keep secrets out of
-  the URLs your server calls.
+  the URLs your server calls. Errors from `statusErrors` go as their schemas
+  encode them, the client's only when given to `endpoints`
+  ([Errors by status](#errors-by-status)).
 - **Keys must be JSON.** A key that isn't throws `NonJsonKeyError`, and two
   queries with one key throw `DuplicateQueryKeyError`.
 - `queries: ["todos"]` sends only the queries under a key, as

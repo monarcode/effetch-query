@@ -22,6 +22,7 @@ export {
 } from "./HydrationBoundary.js";
 export {
 	MissingQueryProviderError,
+	type OwnedQueryProviderProps,
 	QueryProvider,
 	type QueryProviderProps,
 	useQueryClient,

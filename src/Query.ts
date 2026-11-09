@@ -10,7 +10,7 @@ import type * as Scope from "effect/Scope";
 
 import * as cache from "./internal/cache.js";
 import { makeCodec } from "./internal/hydration.js";
-import { matching } from "./internal/keyIndex.js";
+import { type GroupTypeId, makeGroup, matching } from "./internal/keyIndex.js";
 import * as optimistic from "./internal/optimistic.js";
 import * as internal from "./internal/queryAtom.js";
 import { isInUse } from "./internal/usage.js";
@@ -165,8 +165,13 @@ export interface Family<Args, A, E> {
 
 /**
  * What {@link invalidate}, {@link refetch} and {@link reset} act on: a
- * {@link Query} (that key only), a {@link Family} (all its members), or
- * a {@link Key} (every query whose key starts with it).
+ * {@link Query} (that key only), a {@link Family} (all its members), a
+ * {@link Key} (every query whose key starts with it), or a {@link Group} of
+ * these (every query one of them matches).
+ *
+ * An array of queries is a key, not a group: `[wallet, transactions]`
+ * matches the queries whose key starts with those two values, which is none.
+ * Combine targets with {@link group}.
  *
  * @example
  * ```ts
@@ -185,7 +190,77 @@ export type Target =
 	| Query<never, any>
 	| Family<any, any, any>
 	| Family<any, never, any>
-	| Key;
+	| Key
+	| Group;
+
+/**
+ * Several targets as one, made by {@link group}: it matches every query one
+ * of its targets matches, each once. Use it to act on unrelated queries
+ * together, such as a screen's pull to refresh.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ *
+ * const wallet = Query.make({ key: ["wallet"], run: Effect.succeed(100) });
+ * const transactions = Query.make({ key: ["transactions"], run: Effect.succeed([]) });
+ *
+ * export const home: Query.Group = Query.group(wallet, transactions);
+ * home.targets; // [wallet, transactions]
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface Group {
+	/** Marks a group. */
+	readonly [GroupTypeId]: GroupTypeId;
+	/** Its targets, with any group given to {@link group} replaced by its own. */
+	readonly targets: ReadonlyArray<Target>;
+}
+
+/**
+ * The targets {@link group} takes: any {@link Target}, except an array that
+ * holds a query, a family or a group. Such an array is a {@link Key}, whose
+ * segments are compared with the query keys, so it would match nothing: the
+ * targets were meant to be passed one by one.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ *
+ * const wallet = Query.make({ key: ["wallet"], run: Effect.succeed(100) });
+ *
+ * export const ok: Query.GroupTargets<[typeof wallet, ["promos"]]> = [
+ *   wallet,
+ *   ["promos"],
+ * ];
+ * // Query.GroupTargets<[[typeof wallet]]> is [never]: pass `wallet` itself.
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type GroupTargets<Targets> = {
+	readonly [K in keyof Targets]: Targets[K] extends ReadonlyArray<
+		infer Segment
+	>
+		? [
+				Extract<
+					Segment,
+					| Query<any, any>
+					| Query<never, any>
+					| Family<any, any, any>
+					| Family<any, never, any>
+					| Group
+				>,
+			] extends [never]
+			? Targets[K]
+			: never
+		: Targets[K];
+};
 
 /**
  * What a query's `run` receives, for reading other queries: given to
@@ -699,3 +774,53 @@ export const reset = (
 			cache.resetQuery(registry, query);
 		}
 	});
+
+/**
+ * Combines targets into one {@link Group}, for acting on unrelated queries
+ * together: pass it wherever a {@link Target} goes, to {@link refetch},
+ * {@link invalidate}, {@link reset}, a mutation's `invalidates` or
+ * `useRefetch`. It matches every query one of its targets matches, and
+ * each only once, so a family and one of its own queries in a group refetch
+ * that query once. Groups given to it are flattened.
+ *
+ * Writes don't take a group, since a value can't fit queries of different
+ * types: {@link set} and {@link update} take one query or family.
+ *
+ * Pass the targets as separate arguments, not an array: `[wallet,
+ * transactions]` is a {@link Key}, which would match nothing, so
+ * {@link GroupTargets} makes it a type error.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Mutation, Query } from "@monarcode/effetch-query";
+ * import { useRefetch } from "@monarcode/effetch-query/react";
+ *
+ * const wallet = Query.make({ key: ["wallet"], run: Effect.succeed(100) });
+ * const transactions = Query.family({
+ *   key: ["transactions"],
+ *   run: (page: number) => Effect.succeed([`Page ${page}`]),
+ * });
+ *
+ * // What the home screen shows, from two features.
+ * export const home = Query.group(wallet, transactions);
+ *
+ * // Pull to refresh: the spinner stops once all of them have settled.
+ * export const useHomeRefresh = () => {
+ *   const { refetch, isRefetching } = useRefetch(home);
+ *   return { refreshing: isRefetching, onRefresh: refetch };
+ * };
+ *
+ * // A transfer changes everything the home screen shows.
+ * export const transfer = Mutation.make({
+ *   run: (amount: number) => Effect.succeed(amount),
+ *   invalidates: [home],
+ * });
+ * ```
+ *
+ * @since 0.1.0
+ */
+export const group = <const Targets extends ReadonlyArray<Target>>(
+	...targets: Targets & GroupTargets<Targets>
+): Group => makeGroup(targets);

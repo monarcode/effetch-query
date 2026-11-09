@@ -2,6 +2,56 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-rc.2
+
+Released alongside `@monarcode/effetch` 0.1.0-rc.2. Additions agreed as
+exceptions to the API freeze, as the rc.1 additions were.
+
+### Added
+
+- `Query.group(...targets)` combines queries, families, keys and other
+  groups into one `Query.Group`, a target of its own: `Query.refetch`,
+  `invalidate`, `reset`, a mutation's `invalidates` and `useRefetch` act on
+  every query one of its targets matches, each once. One `useRefetch(home)`
+  now refreshes a screen built from several features, and stays refetching
+  until every one of them in use has settled. Groups don't go to writes
+  (`Query.set`, `update`), and an array of queries is still a key, not a
+  group: `Query.group([a, b])` is a type error (`Query.GroupTargets`).
+  `Query.Target` now includes `Query.Group`, so code that narrows a target
+  by hand (`Array.isArray(target) ? … : target.key`) needs a case for it.
+- Errors by status through `./effetch`, for effetch's new `statusErrors`
+  (status → the schema of your own error). Queries, infinite queries and
+  mutations made from an endpoint with `statusErrors` fail with those
+  errors, typed, so `Effect.catchTag` and `onErrorTag` narrow them; the
+  client's map is typed from its service. `endpoints(Client, {
+  statusErrors })` takes the client's map, as it takes `defaultError`, so
+  `QueryClient.dehydrate` with `failures: "include"` sends those errors as
+  themselves; without it they're typed but not sent. New type:
+  `RegisteredStatusErrors`; `EndpointQuery.endpoint` and
+  `EndpointInfiniteQuery.endpoint` carry the map. Endpoints without
+  `statusErrors` keep their types and dehydrated payloads.
+
+- `QueryProvider` can own its client: give it `make` instead of `client`,
+  and a `resetKey` such as the signed-in account's ID. It makes a client on
+  the first render and a new one each time `resetKey` changes, rendering
+  the tree with the new client from that render, and disposes the old one,
+  and its own when it unmounts (a tick later, so StrictMode keeps one
+  client). A failed dispose is logged with `console.error`. Into a
+  replacement client, a `HydrationBoundary` below loads only state
+  dehydrated after the change, so one account's server state never reaches
+  another's cache. For the browser and React Native, above every `Suspense`
+  boundary: on the server, keep `client`, one per request. New type:
+  `OwnedQueryProviderProps`; `QueryProviderProps` gains `make?: undefined`
+  and `resetKey?: undefined`, so the two forms can't mix. `QueryProvider`
+  now takes either props type, so `React.ComponentProps<typeof
+  QueryProvider>` has an optional `client`: a wrapper that reads it should
+  type its props as `QueryProviderProps`.
+
+### Changed
+
+- `@monarcode/effetch` peer range is now `>=0.1.0-rc.2 <0.2.0`: the
+  adapter's types use effetch's `StatusErrorMap`.
+
 ## 0.1.0-rc.1
 
 Fixes from using the RC in cashmore-mobile, and two additions agreed as

@@ -28,6 +28,15 @@ export const greetingLayer = (text: string): Layer.Layer<Greeting> =>
 /** The error body the test API sends. */
 export const ApiError = Schema.Struct({ message: Schema.String });
 
+/** What every `TestApi` call fails with on a 401: the client's `statusErrors`. */
+export class SessionExpired extends Schema.TaggedError<SessionExpired>()(
+	"SessionExpired",
+	{ message: Schema.String },
+) {}
+
+/** The client's `statusErrors`. */
+export const clientStatusErrors = { 401: SessionExpired };
+
 /** What the `guard` plugin fails with when a request has `x-deny`. */
 export class Denied extends Data.TaggedError("Denied")<{}> {}
 
@@ -43,7 +52,7 @@ export const guard = Fetch.plugin({
 /** The effetch client the effetch adapter's tests call through. */
 export class TestApi extends Context.Service<
 	TestApi,
-	Fetch.Client<[typeof guard], typeof ApiError>
+	Fetch.Client<[typeof guard], typeof ApiError, typeof clientStatusErrors>
 >()("test/TestApi") {}
 
 /** One request the test API received. */
@@ -69,6 +78,7 @@ export const testApiLayer = (
 		Fetch.make({
 			baseUrl: "https://api.test",
 			defaultError: ApiError,
+			statusErrors: clientStatusErrors,
 			plugins: [guard],
 		}),
 	).pipe(
