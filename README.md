@@ -24,7 +24,7 @@ typed HTTP client for Effect: effetch makes the call, effetch-query caches
 it. It works with any Effect too.
 
 > **Release candidate.** The API is frozen for `0.1.0`: the
-> `0.1.0-rc.N` releases only fix bugs.
+> `0.1.0-rc.N` releases fix bugs and only ever add to it.
 
 ## Contents
 

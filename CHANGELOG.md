@@ -2,10 +2,10 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
-## Unreleased
+## 0.1.0-rc.2
 
-Additions agreed as exceptions to the API freeze, as the rc.1 additions
-were.
+Released alongside `@monarcode/effetch` 0.1.0-rc.2. Additions agreed as
+exceptions to the API freeze, as the rc.1 additions were.
 
 ### Added
 
