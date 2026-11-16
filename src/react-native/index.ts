@@ -23,7 +23,10 @@ import type * as Signals from "../Signals.js";
 export interface AppStateLike {
 	/** The app's state now: `"active"` when it's in the foreground. */
 	readonly currentState: string | null | undefined;
-	/** Listens for changes to the app's state. */
+	/**
+	 * Listens for changes to the app's state; returns a subscription whose
+	 * `remove` stops listening.
+	 */
 	readonly addEventListener: (
 		type: "change",
 		listener: (state: string) => void,
@@ -83,15 +86,17 @@ export interface ReactNativeSignalsOptions {
 }
 
 /**
- * Signals for React Native: focus is the app coming back to the foreground
- * (`AppState` changing to `"active"` from anything else), and online follows
- * NetInfo's `isConnected`, where `null` (not known yet) counts as online.
- * Pass them as the `signals` option of `QueryClient.make`, in place of the
- * default {@link Signals.browser}, which never changes without a DOM. The
- * parameters are {@link AppStateLike} and {@link NetInfoLike}.
+ * Makes signals for React Native: focus is the app coming back to the
+ * foreground (`AppState` changing to `"active"` from anything else), and
+ * online follows NetInfo's `isConnected`, where `null` (not known yet)
+ * counts as online. Pass them as the `signals` option of `QueryClient.make`,
+ * in place of the default {@link Signals.browser}, which never changes
+ * without a DOM. The parameters are {@link AppStateLike} and
+ * {@link NetInfoLike}.
  *
- * The listeners start when a client first needs them and stop when it's
- * disposed, so one set of signals can serve several clients.
+ * Each client starts its own listeners when one of its queries first needs
+ * them, and stops them once no cached query does or the client is disposed,
+ * so one set of signals can serve several clients.
  *
  * @example
  * ```ts

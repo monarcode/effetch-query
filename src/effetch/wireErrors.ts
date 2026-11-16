@@ -10,8 +10,9 @@ import * as Fetch from "@monarcode/effetch";
  * `NetworkError`'s platform `cause` aren't JSON, nor is `DecodeError`'s
  * issue. So each goes as a struct of what is, and comes back as the class:
  * an `HttpError` without headers, so `set-cookie` and the like never reach
- * the page, its body encoded with the endpoint's error schema; the others
- * without `cause` or `issue`. URLs and response text do go. The errors of
+ * the page, its body encoded with `body` (the endpoint's error schema, else
+ * `defaultError`), or as JSON without one; the others without `cause` or
+ * `issue`. URLs and response text do go. The errors of
  * `statusErrors` maps go as their own schemas encode them. A plugin's own
  * error has no schema here, so a query failing with one isn't sent.
  */

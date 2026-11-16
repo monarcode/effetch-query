@@ -73,7 +73,8 @@ export type TypeId = internal.QueryTypeId;
 export const TypeId: TypeId = internal.QueryTypeId;
 
 /**
- * Whether a value is a {@link Query}, as opposed to another atom or value.
+ * Checks whether a value is a {@link Query}, as opposed to another atom or
+ * value.
  *
  * @example
  * ```ts
@@ -165,9 +166,11 @@ export interface Family<Args, A, E> {
 
 /**
  * What {@link invalidate}, {@link refetch} and {@link reset} act on: a
- * {@link Query} (that key only), a {@link Family} (all its members), a
- * {@link Key} (every query whose key starts with it), or a {@link Group} of
- * these (every query one of them matches).
+ * {@link Query} (that key only), a {@link Family} (every query whose key
+ * starts with the family's, its members included; an effetch endpoint
+ * matches only its own queries), a {@link Key} (every query whose key starts
+ * with it, so `[]` matches every query), or a {@link Group} of these (every
+ * query one of them matches).
  *
  * An array of queries is a key, not a group: `[wallet, transactions]`
  * matches the queries whose key starts with those two values, which is none.
@@ -321,7 +324,8 @@ export interface Options<E> extends QueryClient.QueryDefaults<E> {
 	 * `Reactivity` keys that refetch this query when invalidated, for Effect
 	 * code that publishes them (Effect's SQL clients do). Run
 	 * `Reactivity.invalidate` through the client, as
-	 * {@link QueryClient.QueryClient.runPromise} does, to reach it.
+	 * {@link QueryClient.QueryClient.runPromise} does, to reach it. Default:
+	 * none.
 	 */
 	readonly reactivityKeys?: Reactivity.KeysInput | undefined;
 }
@@ -329,8 +333,8 @@ export interface Options<E> extends QueryClient.QueryDefaults<E> {
 /**
  * How a query's value is sent from the server to the browser, for server
  * rendering: Schemas for its value and, to send failures too, its error.
- * Only queries with one are sent (`QueryClient.dehydrate`); the rest fetch
- * in the browser. Each must be a JSON codec that needs no services, as
+ * Only queries with one are sent ({@link QueryClient.dehydrate}); the rest
+ * fetch in the browser. Each must be a JSON codec that needs no services, as
  * `Schema.toCodecJson` derives from it.
  *
  * @example
@@ -506,7 +510,7 @@ export const family = <Args, A, E>(
  * Returns a query's value: the cached one if it's fresh (younger than
  * `staleTime`), otherwise the result of a new fetch. Joins a fetch already in
  * progress. Fails with the query's error, and dies on defects, as its own
- * Effect does.
+ * Effect does. To read the cache without fetching, use {@link get}.
  *
  * @example
  * ```ts
@@ -519,7 +523,7 @@ export const family = <Args, A, E>(
  * export const greeting = Effect.map(Query.fetch(me), (name) => `Hi, ${name}`);
  * ```
  *
- * @see {@link prefetch} to warm the cache without waiting on the value
+ * @see {@link prefetch} to warm the cache, ignoring the value and any failure
  *
  * @since 0.1.0
  */
@@ -532,7 +536,8 @@ export const fetch = <A, E>(
 
 /**
  * Fetches a query unless its value is fresh, like {@link fetch}, but never
- * fails: use it to warm the cache before the value is needed.
+ * fails: use it to warm the cache before the value is needed. Completes when
+ * the fetch settles; a failure shows in the query's result instead.
  *
  * @example
  * ```ts
@@ -544,6 +549,8 @@ export const fetch = <A, E>(
  *
  * export const onSignIn = Query.prefetch(todos);
  * ```
+ *
+ * @see {@link fetch} to get the value
  *
  * @since 0.1.0
  */
@@ -678,7 +685,8 @@ export const update: {
 
 /**
  * Marks the matching queries stale. Those in use (as {@link refetch}
- * defines it) refetch now; the others refetch the next time they're used.
+ * defines it) refetch at once; the others refetch the next time they're
+ * used. Completes without waiting for the refetches.
  *
  * @example
  * ```ts
@@ -693,6 +701,7 @@ export const update: {
  * ```
  *
  * @see {@link refetch} to wait for the refetch
+ * @see {@link reset} to drop the values too
  *
  * @since 0.1.0
  */
@@ -752,7 +761,9 @@ export const refetch = (
 /**
  * Puts the matching queries back to `Initial`, dropping their values and
  * any written with {@link set}. Those in use (as {@link refetch} defines it)
- * fetch again straight away, and a fetch in progress is replaced.
+ * fetch again at once, and a fetch in progress is replaced; the others
+ * fetch the next time they're used. Completes without waiting for the
+ * fetches.
  *
  * @example
  * ```ts
@@ -761,6 +772,8 @@ export const refetch = (
  * // After signing out, nothing under "session" may show.
  * export const onSignOut = Query.reset(["session"]);
  * ```
+ *
+ * @see {@link invalidate} to refetch and keep showing the values meanwhile
  *
  * @since 0.1.0
  */

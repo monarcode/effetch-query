@@ -118,7 +118,7 @@ for (const [marker, file, signature, docs] of [
 		"reactNativeSignals",
 		"react-native/index.d.ts",
 		"(alias) const reactNativeSignals: (",
-		"Signals for React Native",
+		"Makes signals for React Native",
 	],
 	[
 		"endpoints",

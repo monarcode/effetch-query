@@ -8,7 +8,7 @@ import { QueryProvider } from "../QueryProvider.js";
 
 /**
  * Which queries {@link connectQueryClient} sends from the server, as
- * `QueryClient.DehydrateOptions` chooses them. Queries still loading are
+ * {@link QueryClient.DehydrateOptions} chooses them. Queries still loading are
  * always sent, as promises the browser waits for: the router's serializer
  * carries them.
  *
@@ -25,7 +25,10 @@ import { QueryProvider } from "../QueryProvider.js";
  * @since 0.1.0
  */
 export interface ConnectDehydrateOptions {
-	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
+	/**
+	 * Only the queries this matches, as {@link Query.invalidate} matches
+	 * them. Default: every query.
+	 */
 	readonly queries?: Query.Target | undefined;
 	/**
 	 * A failed query: `"include"` sends it with its error, encoded with the
@@ -64,17 +67,21 @@ export interface ConnectQueryClientOptions {
 	 * request ends.
 	 */
 	readonly queryClient: QueryClient.QueryClient;
-	/** Which queries the server sends. */
+	/**
+	 * Which queries the server sends. Default: every query that can be sent
+	 * (one with a `schema`, or an effetch endpoint's with an `output`),
+	 * failures left out.
+	 */
 	readonly dehydrate?: ConnectDehydrateOptions | undefined;
 	/**
-	 * Whether a query or mutation that fails or dies with a `redirect()`
+	 * If true, a query or mutation that fails or dies with a `redirect()`
 	 * navigates there, in the browser, unless an Effect awaits the fetch
 	 * (a loader's `Query.fetch`). Default: `true`.
 	 */
 	readonly handleRedirects?: boolean | undefined;
 	/**
-	 * Whether to wrap the router's `Wrap` in a `QueryProvider` for the client.
-	 * Default: `true`.
+	 * If true, wraps the router's `Wrap` in a `QueryProvider` for the client;
+	 * if false, render your own. Default: `true`.
 	 */
 	readonly wrapQueryClient?: boolean | undefined;
 }

@@ -6,12 +6,13 @@ import { isQuery } from "./internal/queryAtom.js";
 import type { Query } from "./Query.js";
 
 /**
- * Thrown by `useSuspenseQuery` (from `@monarcode/effetch-query/react`) to the
- * nearest error boundary when a query fails. It carries the query, so the
- * boundary can refetch it with `useResetQueryFailure`, and the full `Cause`.
- * Tell it from other errors with {@link QueryFailure.is}.
- * Code outside React never sees it: there, a query's failure keeps its own
- * error type.
+ * Thrown by `useSuspenseQuery` and `useSuspenseInfiniteQuery` (from
+ * `@monarcode/effetch-query/react`) to the nearest error boundary when a
+ * query fails with no earlier value to show: a failed refetch keeps showing
+ * the last success instead. It carries the query, so the boundary can
+ * refetch it with `useResetQueryFailure`, and the full `Cause`. Tell it from
+ * other errors with {@link QueryFailure.is}. Code outside React never sees
+ * it: there, a query's failure keeps its own error type.
  *
  * @example
  * ```ts
@@ -35,7 +36,7 @@ export class QueryFailure extends Data.TaggedError("QueryFailure")<{
 	readonly message: string;
 }> {
 	/**
-	 * Whether a value is a {@link QueryFailure}, such as what an error
+	 * Checks whether a value is a {@link QueryFailure}, such as what an error
 	 * boundary caught.
 	 *
 	 * @example

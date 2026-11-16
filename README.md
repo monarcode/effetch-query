@@ -682,7 +682,8 @@ const openTodo = (id: number) =>
   Effect.gen(function* () {
     // The cached value if it's fresh, otherwise a fetch.
     const current = yield* Query.fetch(todo({ params: { id } }));
-    // Warm the cache for the next screen, without waiting for it.
+    // Warm the cache for the next screen. It waits for that fetch, but
+    // never fails.
     yield* Query.prefetch(todos({ query: { done: current.done } }));
     return current;
   });
@@ -701,7 +702,7 @@ export const refreshEverything = () =>
 | `Query.set(query, value)`  | Writes a value, fresh as if just fetched.                                                      |
 | `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                               |
 | `Query.update(family, f)`  | Writes `f(value, args)` to every cached query of a family, such as `todos`.                    |
-| `Query.invalidate(target)` | Marks queries stale: those in use refetch now, the rest when next used.                        |
+| `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                    |
 | `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
 | `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
 | `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.           |
@@ -785,8 +786,26 @@ old value never flashes back while the refetch runs.
 | `concurrent`  | `false`: within one `useMutation`, a new run interrupts the one in progress. Default `true`.   |
 
 The callbacks run with your services and the client, so they can use the
-cache. A mutation invalidates nothing unless you say so. Outside React, run
-one with `Mutation.run(toggleTodo, variables)`, an Effect.
+cache. Outside React, run one with `Mutation.run(toggleTodo, variables)`,
+an Effect.
+
+A mutation invalidates nothing unless you say so. If your app would rather
+refetch everything after any mutation succeeds, say it once, on the
+client:
+
+```ts
+import { Query, QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+export const queryClient = QueryClient.make({
+  layer: ApiClientLive,
+  mutations: { onSuccess: () => Query.invalidate([]) },
+});
+```
+
+`[]` is the empty key, which every key starts with. Queries in use refetch
+at once, and the rest when they're next used.
 
 ## Infinite queries
 
@@ -890,7 +909,15 @@ export function TodoTitle({ id }: { readonly id: number | null }) {
 }
 ```
 
-`waiting` is true while a fetch runs, including a background refetch.
+`waiting` is true while the query fetches. A first load shows as a
+waiting `Initial`, and a background refetch as a `Success` or `Failure`
+that keeps showing what it had, so `AsyncResult.isInitial(result)` tells
+them apart. Two exceptions: with `keepPrevious`, the next query's first
+load shows the last value as a waiting `Success`; and `useQuery(null)`
+returns an `Initial` that isn't waiting. To handle a load and a refetch
+alike, use `AsyncResult.matchWithWaiting` or the builder's
+`onInitialOrWaiting`.
+
 Rather than checking statuses, an endpoint can turn them into errors of
 your own ([Errors by status](#errors-by-status)).
 
@@ -1196,7 +1223,7 @@ import type { ReactNode } from "react";
 
 import { ApiClientLive } from "./api.js";
 
-declare function useAccountId(): string; // e.g. the signed-in user's ID
+declare function useAccountId(): string; // The signed-in account's ID.
 
 export function Providers({ children }: { readonly children: ReactNode }) {
   const accountId = useAccountId();
@@ -1219,8 +1246,8 @@ export function Providers({ children }: { readonly children: ReactNode }) {
   arrow is fine. Under StrictMode, too, there's one client.
 - **A `HydrationBoundary` below doesn't carry state across accounts:** into
   a new client, it loads only what the server dehydrated after the change
-  (by the server's clock). What came before belongs to the previous
-  account, so the new client fetches it.
+  (the server's dehydration time against the browser's clock). What came
+  before belongs to the previous account, so the new client fetches it.
 - **For the browser and React Native.** Effects don't run in server
   rendering, so a client made there is never disposed. On the server, keep
   `client` with one client per request ([Server rendering](#server-rendering)).
@@ -1539,7 +1566,8 @@ const rootRoute = createRootRouteWithContext<{
 const todosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  // TanStack's `ensureQueryData`: the cached value while it's fresh.
+  // TanStack's `queryClient.query()` (`ensureQueryData`, deprecated since
+  // 5.102): the cached value while it's fresh.
   loader: ({ context }) => context.queryClient.runPromise(Query.fetch(todos())),
   component: TodoList,
 });
@@ -2010,31 +2038,32 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ## Coming from TanStack Query
 
-| TanStack Query                                        | effetch-query                                                                                |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `queryOptions({ queryKey, queryFn })`                 | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                        |
-| `useQuery`, `useSuspenseQuery`                        | Same names; they return an `AsyncResult`                                                     |
-| `useMutation`, `mutationOptions`                      | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
-| `getQueryData`, `setQueryData`                        | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
-| `mutate(variables, { onSuccess, onError })`           | `run(variables, { onSuccess, onFailure })`                                                   |
-| `ensureQueryData`, `prefetchQuery`                    | `Query.fetch`, `Query.prefetch`                                                              |
-| `invalidateQueries`, `refetchQueries`, `resetQueries` | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
-| `useQueryErrorResetBoundary`                          | `useResetQueryFailure`                                                                       |
-| `focusManager`, `onlineManager`                       | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                             |
-| `new QueryClient({ defaultOptions })`                 | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                       |
-| `QueryCache({ onError, onSuccess, onSettled })`       | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                |
-| `MutationCache({ onMutate, onError, … })`             | `mutations.onMutate`, `mutations.onFailure`, …                                               |
-| `select`                                              | `Atom.map`, `AsyncResult.map`                                                                |
-| `enabled: false`                                      | `useQuery(null)`                                                                             |
-| `placeholderData: keepPreviousData`                   | `useQuery(query, { keepPrevious: true })`                                                    |
-| `retry: 3`                                            | `retry: Schedule` (default none)                                                             |
-| `onMutate` returning a rollback context               | `optimistic`, undone automatically                                                           |
-| `dehydrate`, `hydrate`, `HydrationBoundary`           | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema` |
-| `setupRouterSsrQueryIntegration`                      | `connectQueryClient` (`./react/tanstack-router`)                                             |
-| `useInfiniteQuery`, `fetchNextPage`                   | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                       |
-| `getNextPageParam`, `getPreviousPageParam`            | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
-| `setQueriesData`                                      | `Query.update(family, (value, args) => …)`                                                   |
-| `cancelQueries`, devtools                             | Not in 0.1                                                                                   |
+| TanStack Query                                                      | effetch-query                                                                                |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `queryOptions({ queryKey, queryFn })`                               | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                        |
+| `useQuery`, `useSuspenseQuery`                                      | Same names; they return an `AsyncResult`                                                     |
+| `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
+| `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
+| `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                   |
+| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`                                                                                |
+| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`                                                                             |
+| `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
+| `useQueryErrorResetBoundary`                                        | `useResetQueryFailure`                                                                       |
+| `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                             |
+| `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                       |
+| `QueryCache({ onError, onSuccess, onSettled })`                     | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                |
+| `MutationCache({ onMutate, onError, … })`                           | `mutations.onMutate`, `mutations.onFailure`, …                                               |
+| `select`                                                            | `Atom.map`, `AsyncResult.map`                                                                |
+| `enabled: false`                                                    | `useQuery(null)`                                                                             |
+| `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                    |
+| `retry: 3`                                                          | `retry: Schedule` (default none)                                                             |
+| `onMutate` returning a rollback context                             | `optimistic`, undone automatically                                                           |
+| `dehydrate`, `hydrate`, `HydrationBoundary`                         | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema` |
+| `setupRouterSsrQueryIntegration`                                    | `connectQueryClient` (`./react/tanstack-router`)                                             |
+| `useInfiniteQuery`, `fetchNextPage`                                 | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                       |
+| `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
+| `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                   |
+| `cancelQueries`, devtools                                           | Not in 0.1                                                                                   |
 
 ## Reference
 

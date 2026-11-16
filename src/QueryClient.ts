@@ -185,7 +185,7 @@ export interface QueryClient {
 	) => Promise<Exit.Exit<A, E>>;
 	/**
 	 * Releases everything the client owns. It disposes the cache and clears
-	 * its timers, then interrupts what's in flight: fetches, mutation runs,
+	 * its timers, then interrupts what's in progress: fetches, mutation runs,
 	 * and the Effects started by {@link QueryClient.runPromise}. Last, it
 	 * closes the layer's scope. An interrupted mutation run doesn't roll back
 	 * its optimistic writes, since the cache is already gone. A layer build in
@@ -356,7 +356,7 @@ export interface RuntimeOptions extends CommonOptions {
  * @since 0.1.0
  */
 export interface CommonOptions {
-	/** Where focus and reconnect come from. Default: the browser's. */
+	/** Where focus and reconnect come from. Default: `Signals.browser`. */
 	readonly signals?: Signals | undefined;
 	/** Defaults and app-wide hooks for every query. */
 	readonly queries?: QueriesOptions | undefined;
@@ -388,7 +388,7 @@ export interface CommonOptions {
 export interface QueriesOptions {
 	/** Options for every query. A query's own options override them. */
 	readonly defaults?: QueryDefaults | undefined;
-	/** Runs once per successful fetch, not for `Query.set`. */
+	/** Runs once per successful fetch, not for {@link Query.set}. */
 	readonly onSuccess?: Hook<QuerySucceeded> | undefined;
 	/** Runs once per failed fetch, after `retry`. */
 	readonly onFailure?: Hook<QueryFailed> | undefined;
@@ -402,8 +402,8 @@ export interface QueriesOptions {
 
 /**
  * Options every query takes, set for all of them in
- * {@link QueriesOptions.defaults}. A query's own options (`Query.Options`)
- * extend these, with `E` its error type.
+ * {@link QueriesOptions.defaults}. A query's own options
+ * ({@link Query.Options}) extend these, with `E` its error type.
  *
  * @example
  * ```ts
@@ -425,17 +425,32 @@ export interface QueryDefaults<E = unknown> {
 	 * Defects aren't retried. Default: no retries.
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
-	/** Refetch a stale query when a component starts using it. Default: `true`. */
+	/**
+	 * If true, refetches a stale query when a component starts using it.
+	 * Default: `true`.
+	 */
 	readonly refetchOnMount?: boolean | undefined;
-	/** Refetch a failed query when a component starts using it. Default: `true`. */
+	/**
+	 * If true, refetches a failed query when a component starts using it,
+	 * however recent the failure. A Suspense reader of a failure with no
+	 * earlier value throws it to an error boundary instead, so it never
+	 * mounts to retry it (see `useResetQueryFailure`). Default: `true`.
+	 */
 	readonly retryOnMount?: boolean | undefined;
-	/** Refetch a stale query in use when the app regains focus. Default: `true`. */
+	/**
+	 * If true, refetches a stale query in use when the app regains focus
+	 * ({@link CommonOptions.signals}). Default: `true`.
+	 */
 	readonly refetchOnFocus?: boolean | undefined;
-	/** Refetch a stale query in use when the device reconnects. Default: `true`. */
+	/**
+	 * If true, refetches a stale query in use when the device reconnects
+	 * ({@link CommonOptions.signals}). Default: `true`.
+	 */
 	readonly refetchOnReconnect?: boolean | undefined;
 	/**
-	 * Refetch a query in use this often. Polling pauses while nothing uses
-	 * the query and resumes when something starts using it. Default: never.
+	 * How often a query in use refetches. A tick that finds a fetch in
+	 * progress doesn't start another. Polling pauses while nothing uses the
+	 * query and resumes when something starts using it. Default: no polling.
 	 */
 	readonly refetchInterval?: Duration.Input | undefined;
 }
@@ -573,9 +588,9 @@ export interface MutationDefaults<E = unknown> {
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/**
-	 * Whether one use's runs can overlap, such as one component's
-	 * `useMutation`. With `false`, a new run interrupts the one in progress,
-	 * whose optimistic writes are rolled back first. Separate uses, and
+	 * If true, one use's runs (one component's `useMutation`, say) can
+	 * overlap. If false, a new run interrupts the one in progress, whose
+	 * optimistic writes are rolled back first. Separate uses, and
 	 * `Mutation.run` calls, never interrupt each other. Default: `true`.
 	 */
 	readonly concurrent?: boolean | undefined;
@@ -838,9 +853,9 @@ export const layer = (options: Options): Layer.Layer<QueryClient> =>
 /**
  * A client's cache as `dehydrate` sends it: Effect's `Hydration` format, so
  * a framework's serializer carries it as it carries any atom state. Its
- * values are JSON; a query still fetching carries a promise of its result,
- * which only streaming serializers (React's, TanStack Start's, React
- * Router's) can send.
+ * values are JSON. With `pending: "promise"` ({@link DehydrateOptions}), a
+ * query still loading carries a promise of its result, which only streaming
+ * serializers (React's, TanStack Start's, React Router's) can send.
  *
  * @example
  * ```ts
@@ -874,10 +889,13 @@ export type DehydratedState = ReadonlyArray<Hydration.DehydratedAtom>;
  * @since 0.1.0
  */
 export interface DehydrateOptions {
-	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
+	/**
+	 * Only the queries this matches, as {@link Query.invalidate} matches them.
+	 * Default: every query.
+	 */
 	readonly queries?: Query.Target | undefined;
 	/**
-	 * A query still fetching, with nothing to show yet: `"promise"` sends a
+	 * A query still loading, with nothing to show yet: `"promise"` sends a
 	 * promise of its result, for streaming server rendering, and the browser
 	 * waits for it instead of fetching; `"omit"` leaves it out, and the
 	 * browser fetches it. Default: `"omit"`.
@@ -894,18 +912,18 @@ export interface DehydrateOptions {
 
 /**
  * Reads a client's cache to send to the browser, for server rendering, as
- * TanStack's `dehydrate`. Load what the page needs first (`Query.prefetch`
- * through {@link QueryClient.runPromise}), then send the result with the
- * page and load it with {@link hydrate} (or `HydrationBoundary` from
- * `@monarcode/effetch-query/react`).
+ * TanStack's `dehydrate`. Load what the page needs first
+ * ({@link Query.prefetch} through {@link QueryClient.runPromise}), then send
+ * the result with the page and load it with {@link hydrate} (or
+ * `HydrationBoundary` from `@monarcode/effetch-query/react`).
  *
  * Only queries with a `schema` are sent, encoded with it, timestamp
  * included, so a query stays fresh in the browser as long as it would on
  * the server. It reads without fetching: a stale query is sent as it is.
  * Values a schema can't encode are left out.
  *
- * Throws {@link NonJsonKeyError} for a key that isn't JSON, and
- * {@link DuplicateQueryKeyError} when two queries it sends have one key.
+ * Throws a `NonJsonKeyError` for a key that isn't JSON, and a
+ * `DuplicateQueryKeyError` when two queries it sends have one key.
  *
  * @example
  * ```ts
@@ -968,9 +986,9 @@ export const hydrate = (
 
 /**
  * Returns a query's cached value in `client`, if it has one, outside Effect:
- * TanStack's `queryClient.getQueryData`. It reads as `Query.get` does,
+ * TanStack's `queryClient.getQueryData`. It reads as {@link Query.get} does,
  * without fetching, for code that can't wait for a promise, such as a form
- * listener. Inside Effect, use `Query.get`.
+ * listener. Inside Effect, use {@link Query.get}.
  *
  * @example
  * ```ts
@@ -1010,9 +1028,9 @@ export const get = <A, E>(
  * client is never disposed. Only the status, status text and headers are
  * kept, not a runtime's own options (Cloudflare's `encodeBody`, say), and
  * the body goes out as a stream, so a fixed body loses the length the
- * runtime would have sent. A body already read or locked throws, after the
- * client is disposed. A failed {@link QueryClient.dispose} is logged with
- * `console.error`, not thrown.
+ * runtime would have sent. A body already read or locked throws, and the
+ * client is disposed all the same. A failed {@link QueryClient.dispose} is
+ * logged with `console.error`, not thrown.
  *
  * The core uses `ReadableStream` and `Response` only when this is called,
  * so it still loads where they don't exist, such as React Native.

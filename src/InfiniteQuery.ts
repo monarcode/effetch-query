@@ -50,8 +50,8 @@ export type TypeId = internal.InfiniteQueryTypeId;
 export const TypeId: TypeId = internal.InfiniteQueryTypeId;
 
 /**
- * Whether a value is an {@link InfiniteQuery}, as opposed to a plain query
- * or another atom.
+ * Checks whether a value is an {@link InfiniteQuery}, as opposed to a plain
+ * query or another atom.
  *
  * @example
  * ```ts
@@ -149,8 +149,8 @@ export interface InfiniteQuery<A, E, P> extends Query.Query<
  * Makes one {@link InfiniteQuery} per argument, as {@link Query.family}
  * does: the same query for arguments that are `Equal.equals`, keyed by the
  * family's key with the argument appended. It's a {@link Query.Family},
- * so it's a target for {@link Query.invalidate}, and {@link Query.update}
- * writes every cached member.
+ * so it's a target for {@link Query.invalidate} (every query under its key),
+ * and {@link Query.update} writes every cached member.
  *
  * @example
  * ```ts

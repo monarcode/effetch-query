@@ -43,9 +43,9 @@ export type TypeId = internal.MutationTypeId;
 export const TypeId: TypeId = internal.MutationTypeId;
 
 /**
- * Whether a value is a {@link Mutation}. A mutation's variables can't be
- * known from the value, so it narrows to `Mutation<never, unknown, unknown>`,
- * which every mutation is.
+ * Checks whether a value is a {@link Mutation}. A mutation's variables can't
+ * be known from the value, so it narrows to
+ * `Mutation<never, unknown, unknown>`, which every mutation is.
  *
  * @example
  * ```ts
@@ -141,16 +141,15 @@ export interface MakeOptions<
 	) => Effect.Effect<A, E, QueryClient.Requirements>;
 	/**
 	 * Updates the cache before `run`, so the change shows at once. Its
-	 * `Query.set` and `Query.update` calls are recorded, and if the run
-	 * fails, the queries they wrote are put back, newest write first. A query
-	 * written again in the meantime, even by a fetch, is put back all the
-	 * same. Only writes made while it runs count: not those of a fiber it
+	 * {@link Query.set} and {@link Query.update} calls are recorded, and if
+	 * the run fails, the queries they wrote are put back, newest write first.
+	 * A query written again in the meantime, even by a fetch, is put back all
+	 * the same. Only writes made while it runs count: not those of a fiber it
 	 * forks that write after it's done, nor those of a mutation it runs.
 	 *
-	 * A fetch of the same query already in flight still settles over the
-	 * optimistic value, as it does over any `Query.set`, and there's no way
-	 * to cancel it in this version: the query then shows what that fetch
-	 * returned.
+	 * A fetch of the same query already in progress still settles over the
+	 * optimistic value, as it does over any {@link Query.set}, and there's no
+	 * way to cancel it: the query then shows what that fetch returned.
 	 */
 	readonly optimistic?:
 		| ((
@@ -179,9 +178,9 @@ export interface MakeOptions<
 		  ) => Effect.Effect<void, never, QueryClient.Requirements>)
 		| undefined;
 	/**
-	 * Queries to invalidate after `onSuccess`, as `Query.invalidate` does:
-	 * a list, or a function of the run's value and variables that returns
-	 * one.
+	 * Queries to invalidate after `onSuccess`, as {@link Query.invalidate}
+	 * does: a list of targets, or a function of the run's value and variables
+	 * that returns one. Default: none. A failed run invalidates nothing.
 	 */
 	readonly invalidates?:
 		| ReadonlyArray<Query.Target>

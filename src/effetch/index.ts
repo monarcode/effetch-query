@@ -56,7 +56,9 @@ export interface RegisteredSchema extends Fetch.AnySchema {
  * A `statusErrors` map (`Fetch.StatusErrorMap`) whose schemas need nothing
  * outside your registered services, as {@link RegisteredSchema}. The adapter
  * accepts only these, on the client and on each endpoint: its queries and
- * mutations decode the errors, and its queries send them to the browser.
+ * mutations decode the errors, and its queries send them to the browser (the
+ * client's only when given to {@link endpoints}, see
+ * {@link EndpointsOptions.statusErrors}).
  *
  * @example
  * ```ts
@@ -105,14 +107,18 @@ export interface EndpointsOptions<
 	/**
 	 * Put before every key these endpoints make, when another backend has
 	 * the same paths: with `["wallet"]`, `GET /accounts/:id` is
-	 * `["wallet", "accounts", 1]`.
+	 * `["wallet", "accounts", 1]`. Default: no prefix.
 	 */
 	readonly key?: Query.Key | undefined;
 	/**
 	 * The client's `defaultError`, for queries whose endpoint has no `error`
-	 * schema of its own. A definition can't read it from the client, which
-	 * only exists once its layer is built. It's typed as the client's, and
-	 * shown as {@link EndpointQuery.error}.
+	 * schema of its own: their `HttpError` bodies go to the browser encoded
+	 * with it (`QueryClient.dehydrate` with `failures: "include"`), and it's
+	 * shown as {@link EndpointQuery.error}. A definition can't read it from
+	 * the client, which only exists once its layer is built. It's typed as
+	 * the client's. Without it, the client still decodes and types those
+	 * bodies, but they go as JSON, so a query whose body isn't JSON isn't
+	 * sent.
 	 */
 	readonly defaultError?: EB | undefined;
 	/**
@@ -127,8 +133,9 @@ export interface EndpointsOptions<
 }
 
 /**
- * Options for {@link Endpoints.query}: a query's options, and the headers
- * and plugin overrides `client.bind` takes.
+ * Options for {@link Endpoints.query}: a query's options
+ * ({@link Query.Options}), and the headers and plugin overrides
+ * `client.bind` takes (`Fetch.BindOptions`).
  *
  * @example
  * ```ts
@@ -150,8 +157,10 @@ export interface EndpointQueryOptions<
 
 /**
  * Options for {@link Endpoints.infiniteQuery}: an infinite query's page
- * options and query options, the query field each page's param is sent in,
- * and the headers and plugin overrides `client.bind` takes.
+ * options ({@link InfiniteQuery.PageOptions}) and query options
+ * ({@link Query.Options}), the query field each page's param is sent in,
+ * and the headers and plugin overrides `client.bind` takes
+ * (`Fetch.BindOptions`).
  *
  * @example
  * ```ts
@@ -187,15 +196,16 @@ export interface EndpointInfiniteQueryOptions<
 	 * The query field each page's param is sent in, such as `"cursor"` or
 	 * `"skip"`. It's set on every page's request, over the call's own value,
 	 * and left out of the key. The param must be a value a query field takes
-	 * (a string, number, boolean, `null` or `undefined`).
+	 * (`Fetch.QueryValue`), such as a string or a number.
 	 */
 	readonly pageParam: [P] extends [Fetch.QueryValue] ? string : never;
 }
 
 /**
- * Options for {@link Endpoints.mutation}: a mutation's options without
- * `run`, which is the endpoint, and the headers and plugin overrides
- * `client.bind` takes.
+ * Options for {@link Endpoints.mutation}: a mutation's options
+ * ({@link Mutation.MakeOptions}) without `run`, which is the endpoint, and
+ * the headers and plugin overrides `client.bind` takes
+ * (`Fetch.BindOptions`).
  *
  * @example
  * ```ts
@@ -301,10 +311,11 @@ export type ErrorSchema<
  * params filled in, then the query object: `GET /todos/:id` called with
  * `{ params: { id: 1 } }` is `["todos", 1]`.
  *
- * Calls that send the same request share a query: `null` and `undefined`
- * query values and empty arrays are left out, as effetch leaves them out of
- * the URL. Values are otherwise compared as given, so `{ page: 1 }` and
- * `{ page: "1" }` are two queries.
+ * Calls that send the same request share a query: what isn't sent doesn't
+ * count (`params` the path doesn't name, `null` and `undefined` query
+ * values and array items, and arrays left empty). Values are otherwise
+ * compared as given, so `{ page: 1 }` and `{ page: "1" }` are
+ * two queries.
  *
  * The key has no method, scheme or host, so give a backend of its own a
  * prefix ({@link EndpointsOptions.key}), and make one `EndpointQuery` per
@@ -330,6 +341,7 @@ export type ErrorSchema<
  * @since 0.1.0
  */
 export interface EndpointQuery<R extends string, A, E> {
+	/** Returns the query for one call: the same query for the same request. */
 	<Q extends Fetch.QueryOf<Q> = Fetch.QueryInput>(
 		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q>>
 	): Query.Query<A, E>;
@@ -354,8 +366,9 @@ export interface EndpointQuery<R extends string, A, E> {
 /**
  * A family of infinite queries, one per call of an effetch endpoint, made by
  * {@link Endpoints.infiniteQuery}. Call it with the endpoint's `params` and
- * `query`, without the page field, to get the {@link InfiniteQuery.InfiniteQuery}
- * for that call. Keys and matching are as for {@link EndpointQuery}.
+ * `query` to get the {@link InfiniteQuery.InfiniteQuery} for that call; a
+ * page field given there is ignored. Keys and matching are as for
+ * {@link EndpointQuery}.
  *
  * @example
  * ```ts
@@ -374,6 +387,7 @@ export interface EndpointQuery<R extends string, A, E> {
  * @since 0.1.0
  */
 export interface EndpointInfiniteQuery<R extends string, A, E, P> {
+	/** Returns the infinite query for one call, as {@link EndpointQuery} does. */
 	<Q extends Fetch.QueryOf<Q> = Fetch.QueryInput>(
 		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q>>
 	): InfiniteQuery.InfiniteQuery<A, E, P>;
@@ -420,25 +434,29 @@ export interface Endpoints<
 	SE extends Fetch.StatusErrorMap | undefined = undefined,
 > {
 	/**
-	 * A family of queries that call an endpoint defined with
-	 * `Fetch.endpoint`, one query per `params` and `query`. The value is the
-	 * endpoint's `output`, and the error every error the call can fail with:
-	 * `NetworkError`, `HttpError` with the decoded error body, `DecodeError`
-	 * when it has an `output`, the client's plugins' errors, and the errors
-	 * the endpoint's and the client's `statusErrors` decode, matched by their
-	 * `_tag` with `Effect.catchTag` or `AsyncResult.builder`'s `onErrorTag`.
+	 * Defines a family of queries that call an endpoint defined with
+	 * `Fetch.endpoint`, one query per `params` and `query`
+	 * ({@link EndpointQuery}). The value is the endpoint's `output` (the raw
+	 * `HttpClientResponse` without one), and the error every error the call
+	 * can fail with: `NetworkError`, `HttpError` with the decoded error body,
+	 * `DecodeError` when it has an `output`, the client's plugins' errors,
+	 * and the errors the endpoint's and the client's `statusErrors` decode,
+	 * matched by their `_tag` with `Effect.catchTag` or
+	 * `AsyncResult.builder`'s `onErrorTag`.
 	 *
 	 * Only `GET`, `HEAD`, `OPTIONS` and `TRACE` endpoints: a call with a body
 	 * is a {@link Endpoints.mutation}, or a {@link Query.family} of your own.
 	 *
 	 * With an `output`, its queries cross from server to browser with no
-	 * `schema` to write (`QueryClient.dehydrate`): the value with `output`,
-	 * and, with `failures: "include"`, effetch's errors: an `HttpError`
-	 * without its headers, though with its request URL and response text,
-	 * so keep secrets out of the URLs your server calls. Errors from
-	 * `statusErrors` go as their schemas encode them, the client's only when
-	 * given to {@link endpoints} ({@link EndpointsOptions.statusErrors}). A
-	 * query that failed with a plugin's error isn't sent.
+	 * `schema` to write (`QueryClient.dehydrate`); without one, they aren't
+	 * sent. The value goes with `output`, and, with `failures: "include"`,
+	 * effetch's errors go too: an `HttpError` without its headers, though
+	 * with its request URL and response text, so keep secrets out of the
+	 * URLs your server calls; a `NetworkError` without its `cause`; a
+	 * `DecodeError` without its `issue`. Errors from `statusErrors` go as
+	 * their schemas encode them, the client's only when given to
+	 * {@link endpoints} ({@link EndpointsOptions.statusErrors}). A query that
+	 * failed with a plugin's error isn't sent.
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -458,13 +476,14 @@ export interface Endpoints<
 		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>
 	>;
 	/**
-	 * A family of infinite queries that call an endpoint page by page, one
-	 * query per `params` and `query`, as {@link Endpoints.query} makes
-	 * queries. Each page's param is sent in the query field `pageParam`
-	 * names; the value is an {@link InfiniteQuery.InfiniteData} of the
-	 * endpoint's `output`. Only endpoints without a body. Its queries cross
-	 * from server to browser as {@link Endpoints.query}'s do, the page
-	 * params as JSON.
+	 * Defines a family of infinite queries that call an endpoint page by
+	 * page, one query per `params` and `query` ({@link EndpointInfiniteQuery}),
+	 * as {@link Endpoints.query} makes queries. Each page's param is sent in
+	 * the query field `pageParam` names; the value is an
+	 * {@link InfiniteQuery.InfiniteData} of the endpoint's `output`, and the
+	 * error is {@link Endpoints.query}'s. Only endpoints without a body. Its
+	 * queries cross from server to browser as {@link Endpoints.query}'s do,
+	 * the page params as JSON.
 	 */
 	readonly infiniteQuery: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -488,10 +507,12 @@ export interface Endpoints<
 		P
 	>;
 	/**
-	 * A mutation that calls an endpoint defined with `Fetch.endpoint`. Its
-	 * variables are the call's options (`params`, `query`, `body`, …), and
-	 * it has a mutation's options, such as `invalidates` and `optimistic`;
-	 * nothing is invalidated unless you say so.
+	 * Defines a mutation that calls an endpoint defined with
+	 * `Fetch.endpoint`, whatever its method. Its variables are the call's
+	 * options (`params`, `query`, `body`, …: {@link EndpointVariables}), and
+	 * it takes a mutation's options ({@link EndpointMutationOptions}), such
+	 * as `invalidates` and `optimistic`; nothing is invalidated unless you
+	 * say so. Its value and errors are those of {@link Endpoints.query}.
 	 */
 	readonly mutation: <
 		const R extends string,
@@ -534,7 +555,8 @@ interface AnyClient {
  * them through your effetch client, which a service holds: give it that
  * service. Use it at module level, next to the definitions: the client is
  * only reached when a query fetches or a mutation runs, from your services
- * (so the service must be in `Register["services"]`).
+ * (so the service must be in `Register["services"]`). Returns an
+ * {@link Endpoints}, whose `query`, `infiniteQuery` and `mutation` make them.
  *
  * The adapter adds no behaviour of its own: a query is a
  * {@link Query.family} member keyed by its route, and a mutation is a
@@ -577,10 +599,10 @@ interface AnyClient {
  * // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
  * export const todo = api.query(getTodo, { staleTime: "1 minute" });
  *
- * // run with { body: { title } }; every todos query refetches after
+ * // run with { body: { title } }; on success, invalidates every todos query
  * export const addTodo = api.mutation(createTodo, { invalidates: [["todos"]] });
  *
- * // refetches every todo({ params }), not the other todos endpoints
+ * // refetches the todo({ params }) queries in use, not other todos endpoints'
  * export const refreshTodos = Query.refetch(todo);
  * ```
  *

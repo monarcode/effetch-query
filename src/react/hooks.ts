@@ -48,7 +48,7 @@ const useHandle = <H>(make: () => H, inputs: ReadonlyArray<unknown>): H => {
 };
 
 /**
- * Options for {@link useQuery}.
+ * Options for {@link useQuery} and {@link useInfiniteQuery}.
  *
  * @example
  * ```ts
@@ -61,23 +61,26 @@ const useHandle = <H>(make: () => H, inputs: ReadonlyArray<unknown>): H => {
  */
 export interface UseQueryOptions {
 	/**
-	 * While the query has no value yet (say, the next page of a family),
-	 * show the last success this hook showed, as a waiting `Success`, instead
-	 * of `Initial`. TanStack's `placeholderData: keepPreviousData`. A failure
-	 * is shown as it is. Default: `false`.
+	 * If true, while the query has no value yet (say, the next page of a
+	 * family), the hook shows the last success it showed, as a waiting
+	 * `Success`, instead of `Initial`: TanStack's
+	 * `placeholderData: keepPreviousData`. A failure is shown as it is, and
+	 * a `null` query still reads `Initial`. Default: `false`.
 	 */
 	readonly keepPrevious?: boolean | undefined;
 }
 
 /**
  * Reads a query and keeps it up to date while the component is mounted. On
- * mount it refetches the query if it's stale (`refetchOnMount`) or failed
- * (`retryOnMount`), and while mounted it refetches on focus, reconnect and
- * `refetchInterval` as the query's options say.
+ * mount, and when `query` changes, it refetches the query if it's stale
+ * (`refetchOnMount`) or failed (`retryOnMount`), and while mounted it
+ * refetches on focus, reconnect and `refetchInterval` as the query's options
+ * say.
  *
  * Pass `null` to read nothing: it returns `AsyncResult.initial()` and fetches
  * nothing (TanStack's `enabled: false`). In a server render it reads only the
- * cache and never starts a fetch.
+ * cache and never starts a fetch, and the mount refetch doesn't run. Throws a
+ * `MissingQueryProviderError` outside a `QueryProvider`.
  *
  * @example
  * ```ts
@@ -130,17 +133,18 @@ export const useQuery = <A, E>(
  * value, then returns its `Success`, which stays `waiting` while it
  * refetches. A stale value is shown and refetched in the background
  * (`refetchOnMount`), but one under a second old isn't, as TanStack does, so
- * the value a reader suspended on isn't fetched again as it mounts. While
- * suspended, a reader keeps its query in use until the fetch settles, even if
- * React abandons the render.
+ * the value a component suspended on isn't fetched again as it mounts. While
+ * suspended, a component keeps its query in use until the fetch settles, even
+ * if React abandons the render.
  *
  * A failure with no earlier value is thrown to the nearest error boundary as
- * a {@link QueryFailure}, as it was cached: it's thrown again until something
+ * a `QueryFailure`, as it was cached: it's thrown again until something
  * refetches the query, such as {@link useResetQueryFailure} in the boundary.
  * A refetch that fails after a success keeps showing that success.
  *
- * In a server render it may fetch, for streaming SSR: it suspends on the
- * fetch instead of reading only the cache.
+ * In a server render, unlike {@link useQuery}, it fetches a query the cache
+ * doesn't have and suspends on the fetch, for streaming SSR. Throws a
+ * `MissingQueryProviderError` outside a `QueryProvider`.
  *
  * @example
  * ```ts
@@ -153,6 +157,8 @@ export const useQuery = <A, E>(
  *
  * export const useName = () => useSuspenseQuery(me).value.name;
  * ```
+ *
+ * @see {@link useQuery} to read without suspending
  *
  * @since 0.1.0
  */
@@ -198,7 +204,11 @@ export interface InfinitePageControls {
 	 * never rejects: a failure shows in `result`, which keeps the loaded pages.
 	 */
 	readonly fetchNextPage: () => Promise<void>;
-	/** Fetches the page before the first one, as {@link InfiniteQuery.fetchPreviousPage} does. */
+	/**
+	 * Fetches the page before the first one, as
+	 * {@link InfiniteQuery.fetchPreviousPage} does. Like `fetchNextPage`, it
+	 * resolves when it settles and never rejects.
+	 */
 	readonly fetchPreviousPage: () => Promise<void>;
 	/** Whether `nextPageParam` gives a param for the shown pages (neither `undefined` nor `null`). */
 	readonly hasNextPage: boolean;
@@ -324,7 +334,8 @@ const usePageControls = <A, E, P>(
  * A page fetch keeps the loaded pages shown: `result` stays a waiting
  * `Success`, and `isFetchingNextPage` tells it from a refetch of every page.
  * A page that fails makes `result` a `Failure` whose `previousSuccess` still
- * holds the pages. Pass `null` to read nothing.
+ * holds the pages. Pass `null` to read nothing. It fetches, and throws, when
+ * {@link useQuery} does.
  *
  * @example
  * ```tsx
@@ -378,7 +389,9 @@ export const useInfiniteQuery = <A, E, P>(
  * {@link useInfiniteQuery}. It suspends only until the first page: later
  * pages load while the loaded ones show, through `isFetchingNextPage`. A
  * page that fails isn't thrown, since there are pages to show; only a
- * failure with no pages before it reaches the error boundary.
+ * failure with no pages before it reaches the error boundary, as a
+ * `QueryFailure`. It fetches, and throws, when {@link useSuspenseQuery}
+ * does.
  *
  * @example
  * ```tsx
@@ -405,6 +418,8 @@ export const useInfiniteQuery = <A, E, P>(
  *   );
  * }
  * ```
+ *
+ * @see {@link useInfiniteQuery} to read without suspending
  *
  * @since 0.1.0
  */
@@ -458,11 +473,11 @@ export const useSuspenseInfiniteQuery = <A, E, P>(
 export interface UseMutationRunOptions<Variables, A, E> {
 	/** Called with the value when the run succeeds. */
 	readonly onSuccess?: ((value: A, variables: Variables) => void) | undefined;
-	/** Called with the cause when the run fails. */
+	/** Called with the cause when the run fails or dies. */
 	readonly onFailure?:
 		| ((cause: Cause.Cause<E>, variables: Variables) => void)
 		| undefined;
-	/** Called after `onSuccess` or `onFailure`. */
+	/** Called with the run's `Exit` after `onSuccess` or `onFailure`. */
 	readonly onSettled?:
 		| ((exit: Exit.Exit<A, E>, variables: Variables) => void)
 		| undefined;
@@ -490,12 +505,16 @@ export interface UseMutationRunOptions<Variables, A, E> {
  * @since 0.1.0
  */
 export interface UseMutationResult<Variables, A, E> {
-	/** This component's latest run: `Initial` before the first and after {@link UseMutationResult.reset}. */
+	/**
+	 * The state of this component's latest run: `Initial` before the first
+	 * and after {@link UseMutationResult.reset}.
+	 */
 	readonly result: AsyncResult.AsyncResult<A, E>;
 	/**
 	 * Starts a run. Resolves with its `Exit`; never rejects. With the
 	 * mutation's `concurrent: false`, a run that a newer one replaces resolves
-	 * with an interrupted `Exit`. `options` are callbacks for this run only:
+	 * with an interrupted `Exit`. On a disposed client the run never starts,
+	 * and resolves with a died `Exit`. `options` are callbacks for this run only:
 	 * see {@link UseMutationRunOptions}.
 	 */
 	readonly run: (
@@ -516,7 +535,8 @@ export interface UseMutationResult<Variables, A, E> {
  *
  * Define mutations at module level, with {@link Mutation.make}: a new
  * definition on each render starts a new state. Outside React, run one with
- * {@link Mutation.run}.
+ * {@link Mutation.run}. Throws a `MissingQueryProviderError` outside a
+ * `QueryProvider`.
  *
  * @example
  * ```ts
@@ -579,11 +599,16 @@ export const useMutation = <Variables, A, E>(
  * @since 0.1.0
  */
 export interface UseRefetchResult {
-	/** Refetches the target's queries in use, and resolves when they've settled. Never rejects. */
+	/**
+	 * Refetches the target's queries in use, and resolves when they've
+	 * settled. Never rejects. It keeps its identity across renders while the
+	 * provider's client stays the same, and uses the target of the latest
+	 * render.
+	 */
 	readonly refetch: () => Promise<void>;
 	/**
 	 * Whether one of this component's refetches is running. A background
-	 * revalidation (focus, reconnect, polling) doesn't count.
+	 * refetch (focus, reconnect, polling) doesn't count.
 	 */
 	readonly isRefetching: boolean;
 }
@@ -591,10 +616,11 @@ export interface UseRefetchResult {
 /**
  * Refetches queries on demand, such as for pull to refresh, with a flag that
  * is true only while this component's own refetch runs, unlike a query's
- * `waiting`, which a background revalidation also sets. It refetches the
- * target's queries in use, as {@link Query.refetch} does. For a screen made
- * of queries with different keys, pass a {@link Query.group} of them: it's
- * refetching until every one has settled.
+ * `waiting`, which a background refetch also sets. It refetches the
+ * {@link Query.Target}'s queries in use, as {@link Query.refetch} does. For a
+ * screen made of queries with different keys, pass a {@link Query.group} of
+ * them: it's refetching until every one has settled. Throws a
+ * `MissingQueryProviderError` outside a `QueryProvider`.
  *
  * @example
  * ```ts
@@ -630,9 +656,11 @@ export const useRefetch = (target: Query.Target): UseRefetchResult => {
 
 /**
  * Returns a function for an error boundary: given what the boundary caught,
- * it refetches the query inside a {@link QueryFailure}, so the boundary can
+ * it refetches the query inside a `QueryFailure`, so the boundary can
  * render its children again and have them suspend on the refetch. Other
- * errors are ignored.
+ * errors are ignored. {@link useSuspenseQuery} and
+ * {@link useSuspenseInfiniteQuery} throw the failures it resets. Throws a
+ * `MissingQueryProviderError` outside a `QueryProvider`.
  *
  * @example
  * ```ts

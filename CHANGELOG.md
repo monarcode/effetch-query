@@ -2,6 +2,20 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## Unreleased
+
+### Changed
+
+- The API reference (JSDoc) was audited across every entry point: each
+  function says what it returns and how it fails, each option its default,
+  and related exports link to each other. Documentation only: no type or
+  behaviour changed.
+- README: a recipe for refetching everything after any mutation
+  (`mutations: { onSuccess: () => Query.invalidate([]) }`); what `waiting`
+  covers, and how to tell a first load from a background refetch; the
+  TanStack mapping names `queryClient.query()`, which TanStack Query 5.102
+  added, deprecating `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
+
 ## 0.1.0-rc.2
 
 Released alongside `@monarcode/effetch` 0.1.0-rc.2. Additions agreed as
