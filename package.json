@@ -111,7 +111,7 @@
 	},
 	"peerDependencies": {
 		"@effect/atom-react": "^4.1.0",
-		"@monarcode/effetch": ">=0.1.0-rc.2 <0.2.0",
+		"@monarcode/effetch": ">=0.1.0-rc.3 <0.2.0",
 		"@tanstack/react-router": ">=1.170.33 <2.0.0",
 		"effect": "^4.1.0",
 		"react": ">=19.0.0 <20.0.0"

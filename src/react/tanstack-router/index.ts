@@ -69,7 +69,7 @@ export interface ConnectQueryClientOptions {
 	readonly queryClient: QueryClient.QueryClient;
 	/**
 	 * Which queries the server sends. Default: every query that can be sent
-	 * (one with a `schema`, or an effetch endpoint's with an `output`),
+	 * (one with a `schema`, or an Effetch endpoint's with an `output`),
 	 * failures left out.
 	 */
 	readonly dehydrate?: ConnectDehydrateOptions | undefined;

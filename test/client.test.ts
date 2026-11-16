@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { QueryClient } from "../src/index.js";
 import { MissingQueryClient, runtime } from "../src/internal/runtime.js";
-import { Greeting, servicesLayer, testApiLayer } from "./services.js";
+import { apiLayers, Greeting, servicesLayer } from "./services.js";
 
 const readGreeting = Greeting.useSync((service) => service.text);
 const greeting = runtime.atom(readGreeting);
@@ -43,7 +43,7 @@ const countingLayer = (text: string) => {
 					}),
 			),
 		),
-		testApiLayer(),
+		apiLayers(),
 	);
 	return { counts, layer };
 };
@@ -182,7 +182,7 @@ describe("QueryClient.make", () => {
 				Greeting,
 				Effect.sleep("30 millis").pipe(Effect.as({ text: "hello" })),
 			),
-			testApiLayer(),
+			apiLayers(),
 		);
 		const appRuntime = ManagedRuntime.make(layer);
 		const client = QueryClient.make({ layer, memoMap: appRuntime.memoMap });
@@ -271,7 +271,7 @@ describe("QueryClient.make with a runtime", () => {
 		const appRuntime = ManagedRuntime.make(
 			Layer.merge(
 				Layer.effect(Greeting, Effect.fail("no greeting")),
-				testApiLayer(),
+				apiLayers(),
 			),
 		);
 		const client = QueryClient.make({ runtime: appRuntime });

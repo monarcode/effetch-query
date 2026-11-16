@@ -23,7 +23,7 @@ import {
 	useFakeTimers,
 	valueOf,
 } from "./helpers.js";
-import { Greeting, testApiLayer } from "./services.js";
+import { apiLayers, Greeting } from "./services.js";
 
 afterEach(disposeClients);
 
@@ -854,7 +854,7 @@ describe("disposing a client", () => {
 						Effect.sync(() => log.push("layer released")),
 					),
 				),
-				testApiLayer(),
+				apiLayers(),
 			),
 		});
 		let resolve!: () => void;

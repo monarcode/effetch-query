@@ -67,7 +67,7 @@ const checkKey = (key: QueryKey): QueryKey => {
 
 /**
  * Marks a family that says itself which queries are its members, such as an
- * effetch endpoint's: its keys (`["todos", 1]` for `GET /todos/:id`) don't
+ * Effetch endpoint's: its keys (`["todos", 1]` for `GET /todos/:id`) don't
  * tell its members from another route's under the same path.
  */
 export const KeyMatcherId = "~@monarcode/effetch-query/KeyMatcher";

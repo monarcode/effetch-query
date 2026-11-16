@@ -34,9 +34,9 @@ export class NonJsonKeyError extends Data.TaggedError("NonJsonKeyError")<{
 /**
  * Thrown by `QueryClient.dehydrate` when two cached queries it would send
  * have one key: two definitions with the same key, such as two
- * `api.query` of one effetch endpoint. The browser finds a query by its
+ * `api.query` of one Effetch endpoint. The browser finds a query by its
  * key, so it couldn't tell them apart. Give one of them another key (an
- * effetch builder takes a `key` prefix).
+ * Effetch builder takes a `key` prefix).
  *
  * @example
  * ```ts

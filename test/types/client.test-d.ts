@@ -11,8 +11,9 @@ import { Query, QueryClient } from "../../src/index.js";
 import {
 	Greeting,
 	servicesLayer,
+	type ServiceApi,
 	type TestApi,
-	testApiLayer,
+	apiLayers,
 } from "../services.js";
 
 class Unregistered extends Context.Service<
@@ -24,12 +25,14 @@ const client = QueryClient.make({ layer: servicesLayer("hello") });
 
 describe("Register", () => {
 	it("sets the services queries run with", () => {
-		expectTypeOf<QueryClient.Services>().toEqualTypeOf<Greeting | TestApi>();
+		expectTypeOf<QueryClient.Services>().toEqualTypeOf<
+			Greeting | TestApi | ServiceApi
+		>();
 	});
 
 	it("makes queries and hooks require the services and the client", () => {
 		expectTypeOf<QueryClient.Requirements>().toEqualTypeOf<
-			Greeting | TestApi | QueryClient.QueryClient
+			Greeting | TestApi | ServiceApi | QueryClient.QueryClient
 		>();
 		expectTypeOf<
 			ReturnType<QueryClient.Hook<QueryClient.QuerySucceeded>>
@@ -43,7 +46,7 @@ describe("QueryClient.make", () => {
 		QueryClient.make({
 			layer: Layer.merge(
 				Layer.effect(Greeting, Effect.fail("no config" as const)),
-				testApiLayer(),
+				apiLayers(),
 			),
 		});
 		QueryClient.make({

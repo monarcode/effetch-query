@@ -9,11 +9,11 @@ import * as Schema from "effect/Schema";
 import * as Fetch from "@monarcode/effetch";
 
 // The test suite is one TypeScript program, so this augmentation applies to
-// every test: queries and clients in the tests run with `Greeting` and
-// `TestApi`.
+// every test: queries and clients in the tests run with `Greeting`,
+// `TestApi` and `ServiceApi`.
 declare module "@monarcode/effetch-query" {
 	interface Register {
-		readonly services: Greeting | TestApi;
+		readonly services: Greeting | TestApi | ServiceApi;
 	}
 }
 
@@ -55,6 +55,17 @@ export class TestApi extends Context.Service<
 	Fetch.Client<[typeof guard], typeof ApiError, typeof clientStatusErrors>
 >()("test/TestApi") {}
 
+/**
+ * The test API as a `Fetch.Service` class, which the effetch adapter reads
+ * its `defaultError` and `statusErrors` from. Its layer needs an
+ * `HttpClient`, such as `FetchTest.layer`.
+ */
+export class ServiceApi extends Fetch.Service<ServiceApi>()("test/ServiceApi", {
+	baseUrl: "https://api.test",
+	defaultError: ApiError,
+	statusErrors: clientStatusErrors,
+}) {}
+
 /** One request the test API received. */
 export interface ApiRequest {
 	readonly method: string;
@@ -70,6 +81,26 @@ const bodyOf = (body: { readonly _tag: string; readonly body?: unknown }) =>
 		? JSON.parse(new TextDecoder().decode(body.body))
 		: undefined;
 
+/** An in-memory `HttpClient` that answers with `handler`. */
+export const httpLayer = (
+	handler: ApiHandler = () => undefined,
+): Layer.Layer<HttpClient.HttpClient> =>
+	Layer.succeed(
+		HttpClient.HttpClient,
+		HttpClient.make((request, url) =>
+			Effect.sync(() =>
+				HttpClientResponse.fromWeb(
+					request,
+					handler({
+						method: request.method,
+						url,
+						body: bodyOf(request.body),
+					}) ?? Response.json({ message: "not found" }, { status: 404 }),
+				),
+			),
+		),
+	);
+
 /** A `TestApi` over an in-memory `HttpClient` that answers with `handler`. */
 export const testApiLayer = (
 	handler: ApiHandler = () => undefined,
@@ -81,33 +112,28 @@ export const testApiLayer = (
 			statusErrors: clientStatusErrors,
 			plugins: [guard],
 		}),
-	).pipe(
-		Layer.provide(
-			Layer.succeed(
-				HttpClient.HttpClient,
-				HttpClient.make((request, url) =>
-					Effect.sync(() =>
-						HttpClientResponse.fromWeb(
-							request,
-							handler({
-								method: request.method,
-								url,
-								body: bodyOf(request.body),
-							}) ??
-								Response.json(
-									{ message: "not found" },
-									{ status: 404 },
-								),
-						),
-					),
-				),
-			),
-		),
-	);
+	).pipe(Layer.provide(httpLayer(handler)));
 
-/** Every registered service: `Greeting` with `text`, and a `TestApi` that answers 404. */
+/** `ServiceApi` over an in-memory `HttpClient` that answers with `handler`. */
+export const serviceApiLayer = (
+	handler: ApiHandler = () => undefined,
+): Layer.Layer<ServiceApi> =>
+	ServiceApi.layer.pipe(Layer.provide(httpLayer(handler)));
+
+/** Both test APIs, `TestApi` and `ServiceApi`, answering with `handler`. */
+export const apiLayers = (
+	handler: ApiHandler = () => undefined,
+): Layer.Layer<TestApi | ServiceApi> =>
+	Layer.merge(testApiLayer(handler), serviceApiLayer(handler));
+
+/**
+ * Every registered service: `Greeting` with `text`, and a `TestApi` and a
+ * `ServiceApi` that answer with `handler`, else 404. Pass `serviceApi` to
+ * give `ServiceApi` a layer of its own, such as one over `FetchTest.layer`.
+ */
 export const servicesLayer = (
 	text = "hello",
 	handler: ApiHandler = () => undefined,
-): Layer.Layer<Greeting | TestApi> =>
-	Layer.merge(greetingLayer(text), testApiLayer(handler));
+	serviceApi: Layer.Layer<ServiceApi> = serviceApiLayer(handler),
+): Layer.Layer<Greeting | TestApi | ServiceApi> =>
+	Layer.mergeAll(greetingLayer(text), testApiLayer(handler), serviceApi);

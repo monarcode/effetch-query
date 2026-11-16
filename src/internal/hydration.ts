@@ -67,7 +67,7 @@ export const infiniteSchema = <A, E, P>(
 /**
  * A result as JSON, or none when the codec can't encode it: the schema
  * doesn't fit the value, or needs a service, which a sync codec has no way
- * to provide (an effetch endpoint's `output` may). The query then fetches in
+ * to provide (an Effetch endpoint's `output` may). The query then fetches in
  * the browser.
  */
 export const encodeResult = <A, E>(

@@ -17,7 +17,7 @@ import {
 } from "./dummyjson.js";
 import { writeSessionCookie } from "./session.js";
 
-const api = endpoints(DummyJson, { defaultError: ApiError });
+const api = endpoints(DummyJson);
 
 /**
  * The signed-in user. Signed out, or with an expired token, it dies with a

@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 
 import { QueryClient } from "@monarcode/effetch-query";
 
-import { DummyJsonLive, Session } from "./dummyjson.js";
+import { DummyJson, Session } from "./dummyjson.js";
 
 /**
  * A query client that calls dummyjson.com with `token`: one per request on
@@ -18,7 +18,7 @@ export const makeQueryClient = (
 	http: Layer.Layer<HttpClient.HttpClient> = FetchHttpClient.layer,
 ): QueryClient.QueryClient =>
 	QueryClient.make({
-		layer: DummyJsonLive.pipe(
+		layer: DummyJson.layer.pipe(
 			Layer.provide(Layer.merge(Layer.succeed(Session, { token }), http)),
 		),
 		queries: { defaults: { staleTime: "1 minute" } },

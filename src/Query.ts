@@ -167,7 +167,7 @@ export interface Family<Args, A, E> {
  * What {@link invalidate}, {@link refetch}, {@link reset} and {@link clear}
  * act on: a
  * {@link Query} (that key only), a {@link Family} (every query whose key
- * starts with the family's, its members included; an effetch endpoint
+ * starts with the family's, its members included; an Effetch endpoint
  * matches only its own queries), a {@link Key} (every query whose key starts
  * with it, so `[]` matches every query), or a {@link Group} of these (every
  * query one of them matches).

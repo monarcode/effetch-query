@@ -40,9 +40,21 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   cleared query again. `Query.reset` still fetches again at once.
 - `QueryClient.make()` and `QueryClient.layer()` take no options when
   `Register` declares no services (`QueryClient.OptionalOptions`).
+- `endpoints(Api)` reads `defaultError` and `statusErrors` from a
+  `Fetch.Service` class (Effetch `0.1.0-rc.3`), so the client's errors
+  reach the browser in server rendering without naming them twice. A client
+  behind a `Context.Service` key works as before, with the options, and
+  options still override the class. `Fetch.Endpoints` definitions work with
+  `api.query` and `api.mutation`.
 
 ### Changed
 
+- `@monarcode/effetch` peer range: `>=0.1.0-rc.3 <0.2.0`. Upgrade Effetch
+  with effetch-query.
+- README: the setup uses `Fetch.Service`, with a section for a client made
+  with `Fetch.make`; a `Fetch.optional` recipe for a detail that may not
+  exist; the testing section uses Effetch's `FetchTest`. The examples use
+  `Fetch.Service`.
 - A key that holds a query, a family or a group, such as
   `Query.invalidate([wallet, transactions])`, fails with a
   `KeyHoldsTargetError` defect instead of silently matching nothing.

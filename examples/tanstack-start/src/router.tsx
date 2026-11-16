@@ -7,7 +7,7 @@ import { QueryClient } from "@monarcode/effetch-query";
 import { connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 import { createRouter } from "@tanstack/react-router";
 
-import { DummyJsonLive, Session } from "./dummyjson.js";
+import { DummyJson, Session } from "./dummyjson.js";
 import { PageError } from "./page-error.js";
 import { routeTree } from "./routeTree.gen.js";
 import { readSessionToken } from "./session.js";
@@ -35,7 +35,7 @@ export function getRouter({
 			? Effect.succeed(readToken())
 			: Effect.sync(readToken);
 	const queryClient = QueryClient.make({
-		layer: DummyJsonLive.pipe(
+		layer: DummyJson.layer.pipe(
 			Layer.provide(Layer.merge(Layer.succeed(Session, { token }), http)),
 		),
 		queries: { defaults: { staleTime: "1 minute" } },

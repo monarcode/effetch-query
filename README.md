@@ -19,8 +19,8 @@ it when you change something. Queries and mutations are Effects, run with
 your app's services, and their errors stay typed all the way to the
 component.
 
-It's the companion to [effetch](https://github.com/monarcode/effetch), the
-typed HTTP client for Effect: effetch makes the call, effetch-query caches
+It's the companion to [Effetch](https://github.com/monarcode/effetch), the
+typed HTTP client for Effect: Effetch makes the call, effetch-query caches
 it. It works with any Effect too.
 
 > **Release candidate.** The API is frozen for `0.1.0`: the
@@ -42,6 +42,7 @@ it. It works with any Effect too.
 - [Queries in depth](#queries-in-depth)
   - [From endpoints to queries](#from-endpoints-to-queries)
   - [Errors by status](#errors-by-status)
+  - [A client made with Fetch.make](#a-client-made-with-fetchmake)
   - [Keys](#keys)
   - [Freshness and refetching](#freshness-and-refetching)
   - [Query options](#query-options)
@@ -61,7 +62,7 @@ it. It works with any Effect too.
   - [Atoms](#atoms)
   - [Signing out and switching accounts](#signing-out-and-switching-accounts)
 - [React Native](#react-native)
-- [Without effetch](#without-effetch)
+- [Without Effetch](#without-effetch)
 - [Server rendering](#server-rendering)
   - [Sending the cache](#sending-the-cache)
   - [Loading it in the browser](#loading-it-in-the-browser)
@@ -81,7 +82,7 @@ it. It works with any Effect too.
 ## Why effetch-query
 
 effetch-query started in real frontend projects built with Effect and
-effetch. Their API calls were Effects, with typed errors, services and
+Effetch. Their API calls were Effects, with typed errors, services and
 retries. Their UI used TanStack Query, the standard way to cache server
 data in React. Joining the two meant writing a bridge: run each Effect into
 a promise, hand the promise to TanStack Query, and turn its errors back
@@ -90,7 +91,7 @@ into something the UI could match on.
 That bridge was where the trouble lived. TanStack Query sits on the other
 side of a promise, outside Effect: past it, errors lose their Effect types,
 a query can't use your layers, and interrupting an Effect that's no longer
-needed takes wiring of its own. effetch had made each call effectful; what
+needed takes wiring of its own. Effetch had made each call effectful; what
 was still missing was a cache that spoke Effect.
 
 effetch-query is that cache. Instead of patching TanStack Query, it brings
@@ -101,7 +102,7 @@ updates and invalidation by key.
 ### How it works
 
 - **A query is an Effect with a key.** It runs with your app's services,
-  from a layer or a runtime you give the client, so it can use your effetch
+  from a layer or a runtime you give the client, so it can use your Effetch
   client, a database, or another query.
 - **Errors keep their types.** A query's result is an `AsyncResult` that
   holds the full `Cause`, so a component can tell a 404 from a network
@@ -131,8 +132,6 @@ our next project.
 ### At a glance
 
 ```tsx
-import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Layer from "effect/Layer";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -153,13 +152,10 @@ const Todo = Schema.Struct({
   done: Schema.Boolean,
 });
 
-// Your effetch client, as a service.
-const makeApiClient = Fetch.make({ baseUrl: "https://api.example.com" });
-
-class ApiClient extends Context.Service<
-  ApiClient,
-  Effect.Success<typeof makeApiClient>
->()("ApiClient") {}
+// Your Effetch client, as a service.
+class ApiClient extends Fetch.Service<ApiClient>()("ApiClient", {
+  baseUrl: "https://api.example.com",
+}) {}
 
 declare module "@monarcode/effetch-query" {
   interface Register {
@@ -186,9 +182,7 @@ const toggleTodo = api.mutation(
 
 // The cache, which runs queries with your services.
 const queryClient = QueryClient.make({
-  layer: Layer.effect(ApiClient)(makeApiClient).pipe(
-    Layer.provide(FetchHttpClient.layer),
-  ),
+  layer: ApiClient.layer.pipe(Layer.provide(FetchHttpClient.layer)),
 });
 
 export function App() {
@@ -229,7 +223,7 @@ function Todos() {
 
 ## Getting started
 
-This walks through a small todo app, one step at a time: an effetch client,
+This walks through a small todo app, one step at a time: an Effetch client,
 a query client, two queries, a component that shows them, and a mutation.
 Later sections build on the same files.
 
@@ -250,12 +244,10 @@ effetch-query needs `effect` 4.1 or later. It runs in browsers, React Native
 
 ### 1. Your API client
 
-Start with an effetch client for your API, shared as a service. If you
-already use effetch, you have this:
+Start with an Effetch client for your API, declared as a service with
+`Fetch.Service`. If you already use Effetch, you have this:
 
 ```ts api.ts
-import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -272,18 +264,13 @@ export type Todo = typeof Todo.Type;
 // What the API sends back when a request fails.
 export const ApiError = Schema.Struct({ message: Schema.String });
 
-export const makeApiClient = Fetch.make({
+export class ApiClient extends Fetch.Service<ApiClient>()("ApiClient", {
   baseUrl: "https://api.example.com",
   defaultError: ApiError,
-});
-
-export class ApiClient extends Context.Service<
-  ApiClient,
-  Effect.Success<typeof makeApiClient>
->()("ApiClient") {}
+}) {}
 
 // Sends requests with the browser's `fetch`.
-export const ApiClientLive = Layer.effect(ApiClient)(makeApiClient).pipe(
+export const ApiClientLive = ApiClient.layer.pipe(
   Layer.provide(FetchHttpClient.layer),
 );
 
@@ -325,7 +312,7 @@ request ([Server rendering](#server-rendering)).
 
 ### 3. Your first queries
 
-`endpoints` turns effetch endpoints into queries. Each call of the endpoint,
+`endpoints` turns Effetch endpoints into queries. Each call of the endpoint,
 with its own params, is its own cached query:
 
 ```ts todos.ts
@@ -334,21 +321,21 @@ import * as Schema from "effect/Schema";
 import * as Fetch from "@monarcode/effetch";
 import { endpoints } from "@monarcode/effetch-query/effetch";
 
-import { ApiClient, ApiError, Todo } from "./api.js";
+import { ApiClient, Todo } from "./api.js";
 
-// Queries and mutations that call your API through ApiClient. Give it the
-// client's defaultError too, so their errors are typed with it.
-export const api = endpoints(ApiClient, { defaultError: ApiError });
+// Queries and mutations that call your API through ApiClient. Its
+// defaultError types their errors.
+export const api = endpoints(ApiClient);
 
-export const todos = api.query(
-  Fetch.endpoint("GET /todos", { output: Schema.Array(Todo) }),
-);
+export const listTodos = Fetch.endpoint("GET /todos", {
+  output: Schema.Array(Todo),
+});
+export const getTodo = Fetch.endpoint("GET /todos/:id", { output: Todo });
+
+export const todos = api.query(listTodos);
 // todos({ query: { done: false } }) is the query keyed ["todos", { done: false }]
 
-export const todo = api.query(
-  Fetch.endpoint("GET /todos/:id", { output: Todo }),
-  { staleTime: "1 minute" },
-);
+export const todo = api.query(getTodo, { staleTime: "1 minute" });
 // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
 ```
 
@@ -357,7 +344,7 @@ itself: the data lives in the client, and nothing is fetched until
 something reads the query.
 
 **Calling the client yourself.** If you'd rather not define endpoints, a
-query can call your effetch client directly. `Query.make` defines one
+query can call your Effetch client directly. `Query.make` defines one
 query and `Query.family` one per argument, each from an Effect you write:
 
 ```ts
@@ -498,7 +485,7 @@ export function ToggleButton({ todo }: { readonly todo: Todo }) {
 ```
 
 **Calling the client yourself.** `Mutation.make` defines a mutation from
-an Effect you write, so it can call your effetch client directly. Its
+an Effect you write, so it can call your Effetch client directly. Its
 variables are whatever its `run` takes, here the todo to toggle:
 
 ```ts
@@ -529,7 +516,7 @@ guide goes deeper into each part.
 ### From endpoints to queries
 
 `api.query`, `api.infiniteQuery` and `api.mutation` add no behaviour of
-their own: they call your endpoint through your effetch client, and take a
+their own: they call your endpoint through your Effetch client, and take a
 query's or mutation's options.
 
 - **Keys come from the route:** the path with its params filled in, then the
@@ -551,14 +538,14 @@ query's or mutation's options.
   `output`: it's the schema the value crosses to the browser with
   ([Server rendering](#server-rendering)).
 - Pass `headers` and `plugins` as options of `query`, `infiniteQuery` and
-  `mutation`, as with effetch's `client.bind`.
+  `mutation`, as with Effetch's `client.bind`.
 
 Make one `api.query` per endpoint: two of the same route would share keys
 but not their cache.
 
 ### Errors by status
 
-effetch's `statusErrors` turns error responses into your own errors: a
+Effetch's `statusErrors` turns error responses into your own errors: a
 status maps to the schema of the error it means, or to a list tried in
 order, where a literal field picks one. Queries and mutations made from such
 an endpoint fail with those errors, typed, so you handle them by their tag:
@@ -611,14 +598,96 @@ export function TodoTitle({ id }: { readonly id: number }) {
 - **A response no schema decodes** (another 403, a body that isn't JSON)
   fails with the `HttpError` it would without them, so `HttpError` stays in
   the error type.
-- **The client's `statusErrors`** (`Fetch.make({ statusErrors })`) apply to
-  every endpoint, and are typed from the client's service. Give them to
-  `endpoints` too, `endpoints(ApiClient, { defaultError, statusErrors })`,
-  for server rendering: a definition can't read them from the client.
+- **The client's `statusErrors`** (declared with the client, as in
+  `Fetch.Service<ApiClient>()("ApiClient", { statusErrors })`) apply to
+  every endpoint, and are typed from the client's service. `endpoints`
+  reads them from the `Fetch.Service` class, so server rendering sends
+  them too. For a client behind a `Context.Service` key, give them to
+  `endpoints` ([A client made with Fetch.make](#a-client-made-with-fetchmake)).
 - **Server rendering sends them as themselves** with
   `failures: "include"`: a `TodoNotFound` on the server is a `TodoNotFound`
   in the browser, with no refetch.
 - Their schemas, like `output`'s, can only need your registered services.
+
+**A detail that may not exist.** To show a missing todo as no todo rather
+than a failure, write the query yourself with `Fetch.optional`, which
+turns a `404` into `Option.none()`:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+import { getTodo } from "./todos.js";
+
+export const maybeTodo = Query.family({
+  key: ["todos", "maybe"],
+  run: (id: number) =>
+    ApiClient.use((client) =>
+      Fetch.optional(client.bind(getTodo)({ params: { id } })),
+    ),
+  // For server rendering: an Option of a todo.
+  schema: { success: Schema.Option(Todo), error: Schema.Never },
+});
+// maybeTodo(1): Query<Option<Todo>, …>
+```
+
+### A client made with `Fetch.make`
+
+`Fetch.Service` is the simplest way to share a client. Where the client is
+made by hand, as a `Context.Service` whose layer runs `Fetch.make` (to read
+config from another service, say), `endpoints` can't read the client's
+config until its layer is built. Give it the `defaultError` and
+`statusErrors` the client is made with: share one config object between
+the two.
+
+```ts
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { endpoints } from "@monarcode/effetch-query/effetch";
+
+class SessionExpired extends Schema.TaggedError<SessionExpired>()(
+  "SessionExpired",
+  { message: Schema.String },
+) {}
+
+const config = {
+  baseUrl: "https://billing.example.com",
+  defaultError: Schema.Struct({ message: Schema.String }),
+  statusErrors: { 401: SessionExpired },
+};
+
+export const makeBillingClient = Fetch.make(config);
+
+export class BillingClient extends Context.Service<
+  BillingClient,
+  Effect.Success<typeof makeBillingClient>
+>()("BillingClient") {}
+
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: BillingClient;
+  }
+}
+
+// Reads defaultError and statusErrors, and ignores the rest.
+export const billing = endpoints(BillingClient, {
+  key: ["billing"],
+  ...config,
+});
+
+export const invoices = billing.query(
+  Fetch.endpoint("GET /invoices", { output: Schema.Array(Schema.String) }),
+);
+// invoices() is the query keyed ["billing", "invoices"]
+export const refreshBilling = Query.refetch(["billing"]);
+```
 
 ### Keys
 
@@ -662,7 +731,7 @@ A query that failed is fetched again when a component starts using it
 The client's `queries.defaults` sets all but `gcTime` and `reactivityKeys`
 for every query, and a query's own options win.
 
-`retry` defaults to none, where TanStack Query retries three times: effetch
+`retry` defaults to none, where TanStack Query retries three times: Effetch
 has a retry plugin, and a query shouldn't retry what the client already
 retried.
 
@@ -883,7 +952,7 @@ optimistic update, `Query.update` the whole `{ pages, pageParams }` value.
 
 | Option              | What it does                                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `pageParam`         | The query field each page's param is sent in (effetch only).                                                             |
+| `pageParam`         | The query field each page's param is sent in (Effetch only).                                                             |
 | `initialPageParam`  | The first page's param.                                                                                                  |
 | `nextPageParam`     | `(lastPage, pages, lastPageParam, pageParams) => param`: the next page's param, or `undefined` / `null` for none.        |
 | `previousPageParam` | The same, from the first page, for `fetchPreviousPage`. Without it, there's no previous page.                            |
@@ -1429,7 +1498,7 @@ argument it has seen, for the app's lifetime. Cached values are still
 dropped after `gcTime`; this matters only for a family with many thousands
 of arguments in one session, such as one keyed by free-text search.
 
-## Without effetch
+## Without Effetch
 
 Any Effect can be a query. `Query.make` defines one, `Query.family` one per
 argument, and `Mutation.make` a mutation, each with an Effect you write.
@@ -1511,7 +1580,7 @@ export const setDone = Mutation.make({
   by value, so `todo(1) === todo(1)`.
 - **`run` can read other queries** through `ctx.result`, as `openCount`
   does.
-- **To render on the server**, give the query a `schema`. effetch's
+- **To render on the server**, give the query a `schema`. Effetch's
   endpoints don't need one, since their `output` is it.
 - **`InfiniteQuery.make` and `InfiniteQuery.family`** take a `run` from the
   page's param, `(args, pageParam) => Effect` for a family, with the
@@ -1595,15 +1664,15 @@ export async function renderPage(): Promise<string> {
 - **A client per request.** It's cheap: with a `runtime`, every request's
   client shares your services. `dispose()` releases it when the request is
   done.
-- **Only queries with a schema are sent.** An effetch endpoint's `output`
+- **Only queries with a schema are sent.** An Effetch endpoint's `output`
   is its schema; a query of your own needs a `schema`
-  ([Without effetch](#without-effetch)).
+  ([Without Effetch](#without-effetch)).
 - **Values carry their timestamp,** so a query is as fresh in the browser
   as it was on the server. `dehydrate` never fetches: a stale query is sent
   stale, and refetches in the browser.
 - **Failures stay on the server.** A failed query is left out, so server
   errors never reach the page, and the browser fetches it again. To send
-  failures, pass `failures: "include"`. An effetch `HttpError` goes without
+  failures, pass `failures: "include"`. An Effetch `HttpError` goes without
   its headers, but with its URL and response text, so keep secrets out of
   the URLs your server calls. Errors from `statusErrors` go as their schemas
   encode them, the client's only when given to `endpoints`
@@ -2134,42 +2203,44 @@ shared, not built again.
 
 ## Testing
 
-Swap the real `HttpClient` for a fake one, and your queries run against
-it. `QueryClient.layer` gives an Effect program a client, disposed when the
-program ends:
+Your queries run against whatever `HttpClient` your client's layer gets.
+In tests, give it `FetchTest.layer` from `@monarcode/effetch/test`: a fake
+backend made from your endpoints, with `params`, `body` and the response
+typed by each endpoint. `QueryClient.layer` gives an Effect program a
+client, disposed when the program ends:
 
 ```ts
 import * as Effect from "effect/Effect";
-import * as HttpClient from "effect/http/HttpClient";
-import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Layer from "effect/Layer";
 
 import { Query, QueryClient } from "@monarcode/effetch-query";
+import { FetchTest } from "@monarcode/effetch/test";
 
-import { ApiClient, makeApiClient } from "./api.js";
-import { todo } from "./todos.js";
+import { ApiClient } from "./api.js";
+import { getTodo, listTodos, todo } from "./todos.js";
 
-// Answers every request with the same todo.
-const FakeHttp = Layer.succeed(
-  HttpClient.HttpClient,
-  HttpClient.make((request) =>
-    Effect.succeed(
-      HttpClientResponse.fromWeb(
-        request,
-        Response.json({ id: 1, title: "Write tests", done: false }),
-      ),
-    ),
+const Backend = FetchTest.layer([
+  FetchTest.respond(getTodo, ({ params }) =>
+    // params are strings, as they are in the URL
+    Effect.succeed({
+      id: Number(params.id),
+      title: "Write tests",
+      done: false,
+    }),
   ),
-);
+  FetchTest.fail(listTodos, 503),
+]);
 
-const ApiClientTest = Layer.effect(ApiClient)(makeApiClient).pipe(
-  Layer.provide(FakeHttp),
-);
+const ApiClientTest = ApiClient.layer.pipe(Layer.provide(Backend));
 
 export const test = Query.fetch(todo({ params: { id: 1 } })).pipe(
   Effect.provide(QueryClient.layer({ layer: ApiClientTest })),
 );
 ```
+
+Provide the fake under the client's own `layer`, as here. A class that
+overrides `layer` to provide its own `HttpClient` ignores one given from
+outside.
 
 In React tests, render under a `QueryProvider` with a fresh client, and
 dispose it after each test. To control time (`staleTime`, `refetchInterval`,
@@ -2247,12 +2318,12 @@ package, and the full apps tested end to end in
 - [`basic/`](examples/basic): the smallest React app, with dummyjson.com's
   todos and an optimistic toggle.
 - [`tanstack-start/`](examples/tanstack-start): a full TanStack Start app on
-  effetch endpoints: sign-in, a user's todos, a list with "Load more", a
+  Effetch endpoints: sign-in, a user's todos, a list with "Load more", a
   streamed detail page and a missing one.
 - [`tanstack-start-httpclient/`](examples/tanstack-start-httpclient): the
-  same app on Effect's `HttpClient`, without effetch.
+  same app on Effect's `HttpClient`, without Effetch.
 - [`react-router/`](examples/react-router): the same app in React Router's
-  framework mode, on effetch endpoints.
+  framework mode, on Effetch endpoints.
 
 Its [README](examples/README.md) walks through each one.
 

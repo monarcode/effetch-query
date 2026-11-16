@@ -1,6 +1,3 @@
-import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
@@ -25,15 +22,11 @@ const TodoPage = Schema.Struct({
 // What dummyjson sends back when a request fails.
 const ApiError = Schema.Struct({ message: Schema.String });
 
-const makeDummyJson = Fetch.make({
+/** The client; its `layer` needs the `HttpClient` the app provides. */
+export class DummyJson extends Fetch.Service<DummyJson>()("DummyJson", {
 	baseUrl: import.meta.env.VITE_DUMMYJSON_URL ?? "https://dummyjson.com",
 	defaultError: ApiError,
-});
-
-export class DummyJson extends Context.Service<
-	DummyJson,
-	Effect.Success<typeof makeDummyJson>
->()("DummyJson") {}
+}) {}
 
 declare module "@monarcode/effetch-query" {
 	interface Register {
@@ -41,10 +34,7 @@ declare module "@monarcode/effetch-query" {
 	}
 }
 
-/** The client, over whichever `HttpClient` the app provides. */
-export const DummyJsonLive = Layer.effect(DummyJson)(makeDummyJson);
-
-const api = endpoints(DummyJson, { defaultError: ApiError });
+const api = endpoints(DummyJson);
 
 // todos({ query: { limit: 10 } }) is the query keyed ["todos", { limit: 10 }]
 export const todos = api.query(

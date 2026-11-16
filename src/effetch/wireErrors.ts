@@ -5,7 +5,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Fetch from "@monarcode/effetch";
 
 /**
- * How effetch's errors cross from server to browser (DESIGN.md §3.12), for
+ * How Effetch's errors cross from server to browser (DESIGN.md §3.12), for
  * `failures: "include"`. Their own schemas can't: `HttpError`'s headers and
  * `NetworkError`'s platform `cause` aren't JSON, nor is `DecodeError`'s
  * issue. So each goes as a struct of what is, and comes back as the class:
@@ -95,7 +95,7 @@ export const wireErrors = (
 				}),
 			),
 		),
-		// After effetch's own, whose `_tag`s are literals: a status error
+		// After Effetch's own, whose `_tag`s are literals: a status error
 		// schema loose enough to accept an encoded `HttpError` can't take it.
 		...statusErrors,
 	]) as unknown as Schema.Codec<unknown, unknown>;

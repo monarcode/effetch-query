@@ -4,7 +4,7 @@ import type * as HttpMethod from "effect/http/HttpMethod";
 import * as Atom from "effect/reactivity/Atom";
 import type * as Schema from "effect/Schema";
 
-import type * as Fetch from "@monarcode/effetch";
+import * as Fetch from "@monarcode/effetch";
 
 import type * as InfiniteQuery from "../InfiniteQuery.js";
 import { infiniteSchema, makeCodec } from "../internal/hydration.js";
@@ -114,20 +114,26 @@ export interface EndpointsOptions<
 	 * The client's `defaultError`, for queries whose endpoint has no `error`
 	 * schema of its own: their `HttpError` bodies go to the browser encoded
 	 * with it (`QueryClient.dehydrate` with `failures: "include"`), and it's
-	 * shown as {@link EndpointQuery.error}. A definition can't read it from
-	 * the client, which only exists once its layer is built. It's typed as
-	 * the client's. Without it, the client still decodes and types those
-	 * bodies, but they go as JSON, so a query whose body isn't JSON isn't
-	 * sent.
+	 * shown as {@link EndpointQuery.error}. It's typed as the client's.
+	 *
+	 * Default: for a `Fetch.Service` class, the one it was declared with
+	 * (`Api.config`); this option overrides it. A client behind a
+	 * `Context.Service` key can't be read until its layer is built, so give
+	 * it here. Without one, the client still decodes and types those bodies,
+	 * but they go as JSON, so a query whose body isn't JSON isn't sent.
 	 */
 	readonly defaultError?: EB | undefined;
 	/**
 	 * The client's `statusErrors`, so its queries can send those errors to
-	 * the browser (`QueryClient.dehydrate` with `failures: "include"`). A
-	 * definition can't read them from the client, which only exists once its
-	 * layer is built. It's typed as the client's. Without it, the client's
-	 * errors are still decoded and typed, but a query that fails with one
-	 * isn't sent: the browser fetches it again.
+	 * the browser (`QueryClient.dehydrate` with `failures: "include"`). It's
+	 * typed as the client's.
+	 *
+	 * Default: for a `Fetch.Service` class, the ones it was declared with
+	 * (`Api.config`); this option overrides them. A client behind a
+	 * `Context.Service` key can't be read until its layer is built, so give
+	 * them here. Without them, the client's errors are still decoded and
+	 * typed, but a query that fails with one isn't sent: the browser fetches
+	 * it again.
 	 */
 	readonly statusErrors?: SE | undefined;
 }
@@ -305,7 +311,7 @@ export type ErrorSchema<
 > = Own extends Fetch.AnySchema ? Own : Default;
 
 /**
- * A family of queries, one per call of an effetch endpoint, made by
+ * A family of queries, one per call of an Effetch endpoint, made by
  * {@link Endpoints.query}. Call it with the endpoint's `params` and `query`
  * to get the query for that call. Its key is the route's path with the
  * params filled in, then the query object: `GET /todos/:id` called with
@@ -364,7 +370,7 @@ export interface EndpointQuery<R extends string, A, E> {
 }
 
 /**
- * A family of infinite queries, one per call of an effetch endpoint, made by
+ * A family of infinite queries, one per call of an Effetch endpoint, made by
  * {@link Endpoints.infiniteQuery}. Call it with the endpoint's `params` and
  * `query` to get the {@link InfiniteQuery.InfiniteQuery} for that call; a
  * page field given there is ignored. Keys and matching are as for
@@ -406,11 +412,11 @@ export interface EndpointInfiniteQuery<R extends string, A, E, P> {
 }
 
 /**
- * Queries and mutations for one effetch client, made by {@link endpoints}.
+ * Queries and mutations for one Effetch client, made by {@link endpoints}.
  *
  * @example
  * ```ts
- * import type * as Fetch from "@monarcode/effetch";
+ * import * as Fetch from "@monarcode/effetch";
  * import type * as Schema from "effect/Schema";
  *
  * import type { Endpoints } from "@monarcode/effetch-query/effetch";
@@ -450,7 +456,7 @@ export interface Endpoints<
 	 * With an `output`, its queries cross from server to browser with no
 	 * `schema` to write (`QueryClient.dehydrate`); without one, they aren't
 	 * sent. The value goes with `output`, and, with `failures: "include"`,
-	 * effetch's errors go too: an `HttpError` without its headers, though
+	 * Effetch's errors go too: an `HttpError` without its headers, though
 	 * with its request URL and response text, so keep secrets out of the
 	 * URLs your server calls; a `NetworkError` without its `cause`; a
 	 * `DecodeError` without its `issue`. Errors from `statusErrors` go as
@@ -552,23 +558,25 @@ interface AnyClient {
 
 /**
  * Turns `Fetch.endpoint` definitions into queries and mutations that call
- * them through your effetch client, which a service holds: give it that
- * service. Use it at module level, next to the definitions: the client is
- * only reached when a query fetches or a mutation runs, from your services
- * (so the service must be in `Register["services"]`). Returns an
- * {@link Endpoints}, whose `query`, `infiniteQuery` and `mutation` make them.
+ * them through your Effetch client: give it the client's service, a
+ * `Fetch.Service` class or a `Context.Service` key. Use it at module level,
+ * next to the definitions: the client is only reached when a query fetches
+ * or a mutation runs, from your services (so the service must be in
+ * `Register["services"]`). Returns an {@link Endpoints}, whose `query`,
+ * `infiniteQuery` and `mutation` make them.
  *
  * The adapter adds no behaviour of its own: a query is a
  * {@link Query.family} member keyed by its route, and a mutation is a
- * {@link Mutation.make} whose `run` calls the endpoint. Give it the
- * `defaultError` and `statusErrors` the client was made with
- * ({@link EndpointsOptions}). It needs `@monarcode/effetch` 0.1, from
- * `0.1.0-rc.2`.
+ * {@link Mutation.make} whose `run` calls the endpoint. From a
+ * `Fetch.Service` class it reads the `defaultError` and `statusErrors` the
+ * client is made with, to send errors to the browser; from a
+ * `Context.Service` key, give them in the options ({@link EndpointsOptions}).
+ * The definitions of a `Fetch.Endpoints` class (`TodoApi.definitions`) work
+ * as any other. It needs `@monarcode/effetch` 0.1, from `0.1.0-rc.3`.
  *
  * @example
  * ```ts
  * import * as Fetch from "@monarcode/effetch";
- * import * as Context from "effect/Context";
  * import * as Schema from "effect/Schema";
  *
  * import { Query } from "@monarcode/effetch-query";
@@ -576,14 +584,14 @@ interface AnyClient {
  *
  * const ApiError = Schema.Struct({ message: Schema.String });
  *
- * class AppApiClient extends Context.Service<
- *   AppApiClient,
- *   Fetch.Client<[], typeof ApiError>
- * >()("AppApiClient") {}
+ * class Api extends Fetch.Service<Api>()("Api", {
+ *   baseUrl: "https://api.example.com",
+ *   defaultError: ApiError,
+ * }) {}
  *
  * declare module "@monarcode/effetch-query" {
  *   interface Register {
- *     readonly services: AppApiClient;
+ *     readonly services: Api;
  *   }
  * }
  *
@@ -594,7 +602,7 @@ interface AnyClient {
  *   output: Todo,
  * });
  *
- * const api = endpoints(AppApiClient, { defaultError: ApiError });
+ * const api = endpoints(Api);
  *
  * // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
  * export const todo = api.query(getTodo, { staleTime: "1 minute" });
@@ -618,6 +626,12 @@ export const endpoints = <
 	options?: EndpointsOptions<NoInfer<EB>, NoInfer<SE>>,
 ): Endpoints<Ps, EB, SE> => {
 	const prefix = options?.key ?? [];
+	// A `Fetch.Service` class carries the config its client is made with.
+	const config = Fetch.isService(client) ? client.config : undefined;
+	const defaultError: Fetch.AnySchema | undefined =
+		options?.defaultError ?? config?.defaultError;
+	const clientStatusErrors: Fetch.StatusErrorMap | undefined =
+		options?.statusErrors ?? config?.statusErrors;
 	// The types above check each call against the client's; past them, one
 	// untyped path serves every endpoint.
 	const reach = client as unknown as Effect.Effect<AnyClient>;
@@ -645,11 +659,11 @@ export const endpoints = <
 			[KeyMatcherId]: (query: Query.Query<any, any>) =>
 				isMember(query, self),
 			endpoint,
-			error: endpoint.error ?? options?.defaultError,
+			error: endpoint.error ?? defaultError,
 		});
 		return self;
 	};
-	// An endpoint's queries cross the wire with its `output`, effetch's
+	// An endpoint's queries cross the wire with its `output`, Effetch's
 	// errors and the endpoint's and client's status errors, keyed apart by
 	// method: `GET` and `HEAD` of one path share keys.
 	const hydrationOf = (
@@ -666,12 +680,12 @@ export const endpoints = <
 						schema(
 							endpoint.output as Schema.Codec<unknown, unknown>,
 							wireErrors(
-								(endpoint.error ?? options?.defaultError) as
+								(endpoint.error ?? defaultError) as
 									| Schema.Codec<unknown, unknown>
 									| undefined,
 								statusErrorSchemas(
 									endpoint.statusErrors,
-									options?.statusErrors,
+									clientStatusErrors,
 								),
 							),
 						),

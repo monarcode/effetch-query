@@ -29,7 +29,7 @@ export interface RouteArgs {
 
 /**
  * A path's segments, without the scheme and host of a full URL. Params are
- * `:name` segments, as effetch fills them in.
+ * `:name` segments, as Effetch fills them in.
  */
 export const segments = (path: string): ReadonlyArray<Segment> =>
 	path
@@ -43,7 +43,7 @@ export const segments = (path: string): ReadonlyArray<Segment> =>
 		);
 
 /**
- * A query object without what effetch leaves out of the request (`null` and
+ * A query object without what Effetch leaves out of the request (`null` and
  * `undefined` values and array items), so two calls that send the same
  * request get the same key. `undefined` when nothing is left.
  */
@@ -72,7 +72,7 @@ export const canonicalArgs = (
 	path: ReadonlyArray<Segment>,
 	args: RouteArgs | undefined,
 ): RouteArgs => {
-	// A missing param stays missing, so effetch reports it.
+	// A missing param stays missing, so Effetch reports it.
 	const params = path.flatMap((segment) => {
 		if (segment._tag === "Literal") {
 			return [];

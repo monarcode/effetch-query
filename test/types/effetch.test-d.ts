@@ -15,6 +15,7 @@ import {
 	ApiError,
 	clientStatusErrors,
 	type Denied,
+	ServiceApi,
 	type SessionExpired,
 	TestApi,
 } from "../services.js";
@@ -251,6 +252,42 @@ describe("endpoints", () => {
 
 		// @ts-expect-error: decoding the output needs Unregistered
 		api.query(Fetch.endpoint("GET /needy", { output: needy }));
+	});
+});
+
+describe("endpoints with a Fetch.Service class", () => {
+	const fromClass = endpoints(ServiceApi);
+	const getTodo = Fetch.endpoint("GET /todos/:id", { output: Todo });
+
+	it("types errors from the class's config, with no options", () => {
+		expectTypeOf(
+			fromClass.query(getTodo)({ params: { id: 1 } }),
+		).toEqualTypeOf<
+			Query.Query<
+				Todo,
+				| Fetch.NetworkError
+				| Fetch.HttpError.With<typeof ApiError.Type>
+				| Fetch.DecodeError
+				| SessionExpired
+			>
+		>();
+	});
+
+	it("checks the options against the class's config", () => {
+		endpoints(ServiceApi, { defaultError: ApiError });
+		// @ts-expect-error: the class decodes errors with ApiError
+		endpoints(ServiceApi, { defaultError: Schema.Number });
+	});
+
+	it("takes a Fetch.Endpoints class's definitions", () => {
+		class TodoApi extends Fetch.Endpoints<TodoApi>()(
+			"test/TypedTodoApi",
+			ServiceApi,
+			{ get: getTodo },
+		) {}
+		expectTypeOf(
+			fromClass.query(TodoApi.definitions.get)({ params: { id: 1 } }),
+		).toExtend<Query.Query<Todo, unknown>>();
 	});
 });
 

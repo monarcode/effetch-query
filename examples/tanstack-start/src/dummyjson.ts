@@ -1,6 +1,5 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
@@ -45,26 +44,18 @@ export class Session extends Context.Service<
 	{ readonly token: Effect.Effect<string | undefined> }
 >()("Session") {}
 
-const makeDummyJson = Effect.gen(function* () {
-	const session = yield* Session;
-	return yield* Fetch.make({
-		baseUrl: import.meta.env.VITE_DUMMYJSON_URL ?? "https://dummyjson.com",
-		defaultError: ApiError,
-		plugins: [bearer({ token: session.token })],
-	});
-});
-
-/** The effetch client for dummyjson.com, as a service. */
-export class DummyJson extends Context.Service<
-	DummyJson,
-	Effect.Success<typeof makeDummyJson>
->()("DummyJson") {}
+/**
+ * The Effetch client for dummyjson.com, as a service. Its `layer` needs the
+ * `Session` its token comes from, and an `HttpClient`.
+ */
+export class DummyJson extends Fetch.Service<DummyJson>()("DummyJson", {
+	baseUrl: import.meta.env.VITE_DUMMYJSON_URL ?? "https://dummyjson.com",
+	defaultError: ApiError,
+	plugins: [bearer({ token: Session.use((session) => session.token) })],
+}) {}
 
 declare module "@monarcode/effetch-query" {
 	interface Register {
 		readonly services: DummyJson;
 	}
 }
-
-/** The client, given the session and an `HttpClient`. */
-export const DummyJsonLive = Layer.effect(DummyJson)(makeDummyJson);
