@@ -44,8 +44,15 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   `Fetch.Service` class (Effetch `0.1.0-rc.3`), so the client's errors
   reach the browser in server rendering without naming them twice. A client
   behind a `Context.Service` key works as before, with the options, and
-  options still override the class. `Fetch.Endpoints` definitions work with
+  options still replace the class's. `Fetch.Endpoints` definitions work with
   `api.query` and `api.mutation`.
+- `api.query`, `api.infiniteQuery` and `api.mutation` take endpoints with
+  a `query` schema (Effetch `0.1.0-rc.3`), with `query` typed by the
+  schema. A query is keyed by its query as sent, each value encoded to a
+  string (a `Date` as its ISO string), so equal requests share a query and
+  the key goes to the browser as JSON. A query that doesn't match the
+  schema, or has a `Redacted` field, throws an `EndpointQueryError`. An
+  infinite query's `pageParam` names an optional field of the schema.
 
 ### Changed
 

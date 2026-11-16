@@ -699,6 +699,41 @@ compared by value, so `{ done: false }` matches `{ done: false }`.
 Keep keys to JSON values (strings, numbers, booleans, `null`, arrays and
 plain objects): with server rendering, they're sent to the browser.
 
+**An endpoint with a `query` schema** (Effetch's `query` option on
+`Fetch.endpoint`) is keyed by its query as it's sent: each value encoded to
+a string, as in the URL. A `Date` is its ISO string, `2` is `"2"`, and a
+field renamed with `Schema.encodeKeys` has its sent name. So equal requests
+share a query, and the key is JSON for server rendering:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+export const searchTodos = api.query(
+  Fetch.endpoint("GET /todos/search", {
+    output: Schema.Array(Todo),
+    query: Schema.Struct({
+      due: Schema.Date,
+      page: Schema.optional(Schema.Finite),
+    }),
+  }),
+);
+
+searchTodos({ query: { due: new Date("2026-11-16"), page: 2 } });
+// keyed ["todos", "search", { due: "2026-11-16T00:00:00.000Z", page: "2" }]
+```
+
+A call throws an `EndpointQueryError` when its query doesn't match the
+schema, or when a field is `Redacted`: the key would hold the secret and
+send it to the browser, so send secrets in a header. The schema's encoding
+can't need services: the key is made when you call `searchTodos`, outside
+any Effect. For an infinite query, `pageParam` names one of the schema's
+optional fields.
+
 ### Freshness and refetching
 
 A query's value is **fresh** for its `staleTime` after it's fetched, and

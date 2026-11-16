@@ -1,8 +1,11 @@
 import type * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type * as HttpMethod from "effect/http/HttpMethod";
+import * as Predicate from "effect/Predicate";
 import * as Atom from "effect/reactivity/Atom";
-import type * as Schema from "effect/Schema";
+import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 
@@ -82,6 +85,30 @@ export type RegisteredStatusErrors = {
 };
 
 /**
+ * A `query` schema an endpoint query can be keyed by: one whose encoding
+ * needs no services, since a key is encoded when the family is called,
+ * outside any Effect. {@link Endpoints.mutation} takes any query schema
+ * whose services are registered.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { KeyQuerySchema } from "@monarcode/effetch-query/effetch";
+ *
+ * export const Search = Schema.Struct({
+ *   due: Schema.optional(Schema.Date),
+ * }) satisfies KeyQuerySchema;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type KeyQuerySchema = Fetch.QuerySchema & {
+	/** What encoding needs: nothing. */
+	readonly EncodingServices: never;
+};
+
+/**
  * Options for {@link endpoints}.
  *
  * @example
@@ -117,7 +144,8 @@ export interface EndpointsOptions<
 	 * shown as {@link EndpointQuery.error}. It's typed as the client's.
 	 *
 	 * Default: for a `Fetch.Service` class, the one it was declared with
-	 * (`Api.config`); this option overrides it. A client behind a
+	 * (`Api.config`); this option overrides it, as it must for a class whose
+	 * `layer` builds its client from another config. A client behind a
 	 * `Context.Service` key can't be read until its layer is built, so give
 	 * it here. Without one, the client still decodes and types those bodies,
 	 * but they go as JSON, so a query whose body isn't JSON isn't sent.
@@ -193,6 +221,7 @@ export interface EndpointInfiniteQueryOptions<
 	E,
 	P,
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+	QS extends Fetch.QuerySchema | undefined = undefined,
 >
 	extends
 		Query.Options<E>,
@@ -202,10 +231,53 @@ export interface EndpointInfiniteQueryOptions<
 	 * The query field each page's param is sent in, such as `"cursor"` or
 	 * `"skip"`. It's set on every page's request, over the call's own value,
 	 * and left out of the key. The param must be a value a query field takes
-	 * (`Fetch.QueryValue`), such as a string or a number.
+	 * (`Fetch.QueryValue`), such as a string or a number. With a `query`
+	 * schema on the endpoint, it's an optional field of the schema whose type
+	 * takes the param ({@link EndpointPageField}).
 	 */
-	readonly pageParam: [P] extends [Fetch.QueryValue] ? string : never;
+	readonly pageParam: EndpointPageField<QS, P>;
 }
+
+/**
+ * The query fields an infinite query's {@link EndpointInfiniteQueryOptions.pageParam}
+ * can name. The param `P` must be a `Fetch.QueryValue`, such as a string or
+ * a number, so pages cross to the browser as JSON. Without a `query` schema
+ * (`QS` is `undefined`), any field. With one, the schema's optional fields
+ * whose type takes `P` (`undefined` aside, for a first page with no cursor):
+ * optional, so a call can leave it out.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { EndpointPageField } from "@monarcode/effetch-query/effetch";
+ *
+ * const Search = Schema.Struct({
+ *   text: Schema.String,
+ *   page: Schema.optional(Schema.Finite),
+ * });
+ *
+ * export const field: EndpointPageField<typeof Search, number> = "page";
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type EndpointPageField<QS extends Fetch.QuerySchema | undefined, P> = [
+	P,
+] extends [Fetch.QueryValue]
+	? [QS] extends [Fetch.QuerySchema]
+		? {
+				[K in keyof QS["Type"]]-?: {} extends Pick<QS["Type"], K>
+					? [Exclude<P, undefined>] extends [
+							Exclude<QS["Type"][K], undefined>,
+						]
+						? K
+						: never
+					: never;
+			}[keyof QS["Type"]] &
+				string
+		: string
+	: never;
 
 /**
  * Options for {@link Endpoints.mutation}: a mutation's options
@@ -241,6 +313,8 @@ export interface EndpointMutationOptions<
  *
  * - `Q`: the type of `query`, checked with `Fetch.QueryOf`, so a value typed
  *   with an `interface` is accepted too. Defaults to `Fetch.QueryInput`.
+ * - `QS`: the endpoint's `query` schema, if it has one: `query` is then the
+ *   schema's type, required when the schema has required fields.
  *
  * @example
  * ```ts
@@ -257,9 +331,8 @@ export interface EndpointMutationOptions<
 export type EndpointQueryArgs<
 	R extends string,
 	Q extends Fetch.QueryOf<Q> = Fetch.QueryInput,
-> = Fetch.ParamsOption<Fetch.RoutePath<R>> & {
-	readonly query?: Q | undefined;
-};
+	QS extends Fetch.QuerySchema | undefined = undefined,
+> = Fetch.ParamsOption<Fetch.RoutePath<R>> & Fetch.EndpointQuery<QS, Q>;
 
 /**
  * What a mutation from route `R` takes when run: the endpoint's call
@@ -283,12 +356,16 @@ export type EndpointVariables<
 	R extends string,
 	I extends Fetch.AnySchema | undefined,
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+	QS extends Fetch.QuerySchema | undefined = undefined,
 > =
-	Fetch.EndpointArgs<R, I, Fetch.EndpointOptions<R, I, Ps>> extends [
-		options: infer Options,
-	]
+	Fetch.EndpointArgs<
+		R,
+		I,
+		Fetch.EndpointOptions<R, I, Ps, Fetch.QueryInput, undefined, QS>,
+		QS
+	> extends [options: infer Options]
 		? Options
-		: Fetch.EndpointOptions<R, I, Ps> | void;
+		: Fetch.EndpointOptions<R, I, Ps, Fetch.QueryInput, undefined, QS> | void;
 
 /**
  * The error schema a bound endpoint decodes error bodies with: its own, or
@@ -296,7 +373,7 @@ export type EndpointVariables<
  *
  * @example
  * ```ts
- * import type * as Schema from "effect/Schema";
+ * import * as Schema from "effect/Schema";
  *
  * import type { ErrorSchema } from "@monarcode/effetch-query/effetch";
  *
@@ -331,6 +408,16 @@ export type ErrorSchema<
  * mutation's `invalidates`, it matches exactly its own queries, not other
  * routes under the same path.
  *
+ * With a `query` schema on the endpoint (`QS`), `query` is typed by the
+ * schema, and the key holds the query as the schema encodes it, as it's
+ * sent: each value a string (a `Date` as its ISO string, `2` as `"2"`) and
+ * each field by its sent name. Equal requests share a query, and keys stay
+ * JSON for server rendering. The query a member was first called with is
+ * the one it sends, and the `args` {@link Query.update} gives. A call
+ * throws an `EndpointQueryError` (its `_tag`) when its query doesn't match
+ * the schema, a field encodes to an object, or a field is `Redacted`: a key
+ * would hold the secret and send it to the browser, so send it in a header.
+ *
  * @example
  * ```ts
  * import type { EndpointQuery } from "@monarcode/effetch-query/effetch";
@@ -346,10 +433,15 @@ export type ErrorSchema<
  *
  * @since 0.1.0
  */
-export interface EndpointQuery<R extends string, A, E> {
+export interface EndpointQuery<
+	R extends string,
+	A,
+	E,
+	QS extends Fetch.QuerySchema | undefined = undefined,
+> {
 	/** Returns the query for one call: the same query for the same request. */
 	<Q extends Fetch.QueryOf<Q> = Fetch.QueryInput>(
-		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q>>
+		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q, QS>, QS>
 	): Query.Query<A, E>;
 	/** The start every one of its keys has: the prefix and the path up to its first param. */
 	readonly key: Query.Key;
@@ -359,7 +451,9 @@ export interface EndpointQuery<R extends string, A, E> {
 		Fetch.AnySchema | undefined,
 		Fetch.AnySchema | undefined,
 		Fetch.AnySchema | undefined,
-		Fetch.StatusErrorMap | undefined
+		Fetch.StatusErrorMap | undefined,
+		undefined,
+		QS
 	>;
 	/**
 	 * The schema error bodies are decoded with: the endpoint's, else the
@@ -392,10 +486,16 @@ export interface EndpointQuery<R extends string, A, E> {
  *
  * @since 0.1.0
  */
-export interface EndpointInfiniteQuery<R extends string, A, E, P> {
+export interface EndpointInfiniteQuery<
+	R extends string,
+	A,
+	E,
+	P,
+	QS extends Fetch.QuerySchema | undefined = undefined,
+> {
 	/** Returns the infinite query for one call, as {@link EndpointQuery} does. */
 	<Q extends Fetch.QueryOf<Q> = Fetch.QueryInput>(
-		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q>>
+		...args: Fetch.EndpointArgs<R, undefined, EndpointQueryArgs<R, Q, QS>, QS>
 	): InfiniteQuery.InfiniteQuery<A, E, P>;
 	/** The start every one of its keys has: the prefix and the path up to its first param. */
 	readonly key: Query.Key;
@@ -405,7 +505,9 @@ export interface EndpointInfiniteQuery<R extends string, A, E, P> {
 		Fetch.AnySchema | undefined,
 		Fetch.AnySchema | undefined,
 		Fetch.AnySchema | undefined,
-		Fetch.StatusErrorMap | undefined
+		Fetch.StatusErrorMap | undefined,
+		undefined,
+		QS
 	>;
 	/** The schema error bodies are decoded with, as {@link EndpointQuery.error}. */
 	readonly error: Fetch.AnySchema | undefined;
@@ -417,7 +519,7 @@ export interface EndpointInfiniteQuery<R extends string, A, E, P> {
  * @example
  * ```ts
  * import * as Fetch from "@monarcode/effetch";
- * import type * as Schema from "effect/Schema";
+ * import * as Schema from "effect/Schema";
  *
  * import type { Endpoints } from "@monarcode/effetch-query/effetch";
  *
@@ -452,6 +554,10 @@ export interface Endpoints<
 	 *
 	 * Only `GET`, `HEAD`, `OPTIONS` and `TRACE` endpoints: a call with a body
 	 * is a {@link Endpoints.mutation}, or a {@link Query.family} of your own.
+	 * An endpoint with a `query` schema is keyed by the query as it's sent
+	 * ({@link EndpointQuery}); its schema can't need services
+	 * ({@link KeyQuerySchema}). Not stream endpoints, nor ones with
+	 * `responseMode`: their calls don't give a value to cache.
 	 *
 	 * With an `output`, its queries cross from server to browser with no
 	 * `schema` to write (`QueryClient.dehydrate`); without one, they aren't
@@ -470,8 +576,9 @@ export interface Endpoints<
 		Own extends RegisteredSchema | undefined,
 		I extends RegisteredSchema | undefined,
 		OwnSE extends RegisteredStatusErrors | undefined = undefined,
+		QS extends KeyQuerySchema | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS>,
 		options?: EndpointQueryOptions<
 			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 			Ps
@@ -479,7 +586,8 @@ export interface Endpoints<
 	) => EndpointQuery<
 		R,
 		Fetch.Success<O>,
-		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>
+		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
+		QS
 	>;
 	/**
 	 * Defines a family of infinite queries that call an endpoint page by
@@ -487,7 +595,8 @@ export interface Endpoints<
 	 * as {@link Endpoints.query} makes queries. Each page's param is sent in
 	 * the query field `pageParam` names; the value is an
 	 * {@link InfiniteQuery.InfiniteData} of the endpoint's `output`, and the
-	 * error is {@link Endpoints.query}'s. Only endpoints without a body. Its
+	 * error is {@link Endpoints.query}'s. With a `query` schema, `pageParam`
+	 * names one of its optional fields ({@link EndpointPageField}). Only endpoints without a body. Its
 	 * queries cross from server to browser as {@link Endpoints.query}'s do,
 	 * the page params as JSON.
 	 */
@@ -498,24 +607,28 @@ export interface Endpoints<
 		I extends RegisteredSchema | undefined,
 		P,
 		OwnSE extends RegisteredStatusErrors | undefined = undefined,
+		QS extends KeyQuerySchema | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS>,
 		options: EndpointInfiniteQueryOptions<
 			Fetch.Success<O>,
 			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 			P,
-			Ps
+			Ps,
+			QS
 		>,
 	) => EndpointInfiniteQuery<
 		R,
 		Fetch.Success<O>,
 		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
-		P
+		P,
+		QS
 	>;
 	/**
 	 * Defines a mutation that calls an endpoint defined with
 	 * `Fetch.endpoint`, whatever its method. Its variables are the call's
-	 * options (`params`, `query`, `body`, …: {@link EndpointVariables}), and
+	 * options (`params`, `query`, `body`, …: {@link EndpointVariables}), with
+	 * `query` typed by the endpoint's `query` schema if it has one, and
 	 * it takes a mutation's options ({@link EndpointMutationOptions}), such
 	 * as `invalidates` and `optimistic`; nothing is invalidated unless you
 	 * say so. Its value and errors are those of {@link Endpoints.query}.
@@ -526,16 +639,17 @@ export interface Endpoints<
 		Own extends RegisteredSchema | undefined,
 		I extends RegisteredSchema | undefined,
 		OwnSE extends RegisteredStatusErrors | undefined = undefined,
+		QS extends (Fetch.QuerySchema & RegisteredSchema) | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS>,
 		options?: EndpointMutationOptions<
-			EndpointVariables<R, I, Ps>,
+			EndpointVariables<R, I, Ps, QS>,
 			Fetch.Success<O>,
 			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
 			Ps
 		>,
 	) => Mutation.Mutation<
-		EndpointVariables<R, I, Ps>,
+		EndpointVariables<R, I, Ps, QS>,
 		Fetch.Success<O>,
 		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>
 	>;
@@ -548,7 +662,100 @@ interface AnyEndpoint {
 	readonly output: Fetch.AnySchema | undefined;
 	readonly error: Fetch.AnySchema | undefined;
 	readonly statusErrors?: Fetch.StatusErrorMap | undefined;
+	readonly query?: Fetch.QuerySchema | undefined;
 }
+
+/**
+ * Thrown when a call's `query` can't be part of its key: it doesn't match
+ * the endpoint's `query` schema, a field encodes to an object, or a field is
+ * `Redacted`, whose secret the key would hold and send to the browser.
+ */
+class EndpointQueryError extends Data.TaggedError("EndpointQueryError")<{
+	readonly route: string;
+	readonly message: string;
+	readonly cause?: unknown;
+}> {}
+
+/** A call's arguments as its key holds them, and as the call sends them. */
+interface CallArgs {
+	readonly key: RouteArgs;
+	readonly call: RouteArgs;
+}
+
+const isSent = (value: unknown): boolean =>
+	Predicate.isString(value) ||
+	(Array.isArray(value) && value.every(Predicate.isString));
+
+/**
+ * How an endpoint's calls become keys. Without a `query` schema, the key
+ * holds the call's arguments as sent (`canonicalArgs`), and the call sends
+ * them. With one, the key holds the query encoded as Effetch sends it, each
+ * value a string, and the call sends the query as given, for Effetch to
+ * encode.
+ */
+const callArgs = (
+	endpoint: AnyEndpoint,
+	path: ReadonlyArray<Segment>,
+): ((args: RouteArgs | undefined) => CallArgs) => {
+	const schema = endpoint.query;
+	if (schema === undefined) {
+		return (args) => {
+			const key = canonicalArgs(path, args);
+			return { key, call: key };
+		};
+	}
+	const route = `${endpoint.method} ${endpoint.path}`;
+	const encode = Schema.encodeUnknownSync(
+		Schema.toCodecStringTree(schema) as unknown as Schema.Codec<
+			unknown,
+			unknown
+		>,
+	);
+	const fail = (message: string, cause?: unknown): never => {
+		throw new EndpointQueryError({
+			route,
+			message: `Invalid query for ${route}: ${message}`,
+			cause,
+		});
+	};
+	return (args) => {
+		const query = args?.query ?? {};
+		for (const [name, value] of Object.entries(query)) {
+			const values: ReadonlyArray<unknown> = Array.isArray(value)
+				? value
+				: [value];
+			if (values.some((item) => Redacted.isRedacted(item))) {
+				fail(
+					`"${name}" is Redacted, and a key would hold its secret: send it in a header`,
+				);
+			}
+		}
+		let encoded: unknown;
+		try {
+			encoded = encode(query);
+		} catch (error) {
+			fail("it doesn't match the query schema", error);
+		}
+		for (const [name, value] of Object.entries(
+			encoded as Record<string, unknown>,
+		)) {
+			if (!isSent(value)) {
+				fail(`"${name}" doesn't encode to a string or a list of strings`);
+			}
+		}
+		const { params } = canonicalArgs(path, { params: args?.params });
+		return {
+			key: canonicalArgs(path, {
+				params,
+				query: encoded as RouteArgs["query"],
+			}),
+			call: {
+				...(params === undefined ? {} : { params }),
+				...(args?.query === undefined ? {} : { query: args.query }),
+			},
+		};
+	};
+};
 
 type Call = (options: unknown) => Effect.Effect<unknown, unknown, never>;
 
@@ -648,19 +855,40 @@ export const endpoints = <
 	const endpointFamily = (
 		endpoint: AnyEndpoint,
 		path: ReadonlyArray<Segment>,
-		toArgs: (args: RouteArgs | undefined) => RouteArgs,
-		member: (args: RouteArgs, family: object) => Query.Query<any, any>,
+		toArgs: (args: RouteArgs | undefined) => CallArgs,
+		member: (
+			key: RouteArgs,
+			call: RouteArgs,
+			family: object,
+		) => Query.Query<any, any>,
 	) => {
-		const family = Atom.family((args: RouteArgs) => member(args, self));
-		const self = Object.assign((args?: RouteArgs) => family(toArgs(args)), {
-			key: routeKeyPrefix(prefix, path),
-			// Keys can't tell `/todos/:id` from `/todos/comments`, so a family
-			// matches the queries it made.
-			[KeyMatcherId]: (query: Query.Query<any, any>) =>
-				isMember(query, self),
-			endpoint,
-			error: endpoint.error ?? defaultError,
-		});
+		// The call that makes a member, which the family, keyed by `key`
+		// alone, doesn't see: with a query schema, a key can't be decoded
+		// back into the query that was given.
+		let calling: RouteArgs | undefined;
+		const family = Atom.family((key: RouteArgs) =>
+			member(key, calling ?? key, self),
+		);
+		const self = Object.assign(
+			(args?: RouteArgs) => {
+				const { key, call } = toArgs(args);
+				calling = call;
+				try {
+					return family(key);
+				} finally {
+					calling = undefined;
+				}
+			},
+			{
+				key: routeKeyPrefix(prefix, path),
+				// Keys can't tell `/todos/:id` from `/todos/comments`, so a family
+				// matches the queries it made.
+				[KeyMatcherId]: (query: Query.Query<any, any>) =>
+					isMember(query, self),
+				endpoint,
+				error: endpoint.error ?? defaultError,
+			},
+		);
 		return self;
 	};
 	// An endpoint's queries cross the wire with its `output`, Effetch's
@@ -706,10 +934,10 @@ export const endpoints = <
 		return endpointFamily(
 			endpoint,
 			path,
-			(args) => canonicalArgs(path, args),
-			(args, family) =>
+			callArgs(endpoint, path),
+			(key, args, family) =>
 				makeQuery({
-					key: routeKey(prefix, path, args),
+					key: routeKey(prefix, path, key),
 					fetch: runOnce(() => fetch(args)),
 					options: rest,
 					member: { family, args },
@@ -733,6 +961,7 @@ export const endpoints = <
 		} = queryOptions;
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
+		const toArgs = callArgs(endpoint, path);
 		const pages = {
 			initialPageParam,
 			nextPageParam,
@@ -745,10 +974,12 @@ export const endpoints = <
 		return endpointFamily(
 			endpoint,
 			path,
-			(args) => withoutQueryField(canonicalArgs(path, args), field),
-			(args, family) =>
+			// The page field goes before encoding: the key has no page, under
+			// any name the schema sends it by.
+			(args) => toArgs(withoutQueryField(args ?? {}, field)),
+			(key, args, family) =>
 				makeInfiniteQuery({
-					key: routeKey(prefix, path, args),
+					key: routeKey(prefix, path, key),
 					run: (page: unknown) =>
 						fetch({ ...args, query: { ...args.query, [field]: page } }),
 					pages,

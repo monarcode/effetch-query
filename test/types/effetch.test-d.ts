@@ -8,8 +8,8 @@ import * as Schema from "effect/Schema";
 import * as Fetch from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
-import { endpoints } from "../../src/effetch/index.js";
-import { type InfiniteQuery, type Mutation, Query } from "../../src/index.js";
+import { type EndpointQuery, endpoints } from "../../src/effetch/index.js";
+import { type InfiniteQuery, Mutation, Query } from "../../src/index.js";
 import { useMutation, useQuery } from "../../src/react/index.js";
 import {
 	ApiError,
@@ -288,6 +288,137 @@ describe("endpoints with a Fetch.Service class", () => {
 		expectTypeOf(
 			fromClass.query(TodoApi.definitions.get)({ params: { id: 1 } }),
 		).toExtend<Query.Query<Todo, unknown>>();
+	});
+});
+
+const MutationRun = Mutation.run;
+
+describe("endpoints with a query schema", () => {
+	const Search = Schema.Struct({
+		due: Schema.Date,
+		page: Schema.optional(Schema.Finite),
+	});
+	const search = Fetch.endpoint("GET /todos/search", {
+		output: Schema.Array(Todo),
+		query: Search,
+	});
+
+	it("types a call's query by the schema, and requires it when needed", () => {
+		const query = api.query(search);
+		expectTypeOf(query).toEqualTypeOf<
+			EndpointQuery<
+				"GET /todos/search",
+				ReadonlyArray<Todo>,
+				CallErrors<typeof ApiError.Type>,
+				typeof Search
+			>
+		>();
+		query({ query: { due: new Date() } });
+		// @ts-expect-error: due is a Date
+		query({ query: { due: "2026-11-16" } });
+		// @ts-expect-error: the schema has a required field
+		query();
+	});
+
+	it("keeps endpoints without a query schema as they were", () => {
+		expectTypeOf(
+			api.query(
+				Fetch.endpoint("GET /todos", { output: Schema.Array(Todo) }),
+			),
+		).toEqualTypeOf<
+			EndpointQuery<
+				"GET /todos",
+				ReadonlyArray<Todo>,
+				CallErrors<typeof ApiError.Type>
+			>
+		>();
+	});
+
+	it("takes an optional field of the schema as an infinite query's pageParam", () => {
+		api.infiniteQuery(search, {
+			pageParam: "page",
+			initialPageParam: 1,
+			nextPageParam: () => undefined,
+		});
+		api.infiniteQuery(search, {
+			// @ts-expect-error: due is required, and isn't a number
+			pageParam: "due",
+			initialPageParam: 1,
+			nextPageParam: () => undefined,
+		});
+	});
+
+	it("takes a cursor whose first page sends none", () => {
+		const Feed = Schema.Struct({ cursor: Schema.optional(Schema.String) });
+		api.infiniteQuery(
+			Fetch.endpoint("GET /feed", { output: Todo, query: Feed }),
+			{
+				pageParam: "cursor",
+				initialPageParam: undefined as string | undefined,
+				nextPageParam: () => undefined,
+			},
+		);
+	});
+
+	it("rejects a page param with no JSON form", () => {
+		const Since = Schema.Struct({ after: Schema.optional(Schema.Date) });
+		api.infiniteQuery(
+			Fetch.endpoint("GET /since", { output: Todo, query: Since }),
+			{
+				// @ts-expect-error: a Date page wouldn't reach the browser
+				pageParam: "after",
+				initialPageParam: new Date(0),
+				nextPageParam: () => undefined,
+			},
+		);
+	});
+
+	it("takes a query schema whose decoding needs a service", () => {
+		const decodesWithService = Search as unknown as Schema.Codec<
+			typeof Search.Type,
+			typeof Search.Encoded,
+			Unregistered,
+			never
+		>;
+		api.query(
+			Fetch.endpoint("GET /todos/decoded", {
+				output: Todo,
+				query: decodesWithService,
+			}),
+		);
+	});
+
+	it("rejects a query schema that needs a service for a query's key", () => {
+		const needy = Search as unknown as Schema.Codec<
+			typeof Search.Type,
+			typeof Search.Encoded,
+			never,
+			Unregistered
+		>;
+		const withNeedy = Fetch.endpoint("GET /todos/needy", {
+			output: Todo,
+			query: needy,
+		});
+		// @ts-expect-error: a key is encoded outside any Effect
+		api.query(withNeedy);
+	});
+
+	it("types a mutation's variables by the schema", () => {
+		const archive = api.mutation(
+			Fetch.endpoint("POST /todos/archive", {
+				query: Schema.Struct({ before: Schema.Date }),
+			}),
+		);
+		expectTypeOf(archive).toExtend<
+			Mutation.Mutation<
+				{ readonly query: { readonly before: Date } },
+				unknown,
+				unknown
+			>
+		>();
+		// @ts-expect-error: before is a Date
+		const wrong = MutationRun(archive, { query: { before: "x" } });
+		expectTypeOf(wrong).not.toBeNever();
 	});
 });
 
