@@ -217,6 +217,26 @@ export const wake = (
 	return true;
 };
 
+/**
+ * Wakes a query `clear` left idle for a reader whose fetch reads it, once the
+ * running code is done: a `clear` that left it idle may be clearing the
+ * reader too, and the reader's fetch is a stale one then.
+ */
+const wakeForReader = (
+	registry: AtomRegistry.AtomRegistry,
+	dependency: Query.Query<any, any>,
+	reader: Query.Query<any, any>,
+	generation: number,
+): void => {
+	const state = registry.get(StateAtom);
+	queueMicrotask(() => {
+		const local = state.disposed ? undefined : localValue(registry, reader);
+		if (local?.idle !== true && local?.generation === generation) {
+			wake(registry, dependency);
+		}
+	});
+};
+
 export const localValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
@@ -426,7 +446,12 @@ export const makeQuery = <A, E>(definition: {
 			const { retry } = get(watcher).settings;
 			const { queries } = get.once(ConfigAtom);
 			const runContext: Query.RunContext = {
-				result: (query) => get.result(query),
+				result: (dependency) => {
+					if (isIdle(registry, dependency)) {
+						wakeForReader(registry, dependency, query, generation);
+					}
+					return get.result(dependency);
+				},
 			};
 			const context: FetchContext<A, E> = {
 				get,

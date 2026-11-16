@@ -20,7 +20,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   fetching, for signing out: the screens still mounted don't refetch with
   no session. Queries in use show `Initial` until something asks for them
   (a component that starts using one, `fetch`, `invalidate` or
-  `refetch`). A `fetch` waiting on a cleared query is interrupted and a
+  `refetch`). A query that reads a cleared one through `ctx.result` is
+  cleared too. A `fetch` waiting on a cleared query is interrupted and a
   `refetch` resolves, and a mutation's optimistic write made before the
   clear isn't rolled back over it. `Query.reset` still fetches again at
   once.

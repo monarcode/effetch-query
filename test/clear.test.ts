@@ -395,6 +395,93 @@ describe("Query.clear", () => {
 	});
 });
 
+describe("Query.clear and the queries that read a cleared one", () => {
+	const pair = async (client: QueryClient.QueryClient, name: string) => {
+		const viewer = tracked([name, "viewer"], (n) => Effect.succeed(n), {
+			staleTime: "1 hour",
+		});
+		let runs = 0;
+		const reads = Query.make({
+			key: [name, "reads"],
+			run: (ctx) => {
+				runs++;
+				return Effect.map(ctx.result(viewer.query), (n) => `of ${n}`);
+			},
+			staleTime: "1 hour",
+		});
+		use(client.registry, viewer.query);
+		use(client.registry, reads);
+		await valueOf(client.registry, reads);
+		return { viewer, reads, runs: () => runs };
+	};
+
+	it("clears a query in use that reads it, without fetching either", async () => {
+		const client = await makeClient();
+		const { viewer, reads, runs } = await pair(client, "targeted");
+
+		await client.clear(viewer.query);
+		await tick();
+
+		expect(show(client.registry.get(reads))).toBe("Initial");
+		expect(show(client.registry.get(viewer.query))).toBe("Initial");
+		expect([viewer.fetches.count, runs()]).toEqual([1, 1]);
+	});
+
+	it("fetches what a reader reads when the reader is asked for", async () => {
+		const client = await makeClient();
+		const { viewer, reads } = await pair(client, "asked");
+
+		await client.clear(viewer.query);
+		await client.invalidate(reads);
+
+		expect(await valueOf(client.registry, reads)).toBe("of 2");
+		expect(viewer.fetches.count).toBe(2);
+	});
+
+	it("fetches what a reader that starts being used reads", async () => {
+		const client = await makeClient();
+		const viewer = await cached(client, ["mounting", "viewer"]);
+		const reads = Query.make({
+			key: ["mounting", "reads"],
+			run: (ctx) => ctx.result(viewer.query),
+		});
+
+		await client.clear();
+		use(client.registry, reads);
+
+		expect(await valueOf(client.registry, reads)).toBe(2);
+		expect(viewer.fetches.count).toBe(2);
+	});
+
+	it("clears the readers of its readers", async () => {
+		const client = await makeClient();
+		const { viewer, reads } = await pair(client, "chain");
+		const last = Query.make({
+			key: ["chain", "last"],
+			run: (ctx) => ctx.result(reads),
+			staleTime: "1 hour",
+		});
+		use(client.registry, last);
+		await valueOf(client.registry, last);
+
+		await client.clear(viewer.query);
+		await tick();
+
+		expect(client.registry.get(last)._tag).toBe("Initial");
+		expect(viewer.fetches.count).toBe(1);
+	});
+
+	it("leaves the queries it reads alone", async () => {
+		const client = await makeClient();
+		const { viewer, reads } = await pair(client, "reads only");
+
+		await client.clear(reads);
+		await tick();
+
+		expect(show(client.registry.get(viewer.query))).toBe("Success 1");
+	});
+});
+
 describe("Query.clear and an optimistic write made after it", () => {
 	it("goes back to cleared on rollback, and fetches when asked", async () => {
 		const client = await makeClient();

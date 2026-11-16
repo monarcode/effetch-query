@@ -233,8 +233,9 @@ export interface QueryClient {
 	readonly reset: (target?: Query.Target | undefined) => Promise<void>;
 	/**
 	 * Drops the target's values without fetching, as {@link Query.clear}
-	 * does: queries in use show `Initial` until something asks for them,
-	 * such as a component that starts using one. Without a target, every
+	 * does, and those of the queries that read them: queries in use show
+	 * `Initial` until something asks for them, such as a component that
+	 * starts using one. Without a target, every
 	 * query: use it on signing out, when refetching would fail. Resolves at
 	 * once.
 	 *

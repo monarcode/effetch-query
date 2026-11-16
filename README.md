@@ -1262,7 +1262,8 @@ export function SignOut() {
 Queries in use show `Initial` until something asks for them: a component
 that starts using one, `client.fetch`, `invalidate` or `refetch`. A
 component already showing one keeps showing `Initial`, or its Suspense
-fallback. A `client.fetch` waiting on one is interrupted, and a mutation
+fallback. A query that reads a cleared one through `ctx.result` is
+cleared too. A `client.fetch` waiting on one is interrupted, and a mutation
 still running doesn't roll its optimistic writes back over the cleared
 values. `client.reset()` drops the values too, but fetches those in use
 again at once.

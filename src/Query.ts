@@ -783,6 +783,9 @@ export const reset = (
  *   `useSuspenseQuery` shows its Suspense fallback.
  * - A query not in use fetches the next time it's used, as after
  *   {@link reset}.
+ * - A query whose `run` reads a cleared one through `ctx.result` is cleared
+ *   too, since its value came from it. When it's asked for again, it asks
+ *   for what it reads.
  * - A {@link fetch} waiting on it is interrupted, and a {@link refetch}
  *   waiting on it completes: neither starts a fetch.
  * - A mutation's optimistic write made before it isn't rolled back over it:

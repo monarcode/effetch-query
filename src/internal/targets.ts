@@ -4,7 +4,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Query from "../Query.js";
 import { clearQuery, resetQuery, settled } from "./cache.js";
 import { matching } from "./keyIndex.js";
-import { wake } from "./queryAtom.js";
+import { isQuery, wake } from "./queryAtom.js";
 import { isInUse } from "./usage.js";
 
 /** Marks the matching queries stale: those in use refetch at once. */
@@ -60,14 +60,48 @@ export const reset = (
 };
 
 /**
- * Drops the matching queries' values without fetching: those in use show an
- * idle `Initial` until something asks for them.
+ * Drops the matching queries' values without fetching, and those of the
+ * queries that read them: those in use show an idle `Initial` until
+ * something asks for them.
  */
 export const clear = (
 	registry: AtomRegistry.AtomRegistry,
 	target: Query.Target,
 ): void => {
-	for (const query of matching(registry, target)) {
+	for (const query of withReaders(registry, matching(registry, target))) {
 		clearQuery(registry, query);
 	}
+};
+
+/**
+ * The queries, and the queries that read them through `ctx.result`, and
+ * theirs in turn: a reader's value came from what it read, and a reader in
+ * use would otherwise wait for an idle query for ever. Readers come before
+ * what they read, so clearing a query doesn't restart a reader's fetch.
+ */
+const withReaders = (
+	registry: AtomRegistry.AtomRegistry,
+	queries: ReadonlyArray<Query.Query<any, any>>,
+): ReadonlyArray<Query.Query<any, any>> => {
+	const ordered: Array<Query.Query<any, any>> = [];
+	const seen = new Set<AtomRegistry.Node<any>>();
+	const visit = (node: AtomRegistry.Node<any>): void => {
+		seen.add(node);
+		for (const child of node.children) {
+			if (!seen.has(child)) {
+				visit(child);
+			}
+		}
+		if (isQuery(node.atom)) {
+			ordered.push(node.atom);
+		}
+	};
+	const nodes = registry.getNodes();
+	for (const query of queries) {
+		const node = nodes.get(query);
+		if (node !== undefined && !seen.has(node)) {
+			visit(node);
+		}
+	}
+	return ordered;
 };
