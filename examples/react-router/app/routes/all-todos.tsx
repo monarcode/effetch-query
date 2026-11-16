@@ -1,4 +1,4 @@
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
 	HydrationBoundary,
 	useSuspenseInfiniteQuery,
@@ -21,12 +21,12 @@ import { TodoItem } from "../todo-item.js";
 
 export async function loader({ context }: LoaderFunctionArgs) {
 	const client = getQueryClient(context);
-	await client.runPromise(Query.fetch(everyTodo));
+	await client.fetch(everyTodo);
 	return { state: QueryClient.dehydrate(client) };
 }
 
 export async function clientLoader({ context }: ClientLoaderFunctionArgs) {
-	await getQueryClient(context).runPromise(Query.fetch(everyTodo));
+	await getQueryClient(context).fetch(everyTodo);
 	return { state: undefined };
 }
 

@@ -4,8 +4,35 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ## Unreleased
 
+### Added
+
+- The client has the cache functions as methods, for code outside Effect
+  such as router loaders and event handlers. Each does what its `Query`
+  function does:
+  - `client.fetch(query)` returns `Promise<A>`, rejected as the query
+    fails, so a router's redirect still gets through. It replaces
+    `client.runPromise(Query.fetch(query))`.
+  - `client.prefetch(query)` never rejects: `void client.prefetch(query)`
+    replaces `void client.runPromiseExit(Query.prefetch(query))`.
+  - `client.invalidate`, `refetch`, `reset` and `clear` take a target, or
+    none for every query.
+- `Query.clear(target)` and `client.clear()` drop values without
+  fetching, for signing out: the screens still mounted don't refetch with
+  no session. Queries in use show `Initial` until something asks for them
+  (a component that starts using one, `fetch`, `invalidate` or
+  `refetch`). A `fetch` waiting on a cleared query is interrupted and a
+  `refetch` resolves, and a mutation's optimistic write made before the
+  clear isn't rolled back over it. `Query.reset` still fetches again at
+  once.
+- `QueryClient.make()` and `QueryClient.layer()` take no options when
+  `Register` declares no services (`QueryClient.OptionalOptions`).
+
 ### Changed
 
+- A key that holds a query, a family or a group, such as
+  `Query.invalidate([wallet, transactions])`, fails with a
+  `KeyHoldsTargetError` defect instead of silently matching nothing.
+  Combine targets with `Query.group`.
 - The API reference (JSDoc) was audited across every entry point: each
   function says what it returns and how it fails, each option its default,
   and related exports link to each other. Documentation only: no type or

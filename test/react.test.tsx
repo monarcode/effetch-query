@@ -860,3 +860,123 @@ describe("useInfiniteQuery and useSuspenseInfiniteQuery", () => {
 		expect(text()).toBe("0,1,2,3 +more");
 	});
 });
+
+describe("clear", () => {
+	const Name = ({ query }: { readonly query: Query.Query<string, never> }) => (
+		<p data-testid="result">{useSuspenseQuery(query).value}</p>
+	);
+
+	it("leaves a mounted useQuery showing Initial, and a newly mounted one fetches", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(
+			["account"],
+			(n) => Effect.succeed(n),
+			{
+				staleTime: "1 hour",
+			},
+		);
+		const { rerender } = render(withClient(client, <Shows query={query} />));
+		await act(async () => {});
+		expect(text()).toBe("Success 1");
+
+		await act(() => client.clear());
+		expect(text()).toBe("Initial");
+		expect(fetches.count).toBe(1);
+
+		rerender(
+			withClient(
+				client,
+				<>
+					<Shows query={query} />
+					<Shows query={query} label="second" />
+				</>,
+			),
+		);
+		await act(async () => {});
+		expect(fetches.count).toBe(2);
+		expect(text("second")).toBe("Success 2");
+		expect(text()).toBe("Success 2");
+	});
+
+	it("shows a mounted useSuspenseQuery's fallback without fetching", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(["me"], () => Effect.succeed("Ada"), {
+			staleTime: "1 hour",
+		});
+		render(
+			withClient(
+				client,
+				<React.Suspense fallback={<p>loading</p>}>
+					<Name query={query} />
+				</React.Suspense>,
+			),
+		);
+		expect(await screen.findByText("Ada")).toBeDefined();
+
+		await act(() => client.clear());
+
+		expect(await screen.findByText("loading")).toBeDefined();
+		await act(async () => {});
+		expect(fetches.count).toBe(1);
+
+		await act(() => client.invalidate(query));
+		expect(await screen.findByText("Ada")).toBeDefined();
+		expect(fetches.count).toBe(2);
+	});
+
+	it("wakes a query for a new Suspense reader without updating another during render", async () => {
+		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+		const client = await makeClient();
+		const { fetches, query } = tracked(["shared"], (n) => Effect.succeed(n), {
+			staleTime: "1 hour",
+		});
+		const Reads = ({
+			query,
+		}: {
+			readonly query: Query.Query<number, never>;
+		}) => <p data-testid="suspended">{useSuspenseQuery(query).value}</p>;
+		const tree = (both: boolean) =>
+			withClient(
+				client,
+				<React.StrictMode>
+					<Shows query={query} />
+					{both ? (
+						<React.Suspense fallback={<p>loading</p>}>
+							<Reads query={query} />
+						</React.Suspense>
+					) : null}
+				</React.StrictMode>,
+			);
+		const { rerender } = render(tree(false));
+		await act(async () => {});
+		await act(() => client.clear());
+
+		rerender(tree(true));
+		await act(async () => {});
+
+		expect(text("suspended")).toBe("2");
+		expect(text()).toBe("Success 2");
+		expect(fetches.count).toBe(2);
+		expect(errors).not.toHaveBeenCalled();
+		errors.mockRestore();
+	});
+
+	it("doesn't keep showing a cleared value with keepPrevious", async () => {
+		const client = await makeClient();
+		const { query } = tracked(["previous"], (n) => Effect.succeed(n), {
+			staleTime: "1 hour",
+		});
+		const Keeps = () => (
+			<p data-testid="result">
+				{show(useQuery(query, { keepPrevious: true }))}
+			</p>
+		);
+		render(withClient(client, <Keeps />));
+		await act(async () => {});
+		expect(text()).toBe("Success 1");
+
+		await act(() => client.clear());
+
+		expect(text()).toBe("Initial");
+	});
+});

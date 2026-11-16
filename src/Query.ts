@@ -164,16 +164,17 @@ export interface Family<Args, A, E> {
 }
 
 /**
- * What {@link invalidate}, {@link refetch} and {@link reset} act on: a
+ * What {@link invalidate}, {@link refetch}, {@link reset} and {@link clear}
+ * act on: a
  * {@link Query} (that key only), a {@link Family} (every query whose key
  * starts with the family's, its members included; an effetch endpoint
  * matches only its own queries), a {@link Key} (every query whose key starts
  * with it, so `[]` matches every query), or a {@link Group} of these (every
  * query one of them matches).
  *
- * An array of queries is a key, not a group: `[wallet, transactions]`
- * matches the queries whose key starts with those two values, which is none.
- * Combine targets with {@link group}.
+ * An array of queries is a key, not a group, and as a key it would match
+ * nothing: `[wallet, transactions]` fails with a `KeyHoldsTargetError`
+ * defect instead. Combine targets with {@link group}.
  *
  * @example
  * ```ts
@@ -751,11 +752,13 @@ export const refetch = (
  * ```ts
  * import { Query } from "@monarcode/effetch-query";
  *
- * // After signing out, nothing under "session" may show.
- * export const onSignOut = Query.reset(["session"]);
+ * // After switching workspace, the projects list starts again.
+ * export const onSwitchWorkspace = Query.reset(["projects"]);
  * ```
  *
  * @see {@link invalidate} to refetch and keep showing the values meanwhile
+ * @see {@link clear} to drop the values without fetching, such as on
+ * signing out
  *
  * @since 0.1.0
  */
@@ -764,6 +767,54 @@ export const reset = (
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
 	QueryClient.QueryClient.useSync(({ registry }) =>
 		targets.reset(registry, target),
+	);
+
+/**
+ * Drops the matching queries' values, and those written with {@link set},
+ * without fetching: TanStack's `removeQueries` and `queryClient.clear()`.
+ * Use it when the values must go and refetching would fail, such as on
+ * signing out.
+ *
+ * - A query in use shows `Initial`, not waiting, and a fetch in progress is
+ *   interrupted. It stays empty through focus, reconnect, `refetchInterval`
+ *   and `Reactivity` keys, until something asks for it: a component that
+ *   starts using it, {@link fetch}, {@link invalidate} or {@link refetch}.
+ * - A component already showing it keeps showing `Initial`; one using
+ *   `useSuspenseQuery` shows its Suspense fallback.
+ * - A query not in use fetches the next time it's used, as after
+ *   {@link reset}.
+ * - A {@link fetch} waiting on it is interrupted, and a {@link refetch}
+ *   waiting on it completes: neither starts a fetch.
+ * - A mutation's optimistic write made before it isn't rolled back over it:
+ *   the cleared values don't come back. One made after it is rolled back
+ *   to the cleared state.
+ * - With `keepPrevious`, a component doesn't show a cleared value as its
+ *   previous one.
+ *
+ * A component reading a derived atom through `useAtomValue` doesn't ask
+ * for the query, so it stays empty until something else does.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ *
+ * declare const endSession: Effect.Effect<void>;
+ *
+ * // Nothing of the account shows, and nothing refetches without a session.
+ * export const signOut = Effect.andThen(endSession, Query.clear([]));
+ * ```
+ *
+ * @see {@link reset} to drop the values and fetch again at once
+ *
+ * @since 0.1.0
+ */
+export const clear = (
+	target: Target,
+): Effect.Effect<void, never, QueryClient.QueryClient> =>
+	QueryClient.QueryClient.useSync(({ registry }) =>
+		targets.clear(registry, target),
 	);
 
 /**

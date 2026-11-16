@@ -105,7 +105,7 @@ for (const [marker, file, signature, docs] of [
 	[
 		"make",
 		"QueryClient.d.ts",
-		"const make: (options: QueryClient.Options) => QueryClient.QueryClient",
+		"const make: (options?: QueryClient.CommonOptions | QueryClient.Options | undefined) => QueryClient.QueryClient",
 		"Nothing is built until",
 	],
 	[

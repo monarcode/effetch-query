@@ -1,8 +1,8 @@
 import * as Effect from "effect/Effect";
-import * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
-import { clearQuery, resetQuery } from "./cache.js";
+import { clearQuery, resetQuery, settled } from "./cache.js";
 import { matching } from "./keyIndex.js";
 import { wake } from "./queryAtom.js";
 import { isInUse } from "./usage.js";
@@ -13,10 +13,17 @@ export const invalidate = (
 	target: Query.Target,
 ): void => {
 	for (const query of matching(registry, target)) {
-		// A query `clear` left idle fetches as it wakes.
-		if (!wake(registry, query)) {
-			registry.refresh(query);
-		}
+		refresh(registry, query);
+	}
+};
+
+/** Refetches a query, or wakes it if `clear` left it idle, which fetches. */
+const refresh = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): void => {
+	if (!wake(registry, query)) {
+		registry.refresh(query);
 	}
 };
 
@@ -30,18 +37,12 @@ export const refetch = (
 			isInUse(registry, query),
 		);
 		for (const query of used) {
-			if (!wake(registry, query)) {
-				registry.refresh(query);
-			}
+			refresh(registry, query);
 		}
+		// A query cleared meanwhile counts as settled: nothing fetches it.
 		return Effect.forEach(
 			used,
-			(query) =>
-				Effect.exit(
-					AtomRegistry.getResult(registry, query, {
-						suspendOnWaiting: true,
-					}),
-				),
+			(query) => Effect.exit(settled(registry, query, Effect.void)),
 			{ concurrency: "unbounded", discard: true },
 		);
 	});

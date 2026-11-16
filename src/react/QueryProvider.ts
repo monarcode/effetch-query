@@ -294,12 +294,12 @@ export class MissingQueryProviderError extends Data.TaggedError(
  *
  * @example
  * ```ts
- * import { Query } from "@monarcode/effetch-query";
  * import { useQueryClient } from "@monarcode/effetch-query/react";
  *
+ * // Drops the cache without refetching, which would fail once signed out.
  * export const useSignOut = () => {
  *   const client = useQueryClient();
- *   return () => client.runPromise(Query.reset(["session"]));
+ *   return () => client.clear();
  * };
  * ```
  *

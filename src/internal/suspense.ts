@@ -7,6 +7,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
 import { QueryFailure } from "../QueryFailure.js";
+import { isIdle } from "./queryAtom.js";
 import { StateAtom } from "./runtime.js";
 
 /**
@@ -44,8 +45,10 @@ export const whenShowable = (
 		settle = resolve;
 	});
 	suspensions.set(query, promise);
+	// A `clear` while the reader waits leaves the query idle: the reader
+	// renders again and, being new to it, wakes it.
 	const unsubscribe = registry.subscribe(query, (result) => {
-		if (isShowable(result)) {
+		if (isShowable(result) || isIdle(registry, query)) {
 			done();
 		}
 	});

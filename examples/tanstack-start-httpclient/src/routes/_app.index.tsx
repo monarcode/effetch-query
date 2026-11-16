@@ -1,4 +1,3 @@
-import { Query } from "@monarcode/effetch-query";
 import { useRefetch, useSuspenseQuery } from "@monarcode/effetch-query/react";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -14,8 +13,8 @@ import { TodoItem } from "../todo-item.js";
 
 export const Route = createFileRoute("/_app/")({
 	loader: async ({ context }) => {
-		const user = await context.queryClient.runPromise(Query.fetch(viewer));
-		await context.queryClient.runPromise(Query.fetch(userTodos(user.id)));
+		const user = await context.queryClient.fetch(viewer);
+		await context.queryClient.fetch(userTodos(user.id));
 	},
 	component: function MyTodos() {
 		const { value: user } = useSuspenseQuery(viewer);

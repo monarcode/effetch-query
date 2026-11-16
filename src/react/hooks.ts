@@ -121,9 +121,9 @@ export const useQuery = <A, E>(
 	);
 	React.useEffect(
 		function rememberSuccess() {
-			use.showed(result);
+			use.showed(query, result);
 		},
-		[use, result],
+		[use, query, result],
 	);
 	return use.show(result, options?.keepPrevious === true && query !== null);
 };

@@ -1,4 +1,4 @@
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
 	HydrationBoundary,
 	useRefetch,
@@ -22,10 +22,8 @@ import { getQueryClient } from "../query-context.js";
 import { TodoItem } from "../todo-item.js";
 
 const load = async (client: QueryClient.QueryClient) => {
-	const user = await client.runPromise(Query.fetch(viewer));
-	await client.runPromise(
-		Query.fetch(userTodos({ params: { userId: user.id } })),
-	);
+	const user = await client.fetch(viewer);
+	await client.fetch(userTodos({ params: { userId: user.id } }));
 };
 
 export async function loader({ context }: LoaderFunctionArgs) {

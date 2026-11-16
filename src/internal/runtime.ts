@@ -65,6 +65,11 @@ export interface ClientState {
 	>;
 	/** Run by `dispose()`: settles the promises `dehydrate` handed out. */
 	readonly onDispose: Set<() => void>;
+	/**
+	 * How many times `clear` has dropped each query: an optimistic write's
+	 * undo made before a clear does nothing (see `cache.ts`).
+	 */
+	readonly clears: WeakMap<Query<any, any>, number>;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -72,6 +77,7 @@ export const makeClientState = (): ClientState => ({
 	listeners: new Set(),
 	fibers: new Set(),
 	disposed: false,
+	clears: new WeakMap(),
 	suspensions: new Map(),
 	fetchCount: 0,
 	fetchedAt: new WeakMap(),

@@ -1,4 +1,4 @@
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
 	HydrationBoundary,
 	useQueryClient,
@@ -22,7 +22,7 @@ import { clearSessionCookie } from "../session.js";
 // follows it.
 export async function loader({ context }: LoaderFunctionArgs) {
 	const client = getQueryClient(context);
-	await client.runPromise(Query.fetch(viewer));
+	await client.fetch(viewer);
 	return { state: QueryClient.dehydrate(client) };
 }
 
@@ -31,7 +31,7 @@ export async function loader({ context }: LoaderFunctionArgs) {
 // apps' loaders do: what it has cached isn't fetched again, and dummyjson's
 // unsaved changes stay until the page is reloaded.
 export async function clientLoader({ context }: ClientLoaderFunctionArgs) {
-	await getQueryClient(context).runPromise(Query.fetch(viewer));
+	await getQueryClient(context).fetch(viewer);
 	return { state: undefined };
 }
 
@@ -68,8 +68,9 @@ function Shell() {
 					onSignOut={async () => {
 						clearSessionCookie();
 						await navigate("/login");
-						// Nothing of this user's may show to the next one.
-						await queryClient.runPromise(Query.reset([]));
+						// Nothing of this user's may show to the next one, and nothing
+						// refetches without a session.
+						await queryClient.clear();
 					}}
 				/>
 			}

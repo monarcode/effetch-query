@@ -1,4 +1,4 @@
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
 	HydrationBoundary,
 	QueryFailure,
@@ -37,7 +37,7 @@ const load = (client: QueryClient.QueryClient, params: Params) => {
 	if (!Number.isInteger(id)) {
 		throw data(null, { status: 404 });
 	}
-	void client.runPromiseExit(Query.prefetch(todo({ params: { id } })));
+	void client.prefetch(todo({ params: { id } }));
 };
 
 export function loader({ context, params }: LoaderFunctionArgs) {

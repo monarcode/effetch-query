@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
 import { type QuerySettings, resolveQueryOptions } from "./defaults.js";
@@ -10,6 +10,7 @@ import { isFresh } from "./freshness.js";
 import type { Undo } from "./optimistic.js";
 import {
 	internals,
+	isIdle,
 	isQuery,
 	localValue,
 	nodeValue,
@@ -81,6 +82,23 @@ export const setValue = <A, E>(
 	query: Query.Query<A, E>,
 	value: A,
 ): Undo => {
+	// A clear since the write wins: its undo would bring back what was
+	// cleared, such as a signed-out account's data.
+	const { clears } = registry.get(StateAtom);
+	const clearsBefore = clears.get(query);
+	const undo = writeValue(registry, query, value);
+	return () => {
+		if (clears.get(query) === clearsBefore) {
+			undo();
+		}
+	};
+};
+
+const writeValue = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	value: A,
+): Undo => {
 	const { local, fetchAtom } = internals(query);
 	const previous = localValue(registry, query);
 	const { generation } = previous;
@@ -96,7 +114,11 @@ export const setValue = <A, E>(
 	registry.set(local, { generation: target, written: Option.none() });
 	registry.get(query);
 	if (target === generation) {
-		return () => resetQuery(registry, query);
+		// Undoing a write over a cleared query leaves it cleared, in a new
+		// generation, so waking it later fetches rather than showing the write.
+		return previous.idle === true
+			? () => dropQuery(registry, query)
+			: () => resetQuery(registry, query);
 	}
 	return Option.match(stale, {
 		onNone: () => restore,
@@ -214,9 +236,20 @@ export const resetQuery = (
  * Drops the query's value and written value, as `resetQuery` does, but a
  * query in use doesn't fetch: it moves to a new generation left idle, which
  * shows `Initial` until something asks for it (`wake`). One not in use is
- * reset, so its next read fetches.
+ * reset, so its next read fetches. Undoing a write made before it does
+ * nothing (`setValue`), and an Effect waiting on the query is interrupted
+ * (`settled`).
  */
 export const clearQuery = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): void => {
+	const { clears } = registry.get(StateAtom);
+	clears.set(query, (clears.get(query) ?? 0) + 1);
+	dropQuery(registry, query);
+};
+
+const dropQuery = (
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<any, any>,
 ): void => {
@@ -278,7 +311,48 @@ const readOrFetch = <A, E>(
 				registry.refresh(query);
 			}
 		}
-		return AtomRegistry.getResult(registry, query, {
-			suspendOnWaiting: true,
-		});
+		return settled(registry, query, Effect.interrupt);
 	});
+
+/**
+ * Waits for the query to settle, as `AtomRegistry.getResult` does, but a
+ * query `clear` leaves idle settles as `whenCleared`: nothing fetches it
+ * until something asks, so waiting for it would never end.
+ */
+export const settled = <A, E, A2, E2>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	whenCleared: Effect.Effect<A2, E2>,
+): Effect.Effect<A | A2, E | E2> =>
+	Effect.callback<
+		AsyncResult.Success<A, E> | AsyncResult.Failure<A, E> | undefined
+	>((resume) => {
+		const check = (result: AsyncResult.AsyncResult<A, E>): boolean => {
+			if (isIdle(registry, query)) {
+				resume(Effect.succeed(undefined));
+				return true;
+			}
+			if (result._tag !== "Initial" && !result.waiting) {
+				resume(Effect.succeed(result));
+				return true;
+			}
+			return false;
+		};
+		if (check(registry.get(query))) {
+			return;
+		}
+		const cancel = registry.subscribe(query, (result) => {
+			if (check(result)) {
+				cancel();
+			}
+		});
+		return Effect.sync(cancel);
+	}).pipe(
+		Effect.flatMap((result): Effect.Effect<A | A2, E | E2> =>
+			result === undefined
+				? whenCleared
+				: result._tag === "Success"
+					? Effect.succeed(result.value)
+					: Effect.failCause(result.cause),
+		),
+	);

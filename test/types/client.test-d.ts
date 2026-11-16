@@ -169,6 +169,10 @@ describe("the client's promise methods", () => {
 		expectTypeOf(client.invalidate()).toEqualTypeOf<Promise<void>>();
 		expectTypeOf(client.refetch(todos)).toEqualTypeOf<Promise<void>>();
 		expectTypeOf(client.reset(["todos"])).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.clear()).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(Query.clear(["todos"])).toEqualTypeOf<
+			Effect.Effect<void, never, QueryClient.QueryClient>
+		>();
 	});
 
 	it("take any target, or none", () => {

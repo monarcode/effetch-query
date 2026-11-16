@@ -32,6 +32,7 @@ describe("public entry points", () => {
 		]);
 		expect(Object.keys(Core.Query).sort()).toEqual([
 			"TypeId",
+			"clear",
 			"family",
 			"fetch",
 			"get",

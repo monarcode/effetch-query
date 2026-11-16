@@ -1,4 +1,3 @@
-import { Query } from "@monarcode/effetch-query";
 import {
 	useQueryClient,
 	useSuspenseQuery,
@@ -18,7 +17,7 @@ import { clearSessionCookie } from "../session.js";
 export const Route = createFileRoute("/_app")({
 	// Signed out, the viewer dies with a redirect to sign in, and the router
 	// follows it, on the server as in the browser.
-	loader: ({ context }) => context.queryClient.runPromise(Query.fetch(viewer)),
+	loader: ({ context }) => context.queryClient.fetch(viewer),
 	// Its pages' errors show inside it; its own replace it.
 	errorComponent: (props) => (
 		<AppShell>
@@ -49,8 +48,9 @@ export const Route = createFileRoute("/_app")({
 						onSignOut={async () => {
 							clearSessionCookie();
 							await router.navigate({ to: "/login" });
-							// Nothing of this user's may show to the next one.
-							await queryClient.runPromise(Query.reset([]));
+							// Nothing of this user's may show to the next one, and nothing
+							// refetches without a session.
+							await queryClient.clear();
 						}}
 					/>
 				}

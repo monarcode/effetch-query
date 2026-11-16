@@ -668,7 +668,8 @@ retried.
 
 Everything the cache does is an Effect. Inside queries and mutations the
 client is already there; elsewhere, such as a router loader or an event
-handler, run the Effect with `queryClient.runPromise`:
+handler, run the Effect with `queryClient.runPromise`, or call the client's
+own method for it (see [Outside Effect](#outside-effect)):
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -690,8 +691,7 @@ const openTodo = (id: number) =>
 
 export const loadTodo = (id: number) => queryClient.runPromise(openTodo(id));
 
-export const refreshEverything = () =>
-  queryClient.runPromise(Query.invalidate(["todos"]));
+export const refreshEverything = () => queryClient.invalidate(["todos"]);
 ```
 
 | Function                   | What it does                                                                                   |
@@ -705,7 +705,27 @@ export const refreshEverything = () =>
 | `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                    |
 | `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
 | `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
+| `Query.clear(target)`      | Drops the values without fetching; queries in use show `Initial` until something asks.         |
 | `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.           |
+
+#### Outside Effect
+
+The client has a method for each of these that code outside Effect calls,
+such as a router loader or an event handler. Each does what its `Query`
+function does:
+
+| Method                      | Returns                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `client.fetch(query)`       | `Promise<A>`, rejected as the query fails, so a router's redirect gets through. |
+| `client.prefetch(query)`    | `Promise<void>`, resolved when the fetch settles. Never rejects.                |
+| `client.invalidate(target)` | `Promise<void>`, resolved at once.                                              |
+| `client.refetch(target)`    | `Promise<void>`, resolved when the queries in use have settled.                 |
+| `client.reset(target)`      | `Promise<void>`, resolved at once.                                              |
+| `client.clear(target)`      | `Promise<void>`, resolved at once.                                              |
+
+Without a target, `invalidate`, `refetch`, `reset` and `clear` act on every
+query. `fetch` and `prefetch` take `{ signal }` to stop waiting when it
+aborts.
 
 To read the cache where you can't wait for a promise, such as a form
 listener, `QueryClient.get(queryClient, query)` returns the cached value as
@@ -1212,9 +1232,49 @@ export function OpenTitles() {
 
 ### Signing out and switching accounts
 
-A cache must not outlive the account that filled it. Give `QueryProvider`
-a `make` instead of a `client`, and the account's ID as `resetKey`: it makes
-a client for each account, and disposes the one before.
+A cache must not outlive the account that filled it. There are two ways to
+drop it.
+
+**Keep one client and clear it.** `client.clear()` drops every value
+without fetching, so the screens still mounted as you sign out don't
+refetch with no session (and fail with a 401):
+
+```tsx
+import { useQueryClient } from "@monarcode/effetch-query/react";
+
+declare function endSession(): Promise<void>;
+
+export function SignOut() {
+  const queryClient = useQueryClient();
+  return (
+    <button
+      onClick={async () => {
+        await endSession();
+        await queryClient.clear();
+      }}
+    >
+      Sign out
+    </button>
+  );
+}
+```
+
+Queries in use show `Initial` until something asks for them: a component
+that starts using one, `client.fetch`, `invalidate` or `refetch`. A
+component already showing one keeps showing `Initial`, or its Suspense
+fallback. A `client.fetch` waiting on one is interrupted, and a mutation
+still running doesn't roll its optimistic writes back over the cleared
+values. `client.reset()` drops the values too, but fetches those in use
+again at once.
+
+`invalidate` asks for the queries it matches, so it fetches cleared ones
+again. If every mutation invalidates the whole cache
+(`mutations: { onSuccess: () => Query.invalidate([]) }`), one that settles
+after signing out fetches the queries in use with no session.
+
+**Or make a client per account.** Give `QueryProvider` a `make` instead of
+a `client`, and the account's ID as `resetKey`: it makes a client for each
+account, and disposes the one before.
 
 ```tsx
 import { QueryClient } from "@monarcode/effetch-query";
@@ -1429,7 +1489,7 @@ export async function renderPage(): Promise<string> {
   // One client per request, so one user's data never reaches another's page.
   const client = QueryClient.make({ runtime: appRuntime });
   try {
-    await client.runPromise(Query.prefetch(todos()));
+    await client.prefetch(todos());
     const state = QueryClient.dehydrate(client);
     const html = renderToString(
       <QueryProvider client={client}>
@@ -1568,7 +1628,7 @@ const todosRoute = createRoute({
   path: "/",
   // TanStack's `queryClient.query()` (`ensureQueryData`, deprecated since
   // 5.102): the cached value while it's fresh.
-  loader: ({ context }) => context.queryClient.runPromise(Query.fetch(todos())),
+  loader: ({ context }) => context.queryClient.fetch(todos()),
   component: TodoList,
 });
 
@@ -1593,8 +1653,8 @@ export function getRouter() {
 - **On the server**, what the loaders loaded goes with the page, and
   queries started while rendering stream in as they start. A loader can
   start a prefetch without awaiting it,
-  `void context.queryClient.runPromiseExit(Query.prefetch(query))`, so the
-  page renders at once and the value follows. The client is disposed when
+  `void context.queryClient.prefetch(query)`, so the page renders at once
+  and the value follows. The client is disposed when
   the request ends.
 - **In the browser**, it all loads into the client before React hydrates:
   no `HydrationBoundary`, and nothing is fetched while it's fresh.
@@ -1629,8 +1689,8 @@ export const viewer = Query.make({
 });
 ```
 
-In a loader, `runPromise` rejects with the redirect and the router follows
-it, on the server too. Load a query that may redirect with `Query.fetch`:
+In a loader, `client.fetch` rejects with the redirect and the router
+follows it, on the server too. Load a query that may redirect with `fetch`:
 a fetch that's only prefetched leaves the redirect to its readers, which
 show it as a failure instead.
 
@@ -1691,7 +1751,7 @@ import { todos } from "./todos.js";
 
 export default async function TodosPage() {
   const client = getQueryClient();
-  await client.runPromise(Query.prefetch(todos()));
+  await client.prefetch(todos());
   return (
     <HydrationBoundary
       state={QueryClient.dehydrate(client, { pending: "promise" })}
@@ -1734,10 +1794,9 @@ export function Providers({ children }: { readonly children: ReactNode }) {
 ```
 
 - **A query still loading streams in** with `pending: "promise"`: start a
-  prefetch without awaiting it,
-  `void client.runPromiseExit(Query.prefetch(query))`, and the page renders
-  at once. `runPromiseExit` never rejects, so a prefetch cut short when the
-  client is disposed isn't an unhandled rejection.
+  prefetch without awaiting it, `void client.prefetch(query)`, and the page
+  renders at once. `prefetch` never rejects, so a prefetch cut short when
+  the client is disposed isn't an unhandled rejection.
 - **On client navigation**, the page's state comes with its payload, and
   the boundary loads what's newer than the browser's cache.
 - **A server render's client isn't disposed:** nothing says when React is
@@ -1830,7 +1889,7 @@ import { todos } from "./todos.js";
 
 export async function loader({ context }: LoaderFunctionArgs) {
   const client = getQueryClient(context);
-  await client.runPromise(Query.prefetch(todos()));
+  await client.prefetch(todos());
   return { state: QueryClient.dehydrate(client, { pending: "promise" }) };
 }
 
@@ -1901,8 +1960,7 @@ startTransition(() => {
 
 - **A query still loading streams in:** React Router streams the promises
   in loader data. Start a prefetch without awaiting it,
-  `void client.runPromiseExit(Query.prefetch(query))`, and the page renders
-  at once. One still loading at the entry's `streamTimeout` is fetched in
+  `void client.prefetch(query)`, and the page renders at once. One still loading at the entry's `streamTimeout` is fetched in
   the browser instead.
 - **On navigation**, the loaders run through a `.data` request, which
   brings the page's state the same way. Each navigation runs them again,
@@ -1926,12 +1984,16 @@ startTransition(() => {
 | `queries`   | `defaults` for every query, and the `onSuccess`, `onFailure` and `onSettled` hooks.                                        |
 | `mutations` | `defaults` (`retry`, `concurrent`) for every mutation, and the `onMutate`, `onSuccess`, `onFailure` and `onSettled` hooks. |
 
-| Member                                       | What it is                                                                                   |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `client.runPromise`, `client.runPromiseExit` | Run an Effect with the client, your services and `Reactivity`.                               |
-| `client.registry`                            | The `AtomRegistry` holding the cache, for your own atoms.                                    |
-| `client.dispose()`                           | Drops the cache, interrupts running fetches and closes the layer; resolves once that's done. |
-| `QueryClient.layer(options)`                 | A client as a `Layer<QueryClient>`, disposed with its scope: for Effect programs and tests.  |
+An app that declares no services in `Register` can leave out `layer` and
+`runtime`, or every option: `QueryClient.make()`.
+
+| Member                                                                | What it is                                                                                   |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `client.runPromise`, `client.runPromiseExit`                          | Run an Effect with the client, your services and `Reactivity`.                               |
+| `client.fetch`, `prefetch`, `invalidate`, `refetch`, `reset`, `clear` | The cache functions for code outside Effect ([Outside Effect](#outside-effect)).             |
+| `client.registry`                                                     | The `AtomRegistry` holding the cache, for your own atoms.                                    |
+| `client.dispose()`                                                    | Drops the cache, interrupts running fetches and closes the layer; resolves once that's done. |
+| `QueryClient.layer(options)`                                          | A client as a `Layer<QueryClient>`, disposed with its scope: for Effect programs and tests.  |
 
 **App-wide hooks** run for every query or mutation, with your services:
 for logging, error reporting, or signing out when a session expires.
@@ -2045,9 +2107,10 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
 | `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
 | `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                   |
-| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`                                                                                |
-| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`                                                                             |
+| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                |
+| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                          |
 | `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
+| `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                           |
 | `useQueryErrorResetBoundary`                                        | `useResetQueryFailure`                                                                       |
 | `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                             |
 | `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                       |

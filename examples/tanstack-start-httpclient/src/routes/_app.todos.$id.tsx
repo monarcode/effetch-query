@@ -1,4 +1,3 @@
-import { Query } from "@monarcode/effetch-query";
 import {
 	QueryFailure,
 	useMutation,
@@ -29,7 +28,7 @@ export const Route = createFileRoute("/_app/todos/$id")({
 		if (!Number.isInteger(id)) {
 			throw notFound();
 		}
-		void context.queryClient.runPromiseExit(Query.prefetch(todo(id)));
+		void context.queryClient.prefetch(todo(id));
 	},
 	errorComponent: TodoFailed,
 	component: function TodoPage() {

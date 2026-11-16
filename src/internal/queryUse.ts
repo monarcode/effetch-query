@@ -23,12 +23,15 @@ export interface QueryUse {
 	 * isn't revalidated.
 	 */
 	readonly mounted: (query: Query.Query<any, any> | null) => void;
-	/** Remembers a success the reader showed, for `keepPrevious`. */
-	readonly showed: (result: AsyncResult.AsyncResult<any, any>) => void;
+	/** Remembers a success the reader showed of a query, for `keepPrevious`. */
+	readonly showed: (
+		query: Query.Query<any, any> | null,
+		result: AsyncResult.AsyncResult<any, any>,
+	) => void;
 	/**
 	 * What the reader shows: the result, or with `keepPrevious` its last
-	 * success, as a waiting `Success`, while the result is `Initial`. A
-	 * re-render gets the same object.
+	 * success, as a waiting `Success`, while the result is `Initial`, unless
+	 * its query was cleared since. A re-render gets the same object.
 	 */
 	readonly show: <A, E>(
 		result: AsyncResult.AsyncResult<A, E>,
@@ -57,7 +60,19 @@ export const makeQueryUse = (
 	const state = () => registry.get(StateAtom);
 	let mountedAt = state().fetchCount;
 	let current: Query.Query<any, any> | null = null;
-	let previous: AsyncResult.Success<any, any> | undefined;
+	let previous:
+		| {
+				readonly success: AsyncResult.Success<any, any>;
+				readonly query: Query.Query<any, any>;
+				readonly clears: number | undefined;
+		  }
+		| undefined;
+	// What `clear` dropped doesn't come back as a previous value.
+	const kept = (): AsyncResult.Success<any, any> | undefined =>
+		previous !== undefined &&
+		state().clears.get(previous.query) === previous.clears
+			? previous.success
+			: undefined;
 	// The last waiting copy made, so a re-render gets the same object.
 	let copy:
 		| {
@@ -84,27 +99,41 @@ export const makeQueryUse = (
 			if (query !== null) {
 				resumePolling(registry, query);
 				const fetchedAt = state().fetchedAt.get(query) ?? 0;
-				if (query !== current && fetchedAt <= mountedAt) {
+				if (
+					query !== current &&
+					(isIdle(registry, query) || fetchedAt <= mountedAt)
+				) {
 					revalidate(registry, query, minStaleTime);
 				}
 			}
 			current = query;
 			mountedAt = state().fetchCount;
 		},
-		showed: (result) => {
-			if (AsyncResult.isSuccess(result)) {
-				previous = result;
+		showed: (query, result) => {
+			if (query !== null && AsyncResult.isSuccess(result)) {
+				previous = {
+					success: result,
+					query,
+					clears: state().clears.get(query),
+				};
 			}
 		},
-		show: (result, keepPrevious) =>
-			keepPrevious && AsyncResult.isInitial(result) && previous !== undefined
-				? waiting(previous)
-				: result,
+		show: (result, keepPrevious) => {
+			const success =
+				keepPrevious && AsyncResult.isInitial(result) ? kept() : undefined;
+			return success === undefined ? result : waiting(success);
+		},
 		suspend: (query, result) => {
 			// A reader new to a query `clear` left idle fetches it; one already
-			// showing it waits, as a `useQuery` reader shows `Initial`.
+			// showing it waits, as a `useQuery` reader shows `Initial`. The wake
+			// waits for the render to end: it notifies the query's other readers.
 			if (query !== current && isIdle(registry, query)) {
-				wake(registry, query);
+				const client = state();
+				queueMicrotask(() => {
+					if (!client.disposed && isIdle(registry, query)) {
+						wake(registry, query);
+					}
+				});
 			}
 			if (!isShowable(result)) {
 				throw whenShowable(registry, query);

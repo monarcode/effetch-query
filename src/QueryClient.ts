@@ -4,6 +4,7 @@ import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import { constVoid } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
@@ -25,8 +26,6 @@ import type * as Query from "./Query.js";
 import type { Signals } from "./Signals.js";
 
 export { DuplicateQueryKeyError, NonJsonKeyError } from "./HydrationError.js";
-
-const ignore = (): void => {};
 
 /**
  * Declares the services your queries and mutations run with. Augment it once,
@@ -233,6 +232,16 @@ export interface QueryClient {
 	 */
 	readonly reset: (target?: Query.Target | undefined) => Promise<void>;
 	/**
+	 * Drops the target's values without fetching, as {@link Query.clear}
+	 * does: queries in use show `Initial` until something asks for them,
+	 * such as a component that starts using one. Without a target, every
+	 * query: use it on signing out, when refetching would fail. Resolves at
+	 * once.
+	 *
+	 * @see {@link QueryClient.reset} to fetch again at once
+	 */
+	readonly clear: (target?: Query.Target | undefined) => Promise<void>;
+	/**
 	 * Releases everything the client owns. It disposes the cache and clears
 	 * its timers, then interrupts what's in progress: fetches, mutation runs,
 	 * and the Effects started by {@link QueryClient.runPromise}. Last, it
@@ -315,7 +324,7 @@ export type Options = LayerOptions | RuntimeOptions;
  * @since 0.1.0
  */
 export type OptionalOptions = [Services] extends [never]
-	? [options?: CommonOptions | undefined]
+	? [options?: Options | CommonOptions | undefined]
 	: [options: Options];
 
 /**
@@ -764,11 +773,22 @@ export interface MutationSettled {
 	readonly exit: Exit.Exit<unknown, unknown>;
 }
 
+/** Every option a client can be given, to read them without narrowing. */
+interface AnyOptions extends CommonOptions {
+	readonly layer?: Layer.Layer<Services, unknown> | undefined;
+	readonly memoMap?: Layer.MemoMap | undefined;
+	readonly runtime?:
+		| ManagedRuntime.ManagedRuntime<Services, unknown>
+		| undefined;
+}
+
 /**
  * Creates a {@link QueryClient}. Nothing is built until the client is first
  * used: then it builds `layer` once and keeps it until
  * {@link QueryClient.dispose}. Given a `runtime` instead, it uses the
  * runtime's services and builds none of its own ({@link RuntimeOptions}).
+ * With no services declared in {@link Register}, the options can be left
+ * out ({@link OptionalOptions}).
  *
  * @example
  * ```ts
@@ -793,15 +813,12 @@ export interface MutationSettled {
  *
  * @since 0.1.0
  */
-export const make: {
-	(options: Options): QueryClient;
-	(...options: OptionalOptions): QueryClient;
-} = (options: Options | CommonOptions = {}): QueryClient => {
-	const appRuntime = "runtime" in options ? options.runtime : undefined;
-	const appLayer = "layer" in options ? options.layer : undefined;
-	const givenMemoMap = "memoMap" in options ? options.memoMap : undefined;
+export const make = (...[given]: OptionalOptions): QueryClient => {
+	const options: AnyOptions = given ?? {};
+	const appRuntime = options.runtime;
+	const appLayer = options.layer;
 	const memoMap =
-		appRuntime?.memoMap ?? givenMemoMap ?? Layer.makeMemoMapUnsafe();
+		appRuntime?.memoMap ?? options.memoMap ?? Layer.makeMemoMapUnsafe();
 	// Read when it's needed: disposing a runtime replaces its `contextEffect`.
 	const app =
 		appRuntime === undefined
@@ -870,7 +887,7 @@ export const make: {
 			Effect.runPromiseExit(
 				tracked(fetchValue(registry, query)),
 				runOptions,
-			).then(ignore, ignore),
+			).then(constVoid, constVoid),
 		invalidate: (target) =>
 			onRegistry(() => targets.invalidate(registry, target ?? [])),
 		// Settles when `dispose()` interrupts it, but rejects with a defect,
@@ -878,15 +895,20 @@ export const make: {
 		refetch: (target) =>
 			state.disposed
 				? Promise.resolve()
-				: Effect.runPromise(
-						Effect.catchCauseIf(
-							tracked(targets.refetch(registry, target ?? [])),
-							Cause.hasInterruptsOnly,
-							() => Effect.void,
-						),
-					),
+				: Effect.runPromiseExit(
+						tracked(targets.refetch(registry, target ?? [])),
+					).then((exit) => {
+						if (
+							exit._tag === "Failure" &&
+							!Cause.hasInterruptsOnly(exit.cause)
+						) {
+							throw Cause.squash(exit.cause);
+						}
+					}),
 		reset: (target) =>
 			onRegistry(() => targets.reset(registry, target ?? [])),
+		clear: (target) =>
+			onRegistry(() => targets.clear(registry, target ?? [])),
 		// Disposing the registry interrupts fetches without waiting for them,
 		// so they're awaited before the layer they use is released.
 		// `registry.dispose()` rethrows a finalizer's error: the rest still
@@ -921,7 +943,8 @@ export const make: {
  * Unless `options.memoMap` is set, the client builds `options.layer` with
  * the memo map of the layer graph it's built in, so services that graph also
  * builds are built once. A client given `options.runtime` uses the runtime's
- * services instead.
+ * services instead. With no services declared in {@link Register}, the
+ * options can be left out ({@link OptionalOptions}).
  *
  * @example
  * ```ts
@@ -946,21 +969,14 @@ export const make: {
  *
  * @since 0.1.0
  */
-export const layer: {
-	(options: Options): Layer.Layer<QueryClient>;
-	(...options: OptionalOptions): Layer.Layer<QueryClient>;
-} = (options: Options | CommonOptions = {}): Layer.Layer<QueryClient> =>
+export const layer = (...[given]: OptionalOptions): Layer.Layer<QueryClient> =>
 	Layer.fromBuildMemo((memoMap, scope) =>
 		Effect.suspend(() => {
+			const options: AnyOptions = given ?? {};
 			const client = make(
-				"runtime" in options && options.runtime !== undefined
-					? options
-					: ({
-							...options,
-							memoMap:
-								("memoMap" in options ? options.memoMap : undefined) ??
-								memoMap,
-						} as LayerOptions),
+				(options.runtime === undefined
+					? { ...options, memoMap: options.memoMap ?? memoMap }
+					: options) as Options,
 			);
 			return Effect.as(
 				Scope.addFinalizer(
