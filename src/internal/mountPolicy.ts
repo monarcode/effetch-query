@@ -6,7 +6,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Query from "../Query.js";
 import { settings } from "./cache.js";
 import { isStale } from "./freshness.js";
-import { internals, nodeValue, peek } from "./queryAtom.js";
+import { internals, isIdle, nodeValue, peek, wake } from "./queryAtom.js";
 
 /**
  * Resumes `refetchInterval` polling, which stops while nothing uses the
@@ -35,6 +35,11 @@ export const revalidate = (
 	query: Query.Query<any, any>,
 	minStaleTime: Duration.Duration = Duration.zero,
 ): void => {
+	// A query `clear` left idle has nothing to show: a new reader fetches it.
+	if (isIdle(registry, query)) {
+		wake(registry, query);
+		return;
+	}
 	const current = peek(registry, query);
 	if (Option.isNone(current) || current.value.waiting) {
 		return;

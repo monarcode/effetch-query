@@ -5,6 +5,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
 import { resumePolling, revalidate } from "./mountPolicy.js";
+import { isIdle, wake } from "./queryAtom.js";
 import { StateAtom } from "./runtime.js";
 import { isShowable, queryFailure, whenShowable } from "./suspense.js";
 
@@ -100,6 +101,11 @@ export const makeQueryUse = (
 				? waiting(previous)
 				: result,
 		suspend: (query, result) => {
+			// A reader new to a query `clear` left idle fetches it; one already
+			// showing it waits, as a `useQuery` reader shows `Initial`.
+			if (query !== current && isIdle(registry, query)) {
+				wake(registry, query);
+			}
 			if (!isShowable(result)) {
 				throw whenShowable(registry, query);
 			}

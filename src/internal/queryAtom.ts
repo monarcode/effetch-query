@@ -84,6 +84,12 @@ export interface Local<A, E> {
 	/** Bumped by `reset`: the query then reads a fetch atom with no previous value. */
 	readonly generation: number;
 	readonly written: Option.Option<Written<A, E>>;
+	/**
+	 * Set by `clear` on a query in use: it shows an idle `Initial` and doesn't
+	 * read its fetch atom, so nothing fetches until something asks
+	 * ({@link wake}). Any other write to `local` drops it.
+	 */
+	readonly idle?: true | undefined;
 }
 
 export interface Internals<A, E> {
@@ -186,6 +192,30 @@ export const nodeValue = <A>(
 	(registry.getNodes().get(atom)?.valueOption() as
 		| Option.Option<A>
 		| undefined) ?? Option.none();
+
+/** Whether `clear` left the query idle. */
+export const isIdle = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): boolean => localValue(registry, query).idle === true;
+
+/**
+ * Lets a query `clear` left idle fetch again: at once if it's in use,
+ * otherwise when it's next read. Returns whether it was idle.
+ */
+export const wake = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): boolean => {
+	if (!isIdle(registry, query)) {
+		return false;
+	}
+	registry.update(internals(query).local, ({ generation, written }) => ({
+		generation,
+		written,
+	}));
+	return true;
+};
 
 export const localValue = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
@@ -459,9 +489,12 @@ export const makeQuery = <A, E>(definition: {
 		Atom.setIdleTTL(
 			Atom.writable(
 				(get): AsyncResult.AsyncResult<A, E> => {
-					const { generation, written } = get(local);
+					const { generation, written, idle } = get(local);
 					for (const atom of mounts) {
 						get.mount(atom);
+					}
+					if (idle === true) {
+						return AsyncResult.initial<A, E>();
 					}
 					if (generation === 0 && hydration !== undefined) {
 						seedPreloaded(get.registry, fetchAtom(0), hydration);

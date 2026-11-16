@@ -1,4 +1,4 @@
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -14,16 +14,19 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 
-import { observeNodes } from "./internal/cache.js";
+import { fetchValue, observeNodes } from "./internal/cache.js";
 import * as hydration from "./internal/dehydrate.js";
 import * as disposal from "./internal/disposeAfter.js";
 import { peek } from "./internal/queryAtom.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
+import * as targets from "./internal/targets.js";
 import type { Mutation } from "./Mutation.js";
 import type * as Query from "./Query.js";
 import type { Signals } from "./Signals.js";
 
 export { DuplicateQueryKeyError, NonJsonKeyError } from "./HydrationError.js";
+
+const ignore = (): void => {};
 
 /**
  * Declares the services your queries and mutations run with. Augment it once,
@@ -184,6 +187,52 @@ export interface QueryClient {
 		options?: Effect.RunOptions | undefined,
 	) => Promise<Exit.Exit<A, E>>;
 	/**
+	 * Returns a query's value, as {@link Query.fetch} does: the cached one if
+	 * it's fresh, otherwise the result of a new fetch, joining one in
+	 * progress. Rejects as {@link QueryClient.runPromise} does if the query
+	 * fails, so a router's `redirect()` thrown by a query still reaches the
+	 * router. Pass `{ signal }` to stop waiting when the signal aborts.
+	 *
+	 * @see {@link QueryClient.prefetch} to fetch without rejecting
+	 */
+	readonly fetch: <A, E>(
+		query: Query.Query<A, E>,
+		options?: Effect.RunOptions | undefined,
+	) => Promise<A>;
+	/**
+	 * Fetches a query unless its value is fresh, as {@link Query.prefetch}
+	 * does, and resolves when the fetch settles. Never rejects: a failure
+	 * shows in the query's result. Call it without `await` to start a fetch
+	 * a component reads later, such as in a router loader that streams.
+	 */
+	readonly prefetch: <A, E>(
+		query: Query.Query<A, E>,
+		options?: Effect.RunOptions | undefined,
+	) => Promise<void>;
+	/**
+	 * Marks the target's queries stale, as {@link Query.invalidate} does:
+	 * those in use refetch at once, the rest the next time they're used.
+	 * Without a target, every query. Resolves at once, without waiting for
+	 * the refetches.
+	 *
+	 * @see {@link QueryClient.refetch} to wait for them
+	 */
+	readonly invalidate: (target?: Query.Target | undefined) => Promise<void>;
+	/**
+	 * Refetches the target's queries that are in use, as {@link Query.refetch}
+	 * does, and resolves when they've all settled. Without a target, every
+	 * query in use. A query that fails doesn't reject it: each shows its own
+	 * failure.
+	 */
+	readonly refetch: (target?: Query.Target | undefined) => Promise<void>;
+	/**
+	 * Puts the target's queries back to `Initial`, as {@link Query.reset}
+	 * does, dropping their values: those in use fetch again at once, the rest
+	 * the next time they're used. Without a target, every query. Resolves at
+	 * once, without waiting for the fetches.
+	 */
+	readonly reset: (target?: Query.Target | undefined) => Promise<void>;
+	/**
 	 * Releases everything the client owns. It disposes the cache and clears
 	 * its timers, then interrupts what's in progress: fetches, mutation runs,
 	 * and the Effects started by {@link QueryClient.runPromise}. Last, it
@@ -245,6 +294,29 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
  * @since 0.1.0
  */
 export type Options = LayerOptions | RuntimeOptions;
+
+/**
+ * What {@link make} and {@link layer} take besides `(options: Options)`:
+ * with no services declared in {@link Register}, the options can be left
+ * out, or given without a layer or a runtime. With services declared, it's
+ * `[options: Options]`, so a client must be given them.
+ *
+ * @example
+ * ```ts
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * // With no services declared in Register.
+ * export const queryClient = QueryClient.make();
+ * export const configured = QueryClient.make({
+ *   queries: { defaults: { staleTime: "1 minute" } },
+ * });
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type OptionalOptions = [Services] extends [never]
+	? [options?: CommonOptions | undefined]
+	: [options: Options];
 
 /**
  * {@link Options} that give the client a layer, which it builds itself.
@@ -721,14 +793,21 @@ export interface MutationSettled {
  *
  * @since 0.1.0
  */
-export const make = (options: Options): QueryClient => {
-	const appRuntime = options.runtime;
+export const make: {
+	(options: Options): QueryClient;
+	(...options: OptionalOptions): QueryClient;
+} = (options: Options | CommonOptions = {}): QueryClient => {
+	const appRuntime = "runtime" in options ? options.runtime : undefined;
+	const appLayer = "layer" in options ? options.layer : undefined;
+	const givenMemoMap = "memoMap" in options ? options.memoMap : undefined;
 	const memoMap =
-		appRuntime?.memoMap ?? options.memoMap ?? Layer.makeMemoMapUnsafe();
+		appRuntime?.memoMap ?? givenMemoMap ?? Layer.makeMemoMapUnsafe();
 	// Read when it's needed: disposing a runtime replaces its `contextEffect`.
 	const app =
 		appRuntime === undefined
-			? options.layer
+			? // With no layer, the types allow it only when Register declares no
+				// services, so the empty layer provides all of them.
+				(appLayer ?? (Layer.empty as Layer.Layer<Services>))
 			: Layer.effectContext(Effect.suspend(() => appRuntime.contextEffect));
 	// `Reactivity.layer` is last so it wins over one in the app's services:
 	// the runtime's atoms build the same layer with the same memo map, so
@@ -767,12 +846,47 @@ export const make = (options: Options): QueryClient => {
 			track(state, fiber);
 			return effect;
 		});
+	// The cache functions that only touch the registry run at once, and do
+	// nothing once the client is disposed.
+	const onRegistry = (write: () => void): Promise<void> => {
+		try {
+			if (!state.disposed) {
+				write();
+			}
+			return Promise.resolve();
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	};
 	const client: QueryClient = {
 		registry,
 		runPromise: (effect, runOptions) =>
 			runtime.runPromise(tracked(effect), runOptions),
 		runPromiseExit: (effect, runOptions) =>
 			runtime.runPromiseExit(tracked(effect), runOptions),
+		fetch: (query, runOptions) =>
+			Effect.runPromise(tracked(fetchValue(registry, query)), runOptions),
+		prefetch: (query, runOptions) =>
+			Effect.runPromiseExit(
+				tracked(fetchValue(registry, query)),
+				runOptions,
+			).then(ignore, ignore),
+		invalidate: (target) =>
+			onRegistry(() => targets.invalidate(registry, target ?? [])),
+		// Settles when `dispose()` interrupts it, but rejects with a defect,
+		// such as a key that holds queries.
+		refetch: (target) =>
+			state.disposed
+				? Promise.resolve()
+				: Effect.runPromise(
+						Effect.catchCauseIf(
+							tracked(targets.refetch(registry, target ?? [])),
+							Cause.hasInterruptsOnly,
+							() => Effect.void,
+						),
+					),
+		reset: (target) =>
+			onRegistry(() => targets.reset(registry, target ?? [])),
 		// Disposing the registry interrupts fetches without waiting for them,
 		// so they're awaited before the layer they use is released.
 		// `registry.dispose()` rethrows a finalizer's error: the rest still
@@ -832,13 +946,21 @@ export const make = (options: Options): QueryClient => {
  *
  * @since 0.1.0
  */
-export const layer = (options: Options): Layer.Layer<QueryClient> =>
+export const layer: {
+	(options: Options): Layer.Layer<QueryClient>;
+	(...options: OptionalOptions): Layer.Layer<QueryClient>;
+} = (options: Options | CommonOptions = {}): Layer.Layer<QueryClient> =>
 	Layer.fromBuildMemo((memoMap, scope) =>
 		Effect.suspend(() => {
 			const client = make(
-				options.runtime === undefined
-					? { ...options, memoMap: options.memoMap ?? memoMap }
-					: options,
+				"runtime" in options && options.runtime !== undefined
+					? options
+					: ({
+							...options,
+							memoMap:
+								("memoMap" in options ? options.memoMap : undefined) ??
+								memoMap,
+						} as LayerOptions),
 			);
 			return Effect.as(
 				Scope.addFinalizer(

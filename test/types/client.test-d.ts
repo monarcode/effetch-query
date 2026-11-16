@@ -59,6 +59,18 @@ describe("QueryClient.make", () => {
 		QueryClient.make({ layer: Layer.empty });
 	});
 
+	it("requires options while Register declares services", () => {
+		expectTypeOf<QueryClient.OptionalOptions>().toEqualTypeOf<
+			[options: QueryClient.Options]
+		>();
+		// @ts-expect-error the services must be given
+		QueryClient.make();
+		// @ts-expect-error the services must be given
+		QueryClient.make({ queries: { defaults: { staleTime: "1 minute" } } });
+		// @ts-expect-error the services must be given
+		QueryClient.layer();
+	});
+
 	it("rejects a layer that needs services of its own", () => {
 		QueryClient.make({
 			// @ts-expect-error the layer needs Unregistered
@@ -140,5 +152,28 @@ describe("QueryClient.layer", () => {
 		expectTypeOf(
 			QueryClient.layer({ layer: servicesLayer("hello") }),
 		).toEqualTypeOf<Layer.Layer<QueryClient.QueryClient>>();
+	});
+});
+
+describe("the client's promise methods", () => {
+	const todos = Query.make({
+		key: ["todos"],
+		run: Effect.succeed<ReadonlyArray<string>>([]),
+	});
+
+	it("type fetch with the query's value, and the rest as void", () => {
+		expectTypeOf(client.fetch(todos)).toEqualTypeOf<
+			Promise<ReadonlyArray<string>>
+		>();
+		expectTypeOf(client.prefetch(todos)).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.invalidate()).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.refetch(todos)).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.reset(["todos"])).toEqualTypeOf<Promise<void>>();
+	});
+
+	it("take any target, or none", () => {
+		client.invalidate(Query.group(todos, ["other"]));
+		client.refetch();
+		client.reset(todos);
 	});
 });

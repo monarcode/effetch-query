@@ -3,17 +3,16 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
-import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Reactivity from "effect/reactivity/Reactivity";
 import type * as EffectSchema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
 import * as cache from "./internal/cache.js";
 import { makeCodec } from "./internal/hydration.js";
-import { type GroupTypeId, makeGroup, matching } from "./internal/keyIndex.js";
+import { type GroupTypeId, makeGroup } from "./internal/keyIndex.js";
 import * as optimistic from "./internal/optimistic.js";
 import * as internal from "./internal/queryAtom.js";
-import { isInUse } from "./internal/usage.js";
+import * as targets from "./internal/targets.js";
 import * as QueryClient from "./QueryClient.js";
 
 /**
@@ -708,11 +707,9 @@ export const update: {
 export const invalidate = (
 	target: Target,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
-	QueryClient.QueryClient.useSync(({ registry }) => {
-		for (const query of matching(registry, target)) {
-			registry.refresh(query);
-		}
-	});
+	QueryClient.QueryClient.useSync(({ registry }) =>
+		targets.invalidate(registry, target),
+	);
 
 /**
  * Refetches the matching queries that are in use, and completes when they
@@ -739,24 +736,9 @@ export const invalidate = (
 export const refetch = (
 	target: Target,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
-	QueryClient.QueryClient.use(({ registry }) => {
-		const used = matching(registry, target).filter((query) =>
-			isInUse(registry, query),
-		);
-		for (const query of used) {
-			registry.refresh(query);
-		}
-		return Effect.forEach(
-			used,
-			(query) =>
-				Effect.exit(
-					AtomRegistry.getResult(registry, query, {
-						suspendOnWaiting: true,
-					}),
-				),
-			{ concurrency: "unbounded", discard: true },
-		);
-	});
+	QueryClient.QueryClient.use(({ registry }) =>
+		targets.refetch(registry, target),
+	);
 
 /**
  * Puts the matching queries back to `Initial`, dropping their values and
@@ -780,13 +762,9 @@ export const refetch = (
 export const reset = (
 	target: Target,
 ): Effect.Effect<void, never, QueryClient.QueryClient> =>
-	QueryClient.QueryClient.useSync(({ registry }) => {
-		// Not in a batch: its commit rebuilds every stale node, so the queries
-		// not in use would fetch too.
-		for (const query of matching(registry, target)) {
-			cache.resetQuery(registry, query);
-		}
-	});
+	QueryClient.QueryClient.useSync(({ registry }) =>
+		targets.reset(registry, target),
+	);
 
 /**
  * Combines targets into one {@link Group}, for acting on unrelated queries

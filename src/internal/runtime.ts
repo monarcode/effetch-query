@@ -142,7 +142,7 @@ export const initialValues = (input: {
 	readonly context: Effect.Effect<Context.Context<QueryClient.Requirements>>;
 	readonly memoMap: Layer.MemoMap;
 	readonly state: ClientState;
-	readonly options: QueryClient.Options;
+	readonly options: QueryClient.CommonOptions;
 }): ReadonlyArray<readonly [Atom.Atom<unknown>, unknown]> => [
 	initialValue(ContextAtom, input.context),
 	initialValue(MemoMapAtom, input.memoMap),

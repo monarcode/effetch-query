@@ -15,9 +15,11 @@ import {
 	nodeValue,
 	peek,
 	seed,
+	wake,
 	written,
 } from "./queryAtom.js";
 import { type ClientState, ConfigAtom, StateAtom } from "./runtime.js";
+import { isInUse } from "./usage.js";
 
 /**
  * Indexes queries by node existence and reports them on the event channel.
@@ -209,6 +211,27 @@ export const resetQuery = (
 };
 
 /**
+ * Drops the query's value and written value, as `resetQuery` does, but a
+ * query in use doesn't fetch: it moves to a new generation left idle, which
+ * shows `Initial` until something asks for it (`wake`). One not in use is
+ * reset, so its next read fetches.
+ */
+export const clearQuery = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): void => {
+	if (!isInUse(registry, query)) {
+		resetQuery(registry, query);
+		return;
+	}
+	registry.update(internals(query).local, (local) => ({
+		generation: local.generation + 1,
+		written: Option.none(),
+		idle: true as const,
+	}));
+};
+
+/**
  * The query's value: a fresh one, or the result of a fetch. While it waits,
  * the query counts as awaited (`ClientState.awaited`), from before its read,
  * which can start a fetch that settles at once.
@@ -240,6 +263,8 @@ const readOrFetch = <A, E>(
 	Effect.suspend(() => {
 		const { fetchedAt } = registry.get(StateAtom);
 		const before = fetchedAt.get(query);
+		// A query `clear` left idle fetches as it wakes, if it's in use.
+		wake(registry, query);
 		// Reading a query that isn't cached, or was invalidated while unused,
 		// fetches it, and a fetch that settles at once leaves nothing waiting
 		// to tell it by. A read that doesn't fetch shows a cached value or one
