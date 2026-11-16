@@ -670,12 +670,24 @@ export interface MutationDefaults<E = unknown> {
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/**
-	 * If true, one use's runs (one component's `useMutation`, say) can
-	 * overlap. If false, a new run interrupts the one in progress, whose
-	 * optimistic writes are rolled back first. Separate uses, and
-	 * `Mutation.run` calls, never interrupt each other. Default: `true`.
+	 * How one use's runs (one component's `useMutation`, say) overlap.
+	 * Separate uses, and `Mutation.run` calls, never affect each other.
+	 * Default: `true`.
+	 *
+	 * - `true`: runs overlap.
+	 * - `false`: a new run interrupts the one in progress, whose optimistic
+	 *   writes are rolled back first.
+	 * - `"queue"`: a new run waits until the ones before it have settled, so
+	 *   runs go one at a time, in order. A queued run counts as in progress
+	 *   (`useIsMutating`, `useMutationState`), but its `optimistic` runs when
+	 *   it starts, so a run that fails rolls back only its own writes.
+	 * - `"drop"`: a new run is ignored while the one the use shows is in
+	 *   progress, such as a second click on a submit button. It never starts
+	 *   or calls anything, and its `run` resolves at once with an
+	 *   interrupted `Exit`. After `reset`, which stops showing a run, a new
+	 *   run starts.
 	 */
-	readonly concurrent?: boolean | undefined;
+	readonly concurrent?: boolean | "queue" | "drop" | undefined;
 }
 
 /**

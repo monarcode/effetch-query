@@ -46,11 +46,14 @@ export const options = <Variables, A, E>(
  * One run of a mutation, in the order of DESIGN.md §4.7. Its optimistic
  * writes are rolled back unless `run` succeeds: when it fails, and when the
  * run ends before then, interrupted or with `optimistic` dying. An
- * interrupted run calls no more callbacks or hooks.
+ * interrupted run calls no more callbacks or hooks. `before` runs first,
+ * once the run counts as started: a queued run waits there for the one
+ * before it.
  */
 export const execute = <Variables, A, E>(
 	mutation: Mutation.Mutation<Variables, A, E>,
 	variables: Variables,
+	before?: Effect.Effect<void> | undefined,
 ): Effect.Effect<A, E, QueryClient.Requirements> =>
 	QueryClient.QueryClient.use(({ registry }) => {
 		const definition = options(mutation);
@@ -108,23 +111,39 @@ export const execute = <Variables, A, E>(
 			return yield* exit;
 		});
 		const state = registry.get(StateAtom);
-		return Effect.withFiber((fiber) => {
-			const runId = fiber.id;
-			emit(state, { _tag: "MutationStarted", mutation, runId, variables });
+		const body = (
+			before === undefined ? program : Effect.andThen(before, program)
+		).pipe(
+			Effect.provideService(OptimisticWrites, undefined),
 			// After a success the writes are kept, and after a failure they're
 			// already undone, so this rolls back a run that ended before either.
-			return program.pipe(
-				Effect.provideService(OptimisticWrites, undefined),
-				Effect.ensuring(Effect.sync(recorded.rollback)),
+			Effect.ensuring(Effect.sync(recorded.rollback)),
+		);
+		return Effect.suspend(() => {
+			// Started inside the region `onExit` covers, so an interruption
+			// can't come between the two events.
+			let runId: number | undefined;
+			return Effect.suspend(() => {
+				runId = ++state.runCount;
+				emit(state, {
+					_tag: "MutationStarted",
+					mutation,
+					runId,
+					variables,
+				});
+				return body;
+			}).pipe(
 				Effect.onExit((exit) =>
-					Effect.sync(() =>
-						emit(state, {
-							_tag: "MutationSettled",
-							mutation,
-							runId,
-							exit,
-						}),
-					),
+					Effect.sync(() => {
+						if (runId !== undefined) {
+							emit(state, {
+								_tag: "MutationSettled",
+								mutation,
+								runId,
+								exit,
+							});
+						}
+					}),
 				),
 			);
 		});

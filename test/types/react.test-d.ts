@@ -20,8 +20,12 @@ import {
 	type QueryProviderProps,
 	useInfiniteQuery,
 	type UseInfiniteQueryResult,
+	useIsFetching,
+	useIsMutating,
 	useMutation,
 	type UseMutationRunOptions,
+	useMutationState,
+	type UseMutationStateRun,
 	useQuery,
 	useQueryClient,
 	useQueryState,
@@ -198,6 +202,16 @@ describe("useMutation", () => {
 		void run(1);
 	});
 
+	it("types variables by the mutation, undefined before a run", () => {
+		const rename = Mutation.make({
+			run: (title: string) => Effect.succeed(title.length),
+		});
+
+		expectTypeOf(useMutation(rename).variables).toEqualTypeOf<
+			string | undefined
+		>();
+	});
+
 	it("runs a mutation without variables with no argument", () => {
 		const signOut = Mutation.make({ run: () => Effect.void });
 
@@ -282,5 +296,45 @@ describe("useInfiniteQuery and useSuspenseInfiniteQuery", () => {
 	it("takes only infinite queries", () => {
 		// @ts-expect-error a plain query has no pages
 		useInfiniteQuery(todo(1));
+	});
+});
+
+describe("useMutationState", () => {
+	it("lists runs typed by the mutation", () => {
+		const rename = Mutation.make({
+			run: (title: string) =>
+				title === "" ? Effect.fail(new Missing()) : Effect.succeed(1),
+		});
+		const runs = useMutationState(rename);
+
+		expectTypeOf(runs).toEqualTypeOf<
+			ReadonlyArray<UseMutationStateRun<string, number, Missing>>
+		>();
+		expectTypeOf(runs[0]!.variables).toEqualTypeOf<string>();
+		expectTypeOf(runs[0]!.result).toEqualTypeOf<
+			AsyncResult.AsyncResult<number, Missing>
+		>();
+	});
+});
+
+describe("useIsFetching and useIsMutating", () => {
+	it("count, with or without a target", () => {
+		const rename = Mutation.make({
+			run: (title: string) => Effect.succeed(title),
+		});
+		const signOut = Mutation.make({ run: () => Effect.void });
+
+		expectTypeOf(useIsFetching()).toEqualTypeOf<number>();
+		expectTypeOf(useIsFetching(["todos"])).toEqualTypeOf<number>();
+		expectTypeOf(useIsFetching(todo)).toEqualTypeOf<number>();
+		expectTypeOf(useIsFetching(todo(1))).toEqualTypeOf<number>();
+		expectTypeOf(useIsMutating()).toEqualTypeOf<number>();
+		expectTypeOf(useIsMutating(rename)).toEqualTypeOf<number>();
+		expectTypeOf(useIsMutating(signOut)).toEqualTypeOf<number>();
+	});
+
+	it("takes only a mutation", () => {
+		// @ts-expect-error: a query isn't a mutation
+		useIsMutating(todo(1));
 	});
 });

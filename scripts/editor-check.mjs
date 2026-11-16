@@ -9,7 +9,7 @@ const source = `import * as Effect from "effect/Effect";
 
 import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
 import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
-import { /*useQuery*/useQuery, /*useQueryState*/useQueryState } from "@monarcode/effetch-query/react";
+import { /*useIsFetching*/useIsFetching, /*useMutationState*/useMutationState, /*useQuery*/useQuery, /*useQueryState*/useQueryState } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
 import { /*connectQueryClient*/connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 
@@ -21,7 +21,7 @@ export const read = () => {
 	const /*state*/state = useQueryState(greeting, { select: (text) => text.length });
 	return [result, state] as const;
 };
-export { connectQueryClient, endpoints, reactNativeSignals };
+export { connectQueryClient, endpoints, reactNativeSignals, useIsFetching, useMutationState };
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -120,6 +120,18 @@ for (const [marker, file, signature, docs] of [
 		"react/hooks.d.ts",
 		"(alias) const useQueryState: <A, E, B = A>(",
 		"returns its result as an object",
+	],
+	[
+		"useMutationState",
+		"react/hooks.d.ts",
+		"(alias) const useMutationState: <Variables, A, E>(",
+		"Lists the runs of a mutation in progress",
+	],
+	[
+		"useIsFetching",
+		"react/hooks.d.ts",
+		"(alias) const useIsFetching: (",
+		"Counts the queries fetching",
 	],
 	[
 		"reactNativeSignals",

@@ -53,6 +53,30 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   the key goes to the browser as JSON. A query that doesn't match the
   schema, or has a `Redacted` field, throws an `EndpointQueryError`. An
   infinite query's `pageParam` names an optional field of the schema.
+- `useMutation` returns `variables`: the variables of the run `result`
+  shows, `undefined` before the first run and after `reset`. Render the
+  change a run is making from them, without touching the cache.
+- `useMutationState(mutation)` lists a mutation's runs in progress on the
+  client, oldest first, with their variables, whichever component or
+  `Mutation.run` started them.
+- `useIsFetching(target?)` and `useIsMutating(mutation?)` count the queries
+  fetching and the mutation runs in progress, for an app-wide progress
+  bar. A server render, and the first render as the page hydrates, count
+  none.
+- `concurrent` takes `"queue"` and `"drop"` as well as `true` and `false`.
+  With `"queue"`, one `useMutation`'s runs go one at a time, in order; a
+  queued run counts as in progress, and its `optimistic` runs when it
+  starts. With `"drop"`, a run started while the one `useMutation` shows is
+  in progress is ignored, and its `run` resolves at once with an
+  interrupted `Exit`.
+- `endpoints(Api, { invalidates: "route" })`: an endpoint mutation that
+  succeeds invalidates its route's queries, the keys under its literals
+  before the first param (`PATCH /todos/:id` invalidates `["todos"]`; a
+  route with no param, its whole path). A mutation's own `invalidates`
+  replaces it, and `invalidates: []` turns it off. Without the option, mutations invalidate only what they say.
+- README: "Invalidating after a mutation" puts the three ways side by
+  side, per mutation, by route and everything; "Optimistic updates" starts
+  with `variables`; "Showing activity" has a progress bar.
 
 ### Changed
 

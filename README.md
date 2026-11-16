@@ -50,6 +50,7 @@ it. It works with any Effect too.
 - [Mutations in depth](#mutations-in-depth)
   - [Optimistic updates](#optimistic-updates)
   - [Mutation options](#mutation-options)
+  - [Invalidating after a mutation](#invalidating-after-a-mutation)
 - [Infinite queries](#infinite-queries)
 - [React](#react)
   - [Reading queries](#reading-queries)
@@ -57,6 +58,7 @@ it. It works with any Effect too.
   - [Selecting part of a value](#selecting-part-of-a-value)
   - [Suspense and error boundaries](#suspense-and-error-boundaries)
   - [Running mutations](#running-mutations)
+  - [Showing activity](#showing-activity)
   - [Load more](#load-more)
   - [Pull to refresh](#pull-to-refresh)
   - [Atoms](#atoms)
@@ -847,10 +849,57 @@ every query whose key starts with it), or a group of these
 
 ### Optimistic updates
 
-An optimistic update shows the change before the server confirms it. Write
-the cache in `optimistic`: if the request fails, every write it made is
-undone. This `toggleTodo` flips the todo at once, in its own query and in
-every cached list:
+An optimistic update shows the change before the server confirms it. The
+simplest one leaves the cache alone: while a run is in progress,
+`useMutation`'s `variables` hold what it sends, so the component that runs
+it can show the change itself. Here a new todo shows, faded, until the list
+has it:
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+const addTodo = api.mutation(
+  Fetch.endpoint("POST /todos", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  // Refetches the lists and waits, so the run settles once they have it.
+  { onSuccess: () => Query.refetch(todos) },
+);
+
+export function AddTodo({ title }: { readonly title: string }) {
+  const { result, variables, run } = useMutation(addTodo);
+
+  return (
+    <>
+      {result.waiting && variables !== undefined ? (
+        <li style={{ opacity: 0.5 }}>{variables.body.title}</li>
+      ) : null}
+      <li>
+        <button type="button" onClick={() => void run({ body: { title } })}>
+          Add
+        </button>
+      </li>
+    </>
+  );
+}
+```
+
+If the run fails, the faded todo goes, and there's nothing to undo. Only
+this component sees it: another can list the runs in progress with
+`useMutationState` ([Showing activity](#showing-activity)).
+
+To show the change everywhere the data is cached, write the cache in
+`optimistic`: if the request fails, every write it made is undone. This
+`toggleTodo` flips the todo at once, in its own query and in every cached
+list:
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -909,15 +958,76 @@ old value never flashes back while the refetch runs.
 | `onSettled`   | `(exit, variables) => Effect`, after either.                                                   |
 | `invalidates` | Targets to invalidate after `onSuccess`, or `(value, variables) => targets`.                   |
 | `retry`       | A `Schedule` to retry the request with. Default: the client's `mutations.defaults`, else none. |
-| `concurrent`  | `false`: within one `useMutation`, a new run interrupts the one in progress. Default `true`.   |
+| `concurrent`  | How one `useMutation`'s runs overlap: `true` (default), `false`, `"queue"` or `"drop"`.        |
 
 The callbacks run with your services and the client, so they can use the
 cache. Outside React, run one with `Mutation.run(toggleTodo, variables)`,
 an Effect.
 
-A mutation invalidates nothing unless you say so. If your app would rather
-refetch everything after any mutation succeeds, say it once, on the
-client:
+`concurrent` applies to the runs of one use, such as one component's
+`useMutation`:
+
+- `true`: runs overlap, and each completes.
+- `false`: a new run interrupts the one in progress, whose optimistic
+  writes are undone first.
+- `"queue"`: runs go one at a time, in order. A queued run counts as in
+  progress, but its `optimistic` runs when it starts, so a run that fails
+  undoes only its own writes.
+- `"drop"`: a run started while the one `result` shows is in progress is
+  ignored, such as a second click on a submit button. Its `run` resolves at
+  once with an interrupted `Exit`. After `reset`, a new run starts.
+
+### Invalidating after a mutation
+
+A mutation invalidates nothing unless you say so. There are three ways to
+say it, from the most precise to the most automatic.
+
+**Per mutation.** `invalidates` lists the targets the mutation changes:
+queries, families, groups or keys. `toggleTodo` in
+[Changing data](#5-changing-data) invalidates `[todos]`.
+
+**By route.** Give `endpoints` `invalidates: "route"`, and an endpoint
+mutation that succeeds invalidates its route's queries: those under the
+route's literals before its first param. `PATCH /todos/:id` invalidates
+`["todos"]`, so every todo list and every todo refetches:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+import { endpoints } from "@monarcode/effetch-query/effetch";
+
+import { ApiClient, Todo } from "./api.js";
+
+const api = endpoints(ApiClient, { invalidates: "route" });
+
+// Invalidates ["todos"] when it succeeds.
+export const renameTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+);
+
+// A mutation's own invalidates replace the route's, and [] turns them off.
+export const markSeen = api.mutation(Fetch.endpoint("POST /todos/:id/seen"), {
+  invalidates: [],
+});
+```
+
+It invalidates more than a write changes, on purpose:
+`DELETE /todos/:id/comments/:cid` refetches every query under `["todos"]`.
+A needless refetch costs a request; a missed one shows stale data. Two
+routes need care:
+
+- A route with no param invalidates its whole path: `POST /todos/reorder`
+  invalidates `["todos", "reorder"]`, which no list is keyed under. Give it
+  `invalidates: [todos]`.
+- A route that starts with a param, such as `/:tenant/todos`, invalidates
+  every query under the endpoints' `key`, or every query without one.
+
+**Everything.** To refetch everything after any mutation succeeds, say it
+once, on the client:
 
 ```ts
 import { Query, QueryClient } from "@monarcode/effetch-query";
@@ -1237,9 +1347,12 @@ export function DoneCheckbox({ todo }: { readonly todo: Todo }) {
 
 `run` returns a `Promise` of the run's `Exit` and never rejects. A run
 carries on if the component unmounts, so the mutation's `onSuccess` and
-`invalidates` still happen. `reset` puts `result` back to `Initial`. With
-the mutation's `concurrent: false`, a new run interrupts the one in
-progress, whose `run` then resolves with an interrupted `Exit`.
+`invalidates` still happen. `reset` puts `result` back to `Initial`, and
+`variables`, the variables of the run `result` shows, back to `undefined`.
+The mutation's `concurrent` decides how the component's runs overlap
+([Mutation options](#mutation-options)): with `false`, a new run
+interrupts the one in progress, whose `run` then resolves with an
+interrupted `Exit`.
 
 `run` also takes callbacks for one run, as TanStack's
 `mutate(variables, { onSuccess })` does:
@@ -1283,6 +1396,49 @@ completes all the same. A lookup that you `reset` when its input changes
 never fills in the answer for the old input. A lookup that only reads can
 also be a query keyed by its input, read with
 `useQuery(input === "" ? null : lookup(input))`.
+
+### Showing activity
+
+`useIsFetching` counts the queries fetching on the provider's client, and
+`useIsMutating` the mutation runs in progress. Together they drive an
+app-wide progress bar:
+
+```tsx
+import { useIsFetching, useIsMutating } from "@monarcode/effetch-query/react";
+
+export function ProgressBar() {
+  const busy = useIsFetching() + useIsMutating() > 0;
+
+  return <div role="progressbar" aria-label="Loading" hidden={!busy} />;
+}
+```
+
+Both count background refetches, and runs that any component or
+`Mutation.run` started. Pass a target to count fewer:
+`useIsFetching(["todos"])` counts the todos queries, and
+`useIsMutating(toggleTodo)` the runs of one mutation.
+
+`useMutationState` lists a mutation's runs in progress, oldest first, with
+their variables, whichever component started them:
+
+```tsx
+import { useMutationState } from "@monarcode/effetch-query/react";
+
+import { toggleTodo } from "./toggle-todo.js";
+
+export function SavingNotice() {
+  const saving = useMutationState(toggleTodo);
+
+  return saving.length === 0 ? null : (
+    <p role="status">
+      Saving {saving.map((run) => `#${run.variables.params.id}`).join(", ")}
+    </p>
+  );
+}
+```
+
+A server render counts nothing in progress, and so does the first render
+as the page hydrates, so the markup matches; the counts show right after.
 
 ### Load more
 
@@ -2298,6 +2454,8 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
 | `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
 | `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                   |
+| `useMutation`'s `variables`; mutation `scope`                       | `variables`; `concurrent: "queue"` (per `useMutation`)                                       |
+| `useIsFetching`, `useIsMutating`, `useMutationState`                | Same names; `useMutationState(mutation)` lists one mutation's runs in progress               |
 | `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                |
 | `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                          |
 | `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
@@ -2323,13 +2481,13 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ### API
 
-| Import                                           | Exports                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                 |
-| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useQueryState`, `useRefetch`, `useQueryClient`, `QueryBoundary`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
-| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                                                       |
-| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                                                       |
-| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                                                                |
+| Import                                           | Exports                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                                                                       |
+| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`, `useQueryState`, `useRefetch`, `useQueryClient`, `QueryBoundary`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                                                                                                             |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                                                                                                             |
+| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                                                                                                                      |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.

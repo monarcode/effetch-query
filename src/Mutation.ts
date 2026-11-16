@@ -112,7 +112,8 @@ export interface Mutation<Variables, A, E> {
  * that a run whose `optimistic` dies still has its writes rolled back.
  *
  * An interrupted run (with `concurrent: false`, replaced by a newer one; or
- * its client disposed) calls nothing after the interruption. If `run` hadn't
+ * its client disposed, which also interrupts runs `concurrent: "queue"`
+ * holds back) calls nothing after the interruption. If `run` hadn't
  * succeeded yet, its optimistic writes are rolled back, unless the client
  * is being disposed: then there's no cache left to put back.
  *

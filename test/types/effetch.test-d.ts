@@ -243,6 +243,13 @@ describe("endpoints", () => {
 		endpoints(TestApi, { defaultError: Schema.Number });
 	});
 
+	it('takes invalidates: "route" and nothing else', () => {
+		endpoints(TestApi, { invalidates: "route" });
+		endpoints(TestApi, { invalidates: undefined });
+		// @ts-expect-error: "route" is the only mode
+		endpoints(TestApi, { invalidates: "all" });
+	});
+
 	it("rejects a schema that needs an unregistered service", () => {
 		const needy = Schema.String as unknown as Schema.Codec<
 			string,

@@ -83,6 +83,22 @@ describe("Mutation.make", () => {
 	});
 });
 
+describe("concurrent", () => {
+	it('takes a boolean, "queue" or "drop"', () => {
+		const run = (n: number) => Effect.succeed(n);
+		for (const concurrent of [true, false, "queue", "drop"] as const) {
+			expectTypeOf(Mutation.make({ run, concurrent })).toEqualTypeOf<
+				Mutation.Mutation<number, number, never>
+			>();
+		}
+		expectTypeOf<QueryClient.MutationDefaults["concurrent"]>().toEqualTypeOf<
+			boolean | "queue" | "drop" | undefined
+		>();
+		// @ts-expect-error: not a run mode
+		Mutation.make({ run, concurrent: "parallel" });
+	});
+});
+
 describe("Mutation.run", () => {
 	it("requires the client and the services, with run's types", () => {
 		const rename = Mutation.make({

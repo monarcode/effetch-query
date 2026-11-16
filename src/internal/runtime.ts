@@ -12,7 +12,7 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type { Query } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import type { Signals } from "../Signals.js";
-import type { CacheEvent } from "./events.js";
+import { type Activity, type CacheEvent, makeActivity } from "./events.js";
 
 /** What `QueryClient.make` stores for queries and mutations to read at run time. */
 export interface Config {
@@ -70,6 +70,10 @@ export interface ClientState {
 	 * undo made before a clear does nothing (see `cache.ts`).
 	 */
 	readonly clears: WeakMap<Query<any, any>, number>;
+	/** Fetches and mutation runs in progress (see `events.ts`). */
+	readonly activity: Activity;
+	/** How many mutation runs have started, which numbers them. */
+	runCount: number;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -85,6 +89,8 @@ export const makeClientState = (): ClientState => ({
 	streamed: new Map(),
 	preloads: new WeakMap(),
 	onDispose: new Set(),
+	activity: makeActivity(),
+	runCount: 0,
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */

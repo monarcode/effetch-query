@@ -485,7 +485,12 @@ export const makeQuery = <A, E>(definition: {
 				const state = get.once(StateAtom);
 				track(state, fiber);
 				state.fetchedAt.set(query, ++state.fetchCount);
-				emit(state, { _tag: "FetchStarted", key, fetchId: fiber.id });
+				emit(state, {
+					_tag: "FetchStarted",
+					key,
+					query,
+					fetchId: fiber.id,
+				});
 				return Effect.onExit(fetch, (exit) =>
 					Effect.suspend(() => {
 						emit(state, {

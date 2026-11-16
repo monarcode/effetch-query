@@ -10,6 +10,7 @@ import * as Atom from "effect/reactivity/Atom";
 import * as React from "react";
 
 import type * as InfiniteQuery from "../InfiniteQuery.js";
+import { makeActivityHandle, noRuns } from "../internal/activity.js";
 import {
 	fetchPageFor,
 	pageState,
@@ -743,9 +744,10 @@ export const useSuspenseInfiniteQuery = <A, E, P>(
  * hooks, before code awaiting `run` carries on.
  *
  * They're dropped if, by the time the run settles, `reset` was called, a
- * newer run started in the component, or the component unmounted; and for a
- * run that was interrupted, or that never started because the client was
- * disposed. The run itself completes all the same. Use them for what matters
+ * newer run started in the component (with `concurrent: "queue"`, one
+ * queued after it), or the component unmounted; and for a run that was
+ * interrupted, or that never started: dropped by `concurrent: "drop"`, or on
+ * a disposed client. The run itself completes all the same. Use them for what matters
  * only to this screen, such as filling in a form field or navigating, and
  * the mutation's own `onSuccess` for what must always happen.
  *
@@ -816,11 +818,21 @@ export interface UseMutationResult<Variables, A, E> {
 	 */
 	readonly result: AsyncResult.AsyncResult<A, E>;
 	/**
+	 * The variables of the run {@link UseMutationResult.result} shows:
+	 * `undefined` before the first run and after
+	 * {@link UseMutationResult.reset}. Render the change a run is making from
+	 * them, without touching the cache, while `result.waiting` is true.
+	 */
+	readonly variables: Variables | undefined;
+	/**
 	 * Starts a run. Resolves with its `Exit`; never rejects. With the
 	 * mutation's `concurrent: false`, a run that a newer one replaces resolves
-	 * with an interrupted `Exit`. On a disposed client the run never starts,
-	 * and resolves with a died `Exit`. `options` are callbacks for this run only:
-	 * see {@link UseMutationRunOptions}.
+	 * with an interrupted `Exit`; with `concurrent: "drop"`, so does a run
+	 * started while the one `result` shows is in progress, at once, and it
+	 * changes nothing. On a
+	 * disposed client the run never starts, and resolves with a died `Exit`.
+	 * `options` are callbacks for this run only: see
+	 * {@link UseMutationRunOptions}.
 	 */
 	readonly run: (
 		variables: Variables,
@@ -835,8 +847,11 @@ export interface UseMutationResult<Variables, A, E> {
  * using one mutation never share a pending or failed state. A run carries on
  * after the component unmounts, so its `onSuccess` and `invalidates` still
  * happen, though the callbacks given to `run` don't
- * ({@link UseMutationRunOptions}). With the mutation's `concurrent: false`, a
- * run interrupts this component's previous one.
+ * ({@link UseMutationRunOptions}). The mutation's `concurrent` decides
+ * how this component's runs overlap: `false` interrupts the previous one,
+ * `"queue"` runs them one at a time, and `"drop"` ignores a run while the
+ * one `result` shows is in progress. To show runs any component started, use
+ * {@link useMutationState}.
  *
  * Define mutations at module level, with {@link Mutation.make}: a new
  * definition on each render starts a new state. Outside React, run one with
@@ -876,6 +891,7 @@ export const useMutation = <Variables, A, E>(
 		[registry, mutation],
 	);
 	const result = useAtomValue(handle.result);
+	const variables = useAtomValue(handle.variables);
 	React.useEffect(
 		function retainHandle() {
 			return handle.retain();
@@ -883,8 +899,162 @@ export const useMutation = <Variables, A, E>(
 		[handle],
 	);
 	return React.useMemo(
-		() => ({ result, run: handle.run, reset: handle.reset }),
-		[result, handle],
+		() => ({ result, variables, run: handle.run, reset: handle.reset }),
+		[result, variables, handle],
+	);
+};
+
+/**
+ * A run of a mutation in progress, as {@link useMutationState} lists it.
+ *
+ * @example
+ * ```ts
+ * import type { UseMutationStateRun } from "@monarcode/effetch-query/react";
+ *
+ * export const title = (run: UseMutationStateRun<{ title: string }, number, never>) =>
+ *   run.variables.title;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseMutationStateRun<Variables, A, E> {
+	/** The variables the run was started with. */
+	readonly variables: Variables;
+	/**
+	 * The run's state. It's listed only while in progress, so this is a
+	 * waiting `Initial`.
+	 */
+	readonly result: AsyncResult.AsyncResult<A, E>;
+}
+
+const useActivity = () => {
+	const registry = useRegistry();
+	return useHandle(() => makeActivityHandle(registry), [registry]);
+};
+
+const noneInProgress = () => 0;
+const noRunsInProgress = () => noRuns;
+
+/**
+ * Lists the runs of a mutation in progress on this client, oldest first,
+ * whichever component or Effect started them: a list can show the items a
+ * form elsewhere is still saving. A run is listed from when it starts until
+ * it settles, however it ends. A run `concurrent: "queue"` holds back is
+ * listed while it waits; one that `concurrent: false` makes wait for the run
+ * it replaces to roll back is listed once that's done. The list keeps its identity until the runs change.
+ *
+ * A server render lists none, and so does the first render while the page
+ * hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Mutation } from "@monarcode/effetch-query";
+ * import { useMutationState } from "@monarcode/effetch-query/react";
+ *
+ * const addTodo = Mutation.make({
+ *   run: (title: string) => Effect.succeed({ id: 1, title }),
+ * });
+ *
+ * export function SavingTodos() {
+ *   const saving = useMutationState(addTodo);
+ *   return (
+ *     <ul>
+ *       {saving.map((run, index) => (
+ *         <li key={index} style={{ opacity: 0.5 }}>
+ *           {run.variables}
+ *         </li>
+ *       ))}
+ *     </ul>
+ *   );
+ * }
+ * ```
+ *
+ * @see {@link useMutation} for one component's own runs
+ * @see {@link useIsMutating} to count them
+ *
+ * @since 0.1.0
+ */
+export const useMutationState = <Variables, A, E>(
+	mutation: Mutation.Mutation<Variables, A, E>,
+): ReadonlyArray<UseMutationStateRun<Variables, A, E>> => {
+	const activity = useActivity();
+	return React.useSyncExternalStore(
+		activity.subscribe,
+		() => activity.runs(mutation),
+		noRunsInProgress,
+	);
+};
+
+/**
+ * Counts the queries fetching on this client: those the
+ * {@link Query.Target} matches, or all of them without one, as
+ * {@link Query.invalidate} matches them. Background refetches count, so it
+ * suits an app-wide progress bar. The component re-renders when the count
+ * changes.
+ *
+ * A server render counts none, and so does the first render while the page
+ * hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+ *
+ * @example
+ * ```tsx
+ * import { useIsFetching, useIsMutating } from "@monarcode/effetch-query/react";
+ *
+ * export function ProgressBar() {
+ *   const busy = useIsFetching() + useIsMutating() > 0;
+ *   return busy ? <div role="progressbar" aria-label="Loading" /> : null;
+ * }
+ * ```
+ *
+ * @see {@link useIsMutating} for mutation runs
+ *
+ * @since 0.1.0
+ */
+export const useIsFetching = (target?: Query.Target | undefined): number => {
+	const activity = useActivity();
+	return React.useSyncExternalStore(
+		activity.subscribe,
+		() => activity.fetching(target),
+		noneInProgress,
+	);
+};
+
+/**
+ * Counts the mutation runs in progress on this client: those of `mutation`,
+ * or of every mutation without one, whichever component or Effect started
+ * them. A run counts from when it starts until it settles, and a run
+ * `concurrent: "queue"` holds back counts while it waits. The component
+ * re-renders when the count changes.
+ *
+ * A server render counts none, and so does the first render while the page
+ * hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Mutation } from "@monarcode/effetch-query";
+ * import { useIsMutating } from "@monarcode/effetch-query/react";
+ *
+ * const save = Mutation.make({ run: (text: string) => Effect.succeed(text) });
+ *
+ * export const useUnsavedChanges = () => useIsMutating(save) > 0;
+ * ```
+ *
+ * @see {@link useMutationState} for the runs' variables
+ * @see {@link useIsFetching} for queries
+ *
+ * @since 0.1.0
+ */
+export const useIsMutating = (
+	mutation?: Mutation.Mutation<never, unknown, unknown> | undefined,
+): number => {
+	const activity = useActivity();
+	return React.useSyncExternalStore(
+		activity.subscribe,
+		() => activity.mutating(mutation),
+		noneInProgress,
 	);
 };
 

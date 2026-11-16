@@ -122,6 +122,7 @@ export type KeyQuerySchema = Fetch.QuerySchema & {
  * export const options: EndpointsOptions<typeof ApiError> = {
  *   key: ["wallet"],
  *   defaultError: ApiError,
+ *   invalidates: "route",
  * };
  * ```
  *
@@ -164,6 +165,25 @@ export interface EndpointsOptions<
 	 * it again.
 	 */
 	readonly statusErrors?: SE | undefined;
+	/**
+	 * If `"route"`, a mutation that succeeds invalidates its route's queries,
+	 * as {@link Query.invalidate} does: every query whose key starts with the
+	 * route's {@link EndpointQuery.key}, the `key` prefix and the path's
+	 * literals before its first param. `PATCH /todos/:id` invalidates
+	 * `["todos"]`, so `GET /todos` and `GET /todos/:id` refetch, along with
+	 * any other query under that key. A route with no param invalidates its
+	 * whole path: `POST /todos/reorder` invalidates `["todos", "reorder"]`,
+	 * which no list is keyed under, so give it an `invalidates` of its own. A
+	 * route that starts with a param invalidates every query under `key`, or
+	 * every query on the client without one.
+	 *
+	 * It invalidates more than a write changes, on purpose: a query
+	 * refetched for nothing costs a request, and one left stale shows old
+	 * data. A mutation's own `invalidates` replaces it, and `invalidates: []`
+	 * turns it off for that mutation. Default: a mutation invalidates only
+	 * what its `invalidates` says.
+	 */
+	readonly invalidates?: "route" | undefined;
 }
 
 /**
@@ -630,8 +650,10 @@ export interface Endpoints<
 	 * options (`params`, `query`, `body`, …: {@link EndpointVariables}), with
 	 * `query` typed by the endpoint's `query` schema if it has one, and
 	 * it takes a mutation's options ({@link EndpointMutationOptions}), such
-	 * as `invalidates` and `optimistic`; nothing is invalidated unless you
-	 * say so. Its value and errors are those of {@link Endpoints.query}.
+	 * as `invalidates` and `optimistic`. It invalidates what its
+	 * `invalidates` says, or with {@link EndpointsOptions.invalidates} set to
+	 * `"route"` and no `invalidates` of its own, its route's queries. Its
+	 * value and errors are those of {@link Endpoints.query}.
 	 */
 	readonly mutation: <
 		const R extends string,
@@ -774,7 +796,8 @@ interface AnyClient {
  *
  * The adapter adds no behaviour of its own: a query is a
  * {@link Query.family} member keyed by its route, and a mutation is a
- * {@link Mutation.make} whose `run` calls the endpoint. From a
+ * {@link Mutation.make} whose `run` calls the endpoint, and that
+ * invalidates its route with {@link EndpointsOptions.invalidates}. From a
  * `Fetch.Service` class it reads the `defaultError` and `statusErrors` the
  * client is made with, to send errors to the browser; from a
  * `Context.Service` key, give them in the options ({@link EndpointsOptions}).
@@ -996,6 +1019,11 @@ export const endpoints = <
 		const { headers, plugins, ...rest } = mutationOptions ?? {};
 		return Mutation.make({
 			...rest,
+			invalidates:
+				rest.invalidates ??
+				(options?.invalidates === "route"
+					? [routeKeyPrefix(prefix, segments(endpoint.path))]
+					: undefined),
 			run: call(endpoint, { headers, plugins }),
 		});
 	};

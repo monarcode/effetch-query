@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
 import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
+import { options as mutationOptions } from "../src/internal/mutation.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
 import { segments } from "../src/internal/routeKey.js";
 import { disposeClients, makeClient, use } from "./helpers.js";
@@ -40,6 +41,10 @@ const createTodo = Fetch.endpoint("POST /todos", {
 	output: Todo,
 });
 const removeTodo = Fetch.endpoint("DELETE /todos/:id");
+const renameTodo = Fetch.endpoint("PATCH /todos/:id", {
+	input: Schema.Struct({ title: Schema.String }),
+	output: Todo,
+});
 const signOut = Fetch.endpoint("POST /auth/logout");
 
 class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
@@ -88,6 +93,11 @@ const todosServer = () => {
 		}
 		if (method === "GET" && items.has(id)) {
 			return Response.json(items.get(id));
+		}
+		if (method === "PATCH" && items.has(id)) {
+			const renamed = { id, ...(body as { readonly title: string }) };
+			items.set(id, renamed);
+			return Response.json(renamed);
 		}
 		if (method === "POST" && url.pathname === "/auth/logout") {
 			return new Response(null, { status: 204 });
@@ -477,6 +487,121 @@ describe("mutations", () => {
 				? exit.cause.reasons[0].error._tag
 				: undefined,
 		).toBe("HttpError");
+	});
+});
+
+describe('invalidates: "route"', () => {
+	const routed = endpoints(TestApi, {
+		defaultError: ApiError,
+		invalidates: "route",
+	});
+	const rename = { params: { id: 1 }, body: { title: "Renamed" } } as const;
+
+	it("invalidates the route's queries when a mutation succeeds", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		let profiles = 0;
+		const profile = Query.make({
+			key: ["profile"],
+			run: Effect.sync(() => ++profiles),
+		});
+		use(client.registry, todos());
+		use(client.registry, todo({ params: { id: 1 } }));
+		use(client.registry, profile);
+		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(1));
+
+		await client.runPromise(
+			Mutation.run(routed.mutation(renameTodo), rename),
+		);
+
+		await vi.waitFor(() => {
+			expect(server.hits("GET /todos")).toBe(2);
+			expect(server.hits("GET /todos/1")).toBe(2);
+		});
+		expect(profiles).toBe(1);
+	});
+
+	it("invalidates under the endpoints' key prefix", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		const wallet = endpoints(TestApi, {
+			key: ["wallet"],
+			invalidates: "route",
+		});
+		use(client.registry, wallet.query(listTodos)());
+		use(client.registry, todos());
+		await vi.waitFor(() => expect(server.hits("GET /todos")).toBe(2));
+
+		await client.runPromise(
+			Mutation.run(wallet.mutation(renameTodo), rename),
+		);
+
+		await vi.waitFor(() => expect(server.hits("GET /todos")).toBe(3));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(server.hits("GET /todos")).toBe(3);
+		expect(mutationOptions(wallet.mutation(renameTodo)).invalidates).toEqual([
+			["wallet", "todos"],
+		]);
+	});
+
+	it("gives way to a mutation's own invalidates, and [] turns it off", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		use(client.registry, todos());
+		use(client.registry, todo({ params: { id: 1 } }));
+		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(1));
+
+		await client.runPromise(
+			Mutation.run(
+				routed.mutation(renameTodo, {
+					invalidates: [todo({ params: { id: 1 } })],
+				}),
+				rename,
+			),
+		);
+		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(2));
+		await client.runPromise(
+			Mutation.run(routed.mutation(renameTodo, { invalidates: [] }), rename),
+		);
+
+		expect(server.hits("GET /todos")).toBe(1);
+		expect(server.hits("GET /todos/1")).toBe(2);
+	});
+
+	it("invalidates nothing when the mutation fails", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		use(client.registry, todos());
+		await vi.waitFor(() => expect(server.hits("GET /todos")).toBe(1));
+
+		const exit = await client.runPromiseExit(
+			Mutation.run(routed.mutation(removeTodo), { params: { id: 9 } }),
+		);
+
+		expect(Exit.isFailure(exit)).toBe(true);
+		expect(server.hits("GET /todos")).toBe(1);
+	});
+
+	it("uses the literals before the first param, or the prefix alone", () => {
+		const keyed = endpoints(TestApi, { key: ["shop"], invalidates: "route" });
+		const invalidates = (
+			endpoint: Fetch.UnboundEndpoint<any, any, any, any, any, any, any>,
+			from = routed,
+		) => mutationOptions(from.mutation(endpoint)).invalidates;
+
+		expect(
+			invalidates(Fetch.endpoint("DELETE /todos/:id/comments/:cid")),
+		).toEqual([["todos"]]);
+		expect(invalidates(Fetch.endpoint("POST /auth/logout"))).toEqual([
+			["auth", "logout"],
+		]);
+		expect(invalidates(Fetch.endpoint("POST /:tenant/todos"))).toEqual([[]]);
+		expect(invalidates(Fetch.endpoint("POST /:tenant/todos"), keyed)).toEqual(
+			[["shop"]],
+		);
+		expect(
+			mutationOptions(api.mutation(renameTodo)).invalidates,
+		).toBeUndefined();
 	});
 });
 
