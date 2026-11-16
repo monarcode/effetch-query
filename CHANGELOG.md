@@ -6,6 +6,19 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ### Added
 
+- `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`: derive
+  what a component shows from a query's value, such as a count or one
+  field. The component doesn't re-render for changes the selection doesn't
+  show, and the query still refetches on mount and focus, which a derived
+  atom read with `useAtomValue` doesn't.
+- `useQueryState(query, options?)`: reads a query as `useQuery` does and
+  returns an object with `status`, `data`, `error`, `cause`, `isPending`,
+  `isSuccess`, `isFailure`, `isFetching`, `refetch` and `result`. Checking
+  `status` narrows `data` and `error`.
+- `QueryBoundary`: shows `pending` while the queries inside suspend, and
+  `failure({ error, cause, retry })` when one throws a `QueryFailure`,
+  until `retry` or until the query succeeds. Other errors go on to the next
+  error boundary.
 - The client has the cache functions as methods, for code outside Effect
   such as router loaders and event handlers. Each does what its `Query`
   function does:
@@ -23,8 +36,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   `refetch`). A query that reads a cleared one through `ctx.result` is
   cleared too. A `fetch` waiting on a cleared query is interrupted and a
   `refetch` resolves, and a mutation's optimistic write made before the
-  clear isn't rolled back over it. `Query.reset` still fetches again at
-  once.
+  clear isn't rolled back over it, and `useResetQueryFailure` fetches a
+  cleared query again. `Query.reset` still fetches again at once.
 - `QueryClient.make()` and `QueryClient.layer()` take no options when
   `Register` declares no services (`QueryClient.OptionalOptions`).
 

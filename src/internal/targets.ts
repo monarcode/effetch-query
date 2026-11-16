@@ -18,7 +18,7 @@ export const invalidate = (
 };
 
 /** Refetches a query, or wakes it if `clear` left it idle, which fetches. */
-const refresh = (
+export const refresh = (
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<any, any>,
 ): void => {

@@ -1,4 +1,6 @@
+import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
+import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
@@ -38,12 +40,28 @@ export interface QueryUse {
 		keepPrevious: boolean,
 	) => AsyncResult.AsyncResult<A, E>;
 	/**
-	 * What a suspense reader shows: a success, or the success before a
-	 * failure. Throws a promise to suspend on, or the `QueryFailure` of a
-	 * failure with no success before it.
+	 * The result of `query` with `select` applied to its value (and to a
+	 * failure's previous success), or the result itself without `select`. A
+	 * selection equal to the last one of the same query (`Equal.equals`)
+	 * returns the last object, so a reader subscribed through it doesn't
+	 * re-render. A `select` that throws on a value gives a settled failure
+	 * with the defect and no previous success, so a suspense reader throws it;
+	 * one that throws on a failure's previous success keeps the failure's
+	 * cause and drops that success.
+	 */
+	readonly select: <A, E, B>(
+		query: Query.Query<any, any> | null,
+		result: AsyncResult.AsyncResult<A, E>,
+		select: ((value: A) => B) | undefined,
+	) => AsyncResult.AsyncResult<B, E>;
+	/**
+	 * What a suspense reader shows of `result`, its query's result or a
+	 * selection of it: a success, or the success before a failure. Throws a
+	 * promise to suspend on, or the `QueryFailure` of a failure with no
+	 * success before it.
 	 */
 	readonly suspend: <A, E>(
-		query: Query.Query<A, E>,
+		query: Query.Query<any, any>,
 		result: AsyncResult.AsyncResult<A, E>,
 	) => AsyncResult.Success<A, E>;
 }
@@ -94,7 +112,39 @@ export const makeQueryUse = (
 		}
 		return copy.waiting;
 	};
+	let selected:
+		| {
+				readonly query: Query.Query<any, any> | null;
+				readonly source: AsyncResult.AsyncResult<any, any>;
+				readonly select: (value: any) => unknown;
+				readonly output: AsyncResult.AsyncResult<any, any>;
+		  }
+		| undefined;
 	return {
+		select: <A, E, B>(
+			query: Query.Query<any, any> | null,
+			result: AsyncResult.AsyncResult<A, E>,
+			select: ((value: A) => B) | undefined,
+		): AsyncResult.AsyncResult<B, E> => {
+			if (select === undefined) {
+				return result as unknown as AsyncResult.AsyncResult<B, E>;
+			}
+			// An inline `select` is new on every render, so the source and the
+			// function only skip the work; equal selections keep the object.
+			if (
+				selected?.query === query &&
+				selected.source === result &&
+				selected.select === select
+			) {
+				return selected.output;
+			}
+			const last = selected?.query === query ? selected.output : undefined;
+			const mapped = selectResult(result, select);
+			const output =
+				last !== undefined && sameShown(last, mapped) ? last : mapped;
+			selected = { query, source: result, select, output };
+			return output;
+		},
 		mounted: (query) => {
 			if (query !== null) {
 				resumePolling(registry, query);
@@ -148,4 +198,50 @@ export const makeQueryUse = (
 			return result.waiting ? waiting(success) : success;
 		},
 	};
+};
+
+const selectResult = <A, E, B>(
+	result: AsyncResult.AsyncResult<A, E>,
+	select: (value: A) => B,
+): AsyncResult.AsyncResult<B, E> => {
+	try {
+		return AsyncResult.map(result, select);
+	} catch (defect) {
+		// A failure's own cause says more than a defect selecting what it
+		// had; a value that can't be selected shows nothing older instead.
+		return AsyncResult.isFailure(result)
+			? AsyncResult.failure(result.cause, { waiting: result.waiting })
+			: AsyncResult.failure(Cause.die(defect));
+	}
+};
+
+const sameSuccess = Option.makeEquivalence(
+	(
+		x: AsyncResult.Success<unknown, unknown>,
+		y: AsyncResult.Success<unknown, unknown>,
+	) => Equal.equals(x.value, y.value),
+);
+
+/** Whether two selected results show the same thing, timestamps aside. */
+const sameShown = (
+	a: AsyncResult.AsyncResult<unknown, unknown>,
+	b: AsyncResult.AsyncResult<unknown, unknown>,
+): boolean => {
+	if (a._tag !== b._tag || a.waiting !== b.waiting) {
+		return false;
+	}
+	if (a._tag === "Success") {
+		return Equal.equals(
+			a.value,
+			(b as AsyncResult.Success<unknown, unknown>).value,
+		);
+	}
+	if (a._tag === "Failure") {
+		const other = b as AsyncResult.Failure<unknown, unknown>;
+		return (
+			Equal.equals(a.cause, other.cause) &&
+			sameSuccess(a.previousSuccess, other.previousSuccess)
+		);
+	}
+	return true;
 };

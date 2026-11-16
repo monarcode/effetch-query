@@ -16,11 +16,12 @@ import {
 	pagingAtom,
 } from "../internal/infiniteQuery.js";
 import { makeHandle } from "../internal/mutationHandle.js";
-import { makeQueryUse } from "../internal/queryUse.js";
+import { queryState } from "../internal/queryState.js";
+import { makeQueryUse, type QueryUse } from "../internal/queryUse.js";
 import { makeRefetchHandle } from "../internal/refetchHandle.js";
+import { resetQueryFailure } from "../internal/suspense.js";
 import type * as Mutation from "../Mutation.js";
 import type * as Query from "../Query.js";
-import { QueryFailure } from "../QueryFailure.js";
 import { useRegistry } from "./QueryProvider.js";
 
 const idle = Atom.readable(() => AsyncResult.initial<never, never>());
@@ -71,11 +72,98 @@ export interface UseQueryOptions {
 }
 
 /**
+ * Options for {@link useQuery} and {@link useQueryState}: those of
+ * {@link UseQueryOptions}, and `select`.
+ *
+ * @example
+ * ```ts
+ * import type { UseQuerySelectOptions } from "@monarcode/effetch-query/react";
+ *
+ * export const options: UseQuerySelectOptions<ReadonlyArray<string>, number> = {
+ *   select: (todos) => todos.length,
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseQuerySelectOptions<A, B> extends UseQueryOptions {
+	/**
+	 * Derives what the component shows from the query's value, such as one
+	 * field or a count: the hook returns its result instead of the value, and
+	 * a failure's previous success is selected too. The cache keeps the whole
+	 * value, so other readers of the query see it unchanged.
+	 *
+	 * The component re-renders when the selection changes or a fetch starts or
+	 * ends (`waiting`), not when the value changes in a way the selection
+	 * doesn't show: a selection equal to the last one (`Equal.equals`, which
+	 * compares plain objects and arrays by their contents) keeps the last
+	 * result, timestamp included. An inline function runs on every render;
+	 * for a costly selection, pass one defined outside the component or with
+	 * `useCallback`, which runs only when the value changes.
+	 *
+	 * If it throws, the hook shows a failure whose cause is the defect, with
+	 * no earlier value; if it throws on a failure's previous success, the
+	 * failure shows without one. With `keepPrevious`, the last selection
+	 * shown is kept. Default: none, the value itself.
+	 */
+	readonly select?: ((value: A) => B) | undefined;
+}
+
+/**
+ * Options for {@link useSuspenseQuery}.
+ *
+ * @example
+ * ```ts
+ * import type { UseSuspenseQueryOptions } from "@monarcode/effetch-query/react";
+ *
+ * export const options: UseSuspenseQueryOptions<{ readonly title: string }, string> = {
+ *   select: (todo) => todo.title,
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseSuspenseQueryOptions<A, B> {
+	/**
+	 * Derives what the component shows from the query's value, as
+	 * {@link UseQuerySelectOptions.select} does. If it throws, the defect is
+	 * thrown to the error boundary as a `QueryFailure`, even after an earlier
+	 * selection was shown. Default: none, the value itself.
+	 */
+	readonly select?: ((value: A) => B) | undefined;
+}
+
+/**
+ * Subscribes to a query's result, with `select` applied by the reader's
+ * handle: changes the selection doesn't show don't re-render the component.
+ */
+const useSelected = <A, E, B>(
+	use: QueryUse,
+	query: Query.Query<A, E> | null,
+	select: ((value: A) => B) | undefined,
+): AsyncResult.AsyncResult<B, E> => {
+	// Always the selector form: switching forms would change the hooks called.
+	const selector = React.useCallback(
+		(result: AsyncResult.AsyncResult<A, E>) =>
+			use.select(query, result, select),
+		[use, query, select],
+	);
+	return useAtomValue<
+		AsyncResult.AsyncResult<A, E>,
+		AsyncResult.AsyncResult<B, E>
+	>(query ?? idle, selector);
+};
+
+/**
  * Reads a query and keeps it up to date while the component is mounted. On
  * mount, and when `query` changes, it refetches the query if it's stale
  * (`refetchOnMount`) or failed (`retryOnMount`), and while mounted it
  * refetches on focus, reconnect and `refetchInterval` as the query's options
  * say.
+ *
+ * With `select`, it returns the result of the selection instead
+ * ({@link UseQuerySelectOptions.select}), and the component doesn't re-render
+ * for changes the selection doesn't show.
  *
  * Pass `null` to read nothing: it returns `AsyncResult.initial()` and fetches
  * nothing (TanStack's `enabled: false`). In a server render it reads only the
@@ -103,16 +191,17 @@ export interface UseQueryOptions {
  * ```
  *
  * @see {@link useSuspenseQuery} to suspend until there's a value
+ * @see {@link useQueryState} for the result as an object of fields
  *
  * @since 0.1.0
  */
-export const useQuery = <A, E>(
+export const useQuery = <A, E, B = A>(
 	query: Query.Query<A, E> | null,
-	options?: UseQueryOptions | undefined,
-): AsyncResult.AsyncResult<A, E> => {
+	options?: UseQuerySelectOptions<A, B> | undefined,
+): AsyncResult.AsyncResult<B, E> => {
 	const registry = useRegistry();
 	const use = useHandle(() => makeQueryUse(registry), [registry]);
-	const result = useAtomValue<AsyncResult.AsyncResult<A, E>>(query ?? idle);
+	const result = useSelected(use, query, options?.select);
 	React.useEffect(
 		function revalidateOnMount() {
 			use.mounted(query);
@@ -142,6 +231,10 @@ export const useQuery = <A, E>(
  * refetches the query, such as {@link useResetQueryFailure} in the boundary.
  * A refetch that fails after a success keeps showing that success.
  *
+ * With `select`, it returns the success of the selection instead
+ * ({@link UseSuspenseQueryOptions.select}), and the component doesn't
+ * re-render for changes the selection doesn't show.
+ *
  * In a server render, unlike {@link useQuery}, it fetches a query the cache
  * doesn't have and suspends on the fetch, for streaming SSR. Throws a
  * `MissingQueryProviderError` outside a `QueryProvider`.
@@ -156,21 +249,26 @@ export const useQuery = <A, E>(
  * const me = Query.make({ key: ["me"], run: Effect.succeed({ name: "Ada" }) });
  *
  * export const useName = () => useSuspenseQuery(me).value.name;
+ *
+ * export const useInitial = () =>
+ *   useSuspenseQuery(me, { select: (user) => user.name[0] }).value;
  * ```
  *
  * @see {@link useQuery} to read without suspending
+ * @see {@link QueryBoundary} for the loading and failure states around it
  *
  * @since 0.1.0
  */
-export const useSuspenseQuery = <A, E>(
+export const useSuspenseQuery = <A, E, B = A>(
 	query: Query.Query<A, E>,
-): AsyncResult.Success<A, E> => {
+	options?: UseSuspenseQueryOptions<A, B> | undefined,
+): AsyncResult.Success<B, E> => {
 	const registry = useRegistry();
 	const use = useHandle(
 		() => makeQueryUse(registry, suspenseStaleTime),
 		[registry],
 	);
-	const result = useAtomValue(query);
+	const result = useSelected(use, query, options?.select);
 	React.useEffect(
 		function revalidateOnMount() {
 			use.mounted(query);
@@ -178,6 +276,213 @@ export const useSuspenseQuery = <A, E>(
 		[use, query],
 	);
 	return use.suspend(query, result);
+};
+
+/**
+ * What {@link useQueryState} returns while the query has no value and no
+ * failure: before its first fetch settles, and for a `null` query.
+ *
+ * @example
+ * ```ts
+ * import type { UseQueryStatePending } from "@monarcode/effetch-query/react";
+ *
+ * export const fetching = (state: UseQueryStatePending<string, Error>) =>
+ *   state.isFetching;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseQueryStatePending<A, E> {
+	/** `"pending"`: no value and no failure yet. */
+	readonly status: "pending";
+	/** Always `undefined`: there's no value yet. */
+	readonly data: undefined;
+	/** Always `undefined`: there's no failure. */
+	readonly error: undefined;
+	/** Always `undefined`: there's no failure. */
+	readonly cause: undefined;
+	/** Always true. */
+	readonly isPending: true;
+	/** Always false. */
+	readonly isSuccess: false;
+	/** Always false. */
+	readonly isFailure: false;
+	/**
+	 * True while a fetch of the query is in progress: the result's
+	 * `waiting`. False for a `null` query, and in a server render.
+	 */
+	readonly isFetching: boolean;
+	/** Refetches the query, as {@link UseQueryStateSuccess.refetch} does. */
+	readonly refetch: () => Promise<void>;
+	/** The result the fields come from, an `Initial`. */
+	readonly result: AsyncResult.Initial<A, E>;
+}
+
+/**
+ * What {@link useQueryState} returns while the query has a value, including
+ * while it refetches.
+ *
+ * @example
+ * ```ts
+ * import type { UseQueryStateSuccess } from "@monarcode/effetch-query/react";
+ *
+ * export const title = (state: UseQueryStateSuccess<{ readonly title: string }, Error>) =>
+ *   state.data.title;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseQueryStateSuccess<A, E> {
+	/** `"success"`: the query has a value. */
+	readonly status: "success";
+	/** The query's value, or its selection with `select`. */
+	readonly data: A;
+	/** Always `undefined`: there's no failure. */
+	readonly error: undefined;
+	/** Always `undefined`: there's no failure. */
+	readonly cause: undefined;
+	/** Always false. */
+	readonly isPending: false;
+	/** Always true. */
+	readonly isSuccess: true;
+	/** Always false. */
+	readonly isFailure: false;
+	/** True while the query refetches in the background: the result's `waiting`. */
+	readonly isFetching: boolean;
+	/**
+	 * Refetches the query, and resolves when the refetch settles. Never
+	 * rejects: a failure shows in the fields. It keeps its identity while the
+	 * query stays the same. Resolves at once for a `null` query.
+	 */
+	readonly refetch: () => Promise<void>;
+	/** The result the fields come from, a `Success`. */
+	readonly result: AsyncResult.Success<A, E>;
+}
+
+/**
+ * What {@link useQueryState} returns when the query has failed: its last
+ * fetch failed, or a refetch after a success did.
+ *
+ * @example
+ * ```ts
+ * import type { UseQueryStateFailure } from "@monarcode/effetch-query/react";
+ *
+ * export const message = (state: UseQueryStateFailure<string, Error>) =>
+ *   state.error?.message ?? "Something went wrong";
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseQueryStateFailure<A, E> {
+	/** `"failure"`: the query's last fetch failed. */
+	readonly status: "failure";
+	/**
+	 * The last success before the failure, or `undefined` if there was none:
+	 * a refetch that fails keeps the value it had.
+	 */
+	readonly data: A | undefined;
+	/**
+	 * The typed error the query failed with, or `undefined` when it failed
+	 * with a defect or an interruption, which only `cause` holds.
+	 */
+	readonly error: E | undefined;
+	/** Why the query failed: its error, a defect, or an interruption. */
+	readonly cause: Cause.Cause<E>;
+	/** Always false. */
+	readonly isPending: false;
+	/** Always false. */
+	readonly isSuccess: false;
+	/** Always true. */
+	readonly isFailure: true;
+	/** True while the query is fetched again: the result's `waiting`. */
+	readonly isFetching: boolean;
+	/** Refetches the query, as {@link UseQueryStateSuccess.refetch} does. */
+	readonly refetch: () => Promise<void>;
+	/** The result the fields come from, a `Failure`. */
+	readonly result: AsyncResult.Failure<A, E>;
+}
+
+/**
+ * What {@link useQueryState} returns: one of three shapes, told apart by
+ * `status` (or `isPending`, `isSuccess` and `isFailure`), which narrows
+ * `data`, `error` and `cause`.
+ *
+ * @example
+ * ```ts
+ * import type { UseQueryStateResult } from "@monarcode/effetch-query/react";
+ *
+ * export const label = (state: UseQueryStateResult<number, Error>): string => {
+ *   switch (state.status) {
+ *     case "pending":
+ *       return "Loading…";
+ *     case "success":
+ *       return `${state.data} todos`;
+ *     case "failure":
+ *       return state.error?.message ?? "Something went wrong";
+ *   }
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseQueryStateResult<A, E> =
+	| UseQueryStatePending<A, E>
+	| UseQueryStateSuccess<A, E>
+	| UseQueryStateFailure<A, E>;
+
+/**
+ * Reads a query as {@link useQuery} does, and returns its result as an object
+ * of fields: `status`, `data`, `error`, `isFetching`, `refetch` and more,
+ * TanStack Query's shape. It fetches, refetches and takes options as
+ * {@link useQuery} does, `select` and `keepPrevious` included.
+ *
+ * Check `status` before reading `data`: it narrows the object
+ * ({@link UseQueryStateResult}). A failure keeps the last success as `data`,
+ * and its `error` is typed; match each error by its `_tag`, or use `result`
+ * with `AsyncResult.builder`. The object keeps its identity while nothing in
+ * it changes. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ * import { useQueryState } from "@monarcode/effetch-query/react";
+ *
+ * const todos = Query.make({
+ *   key: ["todos"],
+ *   run: Effect.succeed([{ id: 1, title: "Buy milk" }]),
+ * });
+ *
+ * export function TodoCount() {
+ *   const state = useQueryState(todos, { select: (list) => list.length });
+ *   if (state.status === "pending") return <p>Loading…</p>;
+ *   if (state.status === "failure") {
+ *     return <button onClick={() => void state.refetch()}>Try again</button>;
+ *   }
+ *   return <p>{state.data} todos{state.isFetching ? " (updating)" : ""}</p>;
+ * }
+ * ```
+ *
+ * @see {@link useQuery} for the `AsyncResult` itself
+ *
+ * @since 0.1.0
+ */
+export const useQueryState = <A, E, B = A>(
+	query: Query.Query<A, E> | null,
+	options?: UseQuerySelectOptions<A, B> | undefined,
+): UseQueryStateResult<B, E> => {
+	const registry = useRegistry();
+	const result = useQuery(query, options);
+	const handle = useHandle(() => makeRefetchHandle(registry), [registry]);
+	const refetch = React.useCallback(
+		() => (query === null ? Promise.resolve() : handle.refetch(query)),
+		[handle, query],
+	);
+	return React.useMemo(
+		() => ({ ...queryState(result), refetch }),
+		[result, refetch],
+	);
 };
 
 /**
@@ -680,11 +985,7 @@ export const useRefetch = (target: Query.Target): UseRefetchResult => {
 export const useResetQueryFailure = (): ((error: unknown) => void) => {
 	const registry = useRegistry();
 	return React.useCallback(
-		(error: unknown) => {
-			if (QueryFailure.is(error)) {
-				registry.refresh(error.query);
-			}
-		},
+		(error: unknown) => resetQueryFailure(registry, error),
 		[registry],
 	);
 };

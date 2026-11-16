@@ -9,7 +9,7 @@ const source = `import * as Effect from "effect/Effect";
 
 import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
 import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
-import { /*useQuery*/useQuery } from "@monarcode/effetch-query/react";
+import { /*useQuery*/useQuery, /*useQueryState*/useQueryState } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
 import { /*connectQueryClient*/connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 
@@ -18,7 +18,8 @@ export const make = QueryClient./*make*/make;
 const greeting = Query.make({ key: ["greeting"], run: Effect.succeed("hello") });
 export const read = () => {
 	const /*result*/result = useQuery(greeting);
-	return result;
+	const /*state*/state = useQueryState(greeting, { select: (text) => text.length });
+	return [result, state] as const;
 };
 export { connectQueryClient, endpoints, reactNativeSignals };
 `;
@@ -111,8 +112,14 @@ for (const [marker, file, signature, docs] of [
 	[
 		"useQuery",
 		"react/hooks.d.ts",
-		"(alias) const useQuery: <A, E>(",
+		"(alias) const useQuery: <A, E, B = A>(",
 		"Reads a query and keeps it up to date",
+	],
+	[
+		"useQueryState",
+		"react/hooks.d.ts",
+		"(alias) const useQueryState: <A, E, B = A>(",
+		"returns its result as an object",
 	],
 	[
 		"reactNativeSignals",
@@ -166,6 +173,15 @@ const result = ts.displayPartsToString(
 expect(
 	result === "const result: AsyncResult<string, never>",
 	`Hover on useQuery's result shows ${JSON.stringify(result)}`,
+);
+
+// The object hook's type names its union, so a hover shows what to narrow.
+const state = ts.displayPartsToString(
+	service.getQuickInfoAtPosition(probe, at("state"))?.displayParts,
+);
+expect(
+	state === "const state: UseQueryStateResult<number, never>",
+	`Hover on useQueryState's result shows ${JSON.stringify(state)}`,
 );
 
 if (failures.length > 0) {

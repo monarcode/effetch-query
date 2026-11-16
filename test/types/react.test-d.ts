@@ -13,6 +13,8 @@ import {
 } from "../../src/index.js";
 import {
 	type OwnedQueryProviderProps,
+	QueryBoundary,
+	type QueryBoundaryFailureProps,
 	type QueryFailure,
 	QueryProvider,
 	type QueryProviderProps,
@@ -22,6 +24,8 @@ import {
 	type UseMutationRunOptions,
 	useQuery,
 	useQueryClient,
+	useQueryState,
+	type UseQueryStateResult,
 	useRefetch,
 	useResetQueryFailure,
 	useSuspenseInfiniteQuery,
@@ -76,9 +80,91 @@ describe("useQuery", () => {
 			useQuery(Math.random() > 0.5 ? todo(1) : null, { keepPrevious: true }),
 		).toEqualTypeOf<AsyncResult.AsyncResult<{ id: number }, Missing>>();
 	});
+
+	it("returns the selection's AsyncResult with select", () => {
+		expectTypeOf(
+			useQuery(todo(1), { select: (value) => String(value.id) }),
+		).toEqualTypeOf<AsyncResult.AsyncResult<string, Missing>>();
+		expectTypeOf(
+			useQuery(
+				null as typeof todo extends (id: number) => infer Q
+					? Q | null
+					: never,
+				{
+					keepPrevious: true,
+					select: (value) => value.id > 0,
+				},
+			),
+		).toEqualTypeOf<AsyncResult.AsyncResult<boolean, Missing>>();
+	});
+
+	it("checks select against the query's value", () => {
+		// @ts-expect-error: the value has no title
+		useQuery(todo(1), { select: (value) => value.title });
+	});
+});
+
+describe("useQueryState", () => {
+	it("narrows data, error and cause by status", () => {
+		const state = useQueryState(todo(1));
+		expectTypeOf(state).toEqualTypeOf<
+			UseQueryStateResult<{ id: number }, Missing>
+		>();
+		expectTypeOf(state.data).toEqualTypeOf<{ id: number } | undefined>();
+		expectTypeOf(state.refetch).toEqualTypeOf<() => Promise<void>>();
+		if (state.status === "success") {
+			expectTypeOf(state.data).toEqualTypeOf<{ id: number }>();
+			expectTypeOf(state.error).toEqualTypeOf<undefined>();
+			expectTypeOf(state.result).toEqualTypeOf<
+				AsyncResult.Success<{ id: number }, Missing>
+			>();
+		}
+		if (state.isFailure) {
+			expectTypeOf(state.error).toEqualTypeOf<Missing | undefined>();
+			expectTypeOf(state.cause).toEqualTypeOf<Cause.Cause<Missing>>();
+		}
+		if (state.isPending) {
+			expectTypeOf(state.data).toEqualTypeOf<undefined>();
+		}
+	});
+
+	it("takes select and null", () => {
+		expectTypeOf(
+			useQueryState(Math.random() > 0.5 ? todo(1) : null, {
+				select: (value) => value.id,
+			}),
+		).toEqualTypeOf<UseQueryStateResult<number, Missing>>();
+	});
+});
+
+describe("QueryBoundary", () => {
+	type Props = Parameters<typeof QueryBoundary>[0];
+
+	it("takes pending and a failure renderer", () => {
+		expectTypeOf({
+			pending: "Loading…",
+			failure: ({ error, retry }: QueryBoundaryFailureProps) =>
+				`${String(error)} ${typeof retry}`,
+		}).toExtend<Props>();
+		expectTypeOf<QueryBoundaryFailureProps["cause"]>().toEqualTypeOf<
+			Cause.Cause<unknown>
+		>();
+	});
+
+	it("needs failure", () => {
+		// @ts-expect-error: a boundary must say what a failure shows
+		const props: Props = { pending: "Loading…" };
+		expectTypeOf(props).toExtend<Props>();
+	});
 });
 
 describe("useSuspenseQuery", () => {
+	it("returns the selection's Success with select", () => {
+		expectTypeOf(
+			useSuspenseQuery(todo(1), { select: (value) => value.id }),
+		).toEqualTypeOf<AsyncResult.Success<number, Missing>>();
+	});
+
 	it("returns a Success", () => {
 		expectTypeOf(useSuspenseQuery(todo(1))).toEqualTypeOf<
 			AsyncResult.Success<{ id: number }, Missing>

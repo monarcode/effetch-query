@@ -52,6 +52,8 @@ it. It works with any Effect too.
 - [Infinite queries](#infinite-queries)
 - [React](#react)
   - [Reading queries](#reading-queries)
+  - [Reading a query as an object](#reading-a-query-as-an-object)
+  - [Selecting part of a value](#selecting-part-of-a-value)
   - [Suspense and error boundaries](#suspense-and-error-boundaries)
   - [Running mutations](#running-mutations)
   - [Load more](#load-more)
@@ -941,20 +943,98 @@ alike, use `AsyncResult.matchWithWaiting` or the builder's
 Rather than checking statuses, an endpoint can turn them into errors of
 your own ([Errors by status](#errors-by-status)).
 
+### Reading a query as an object
+
+`useQueryState` reads a query as `useQuery` does, and returns TanStack
+Query's shape: `status`, `data`, `error`, `isFetching` and `refetch`.
+Check `status` first; it narrows `data` and `error`:
+
+```tsx
+import { useQueryState } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoTitle({ id }: { readonly id: number }) {
+  const state = useQueryState(todo({ params: { id } }));
+
+  if (state.status === "pending") {
+    return <p>Loading…</p>;
+  }
+  if (state.status === "failure") {
+    return (
+      <button onClick={() => void state.refetch()}>
+        Couldn't load the todo: try again
+      </button>
+    );
+  }
+  return (
+    <h1 style={{ opacity: state.isFetching ? 0.5 : 1 }}>{state.data.title}</h1>
+  );
+}
+```
+
+The fields are:
+
+- `status`: `"pending"`, `"success"` or `"failure"`, with `isPending`,
+  `isSuccess` and `isFailure` to match.
+- `data`: the value. A failed refetch keeps the last value as `data`.
+- `error`: the typed error, or `undefined` for a defect, which `cause`
+  holds with the rest of the failure.
+- `isFetching`: true while a fetch runs, the first one or a refetch.
+- `refetch`: refetches the query, and resolves when it settles. It never
+  rejects.
+- `result`: the `AsyncResult` the fields come from, for
+  `AsyncResult.builder`.
+
+`error` is a union of every error the query can fail with. To handle each
+by its `_tag`, match on `useQuery`'s result
+([Reading queries](#reading-queries)) or on `state.result`.
+
+### Selecting part of a value
+
+`select` derives what a component shows from a query's value, such as a
+count or one field. `useQuery`, `useSuspenseQuery` and `useQueryState`
+take it:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+
+export function OpenCount() {
+  const count = useQuery(todos(), {
+    select: (list) => list.filter((todo) => !todo.done).length,
+  });
+  return <p>{AsyncResult.getOrElse(count, () => 0)} open</p>;
+}
+```
+
+The component re-renders when the selection changes or a fetch starts or
+ends, not for changes the selection doesn't show: a selection equal to the
+last one, compared by content (`Equal.equals`), keeps the result it showed.
+An inline function runs on every render; for a costly selection, define it
+outside the component or with `useCallback`. The cache keeps the whole
+value, so other components reading the query see it unchanged, and the
+query still refetches on mount, focus and polling as without `select`. A
+`select` that throws shows as a failure with the defect.
+
 ### Suspense and error boundaries
 
 `useSuspenseQuery` suspends until the query has a value, then returns its
 `Success`. A failure with nothing to show is thrown to the nearest error
 boundary as a `QueryFailure`, which carries the query and its `Cause`.
-`useResetQueryFailure` refetches that query, for a "Try again" button:
+
+`QueryBoundary` handles both: it shows `pending` while the queries inside
+suspend, and calls `failure` when one of them throws a `QueryFailure`.
+`retry` refetches the failed query and shows the children again:
 
 ```tsx
 import {
-  QueryFailure,
-  useResetQueryFailure,
+  QueryBoundary,
   useSuspenseQuery,
 } from "@monarcode/effetch-query/react";
-import * as React from "react";
 
 import { todo } from "./todos.js";
 
@@ -963,59 +1043,58 @@ function TodoDetail({ id }: { readonly id: number }) {
   return <h1>{value.title}</h1>;
 }
 
-function Retry({
-  error,
-  onRetry,
-}: {
-  readonly error: unknown;
-  readonly onRetry: () => void;
-}) {
+export function TodoScreen({ id }: { readonly id: number }) {
+  return (
+    <QueryBoundary
+      key={id}
+      pending={<p>Loading…</p>}
+      failure={({ error, retry }) => (
+        <button onClick={retry}>{String(error)}: try again</button>
+      )}
+    >
+      <TodoDetail id={id} />
+    </QueryBoundary>
+  );
+}
+```
+
+Any other error goes on to the next error boundary up. A refetch that
+fails after a success keeps showing that success.
+
+The boundary shows `failure` until `retry` is called, or until the failed
+query succeeds some other way, such as a refetch on reconnect. `retry`
+refetches the query that failed: give each part of a screen that can fail
+on its own a boundary of its own. To show other content after a failure,
+such as the next todo, give the boundary a `key` (`key={id}`), so React
+makes a new one.
+
+Where a router owns the error boundary, such as TanStack Router's
+`errorComponent` or a React Router `ErrorBoundary` export, call
+`useResetQueryFailure` there. Given the caught error, it refetches the query
+inside a `QueryFailure`; then reset the router's boundary:
+
+```tsx
+import {
+  QueryFailure,
+  useResetQueryFailure,
+} from "@monarcode/effetch-query/react";
+import type { ErrorComponentProps } from "@tanstack/react-router";
+
+export function TodoFailed({ error, reset }: ErrorComponentProps) {
   const resetFailure = useResetQueryFailure();
   const shown = QueryFailure.is(error) ? error.error : error;
   return (
     <button
       onClick={() => {
         resetFailure(error);
-        onRetry();
+        reset();
       }}
     >
       {String(shown)}: try again
     </button>
   );
 }
-
-class Boundary extends React.Component<
-  { readonly children: React.ReactNode },
-  { readonly error: unknown; readonly failed: boolean }
-> {
-  override state = { error: undefined as unknown, failed: false };
-  static getDerivedStateFromError(error: unknown) {
-    return { error, failed: true };
-  }
-  override render() {
-    return this.state.failed ? (
-      <Retry
-        error={this.state.error}
-        onRetry={() => this.setState({ error: undefined, failed: false })}
-      />
-    ) : (
-      this.props.children
-    );
-  }
-}
-
-export function TodoScreen({ id }: { readonly id: number }) {
-  return (
-    <Boundary>
-      <React.Suspense fallback={<p>Loading…</p>}>
-        <TodoDetail id={id} />
-      </React.Suspense>
-    </Boundary>
-  );
-}
 ```
-
-A refetch that fails after a success keeps showing that success.
 
 ### Running mutations
 
@@ -1206,8 +1285,8 @@ because an array is a key, but it matches no query.
 ### Atoms
 
 Queries are atoms from `effect/reactivity`, and `QueryProvider` shares the
-client's registry with `@effect/atom-react`. Derive values with `Atom.map`,
-as TanStack's `select` does:
+client's registry with `@effect/atom-react`. For a value several
+components share, derive an atom with `Atom.map`:
 
 ```tsx
 import { useAtomValue } from "@effect/atom-react";
@@ -1227,7 +1306,11 @@ export function OpenTitles() {
 }
 ```
 
-`useQuery` also refetches on mount and focus; `useAtomValue` only reads.
+`useAtomValue` only reads: a component that reads a derived atom doesn't
+refetch the query on mount (`refetchOnMount`) or after a failure
+(`retryOnMount`). Read the query with `useQuery` in the same tree, or use
+`select` for one component
+([Selecting part of a value](#selecting-part-of-a-value)).
 `useQueryClient()` returns the client, to run Effects from a component.
 
 ### Signing out and switching accounts
@@ -2105,6 +2188,7 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `queryOptions({ queryKey, queryFn })`                               | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                        |
 | `useQuery`, `useSuspenseQuery`                                      | Same names; they return an `AsyncResult`                                                     |
+| `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch`  | `useQueryState`: the same fields, with `status` narrowing `data` and `error`                 |
 | `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
 | `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
 | `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                   |
@@ -2112,12 +2196,12 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                          |
 | `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
 | `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                           |
-| `useQueryErrorResetBoundary`                                        | `useResetQueryFailure`                                                                       |
+| `useQueryErrorResetBoundary` with an error boundary and `Suspense`  | `QueryBoundary`; with a router's boundary, `useResetQueryFailure`                            |
 | `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                             |
 | `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                       |
 | `QueryCache({ onError, onSuccess, onSettled })`                     | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                |
 | `MutationCache({ onMutate, onError, … })`                           | `mutations.onMutate`, `mutations.onFailure`, …                                               |
-| `select`                                                            | `Atom.map`, `AsyncResult.map`                                                                |
+| `select`                                                            | `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it       |
 | `enabled: false`                                                    | `useQuery(null)`                                                                             |
 | `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                    |
 | `retry: 3`                                                          | `retry: Schedule` (default none)                                                             |
@@ -2133,13 +2217,13 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ### API
 
-| Import                                           | Exports                                                                                                                                                                                                                                  |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                               |
-| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useRefetch`, `useQueryClient`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
-| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                     |
-| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                     |
-| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                              |
+| Import                                           | Exports                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                 |
+| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useQueryState`, `useRefetch`, `useQueryClient`, `QueryBoundary`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                                                       |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                                                       |
+| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                                                                |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.
