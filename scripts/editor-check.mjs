@@ -158,7 +158,7 @@ for (const [marker, file, signature, docs] of [
 		"useIsFetching",
 		"react/hooks.d.ts",
 		"(alias) const useIsFetching: (",
-		"Counts the queries fetching",
+		"Counts the queries with a fetch in progress",
 	],
 	[
 		"reactNativeSignals",

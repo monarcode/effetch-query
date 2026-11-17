@@ -51,7 +51,9 @@ const useHandle = <H>(make: () => H, inputs: ReadonlyArray<unknown>): H => {
 };
 
 /**
- * Options for {@link useQuery} and {@link useInfiniteQuery}.
+ * Options for {@link useInfiniteQuery}, and the base of
+ * {@link UseQuerySelectOptions}, which {@link useQuery} and
+ * {@link useQueryState} take.
  *
  * @example
  * ```ts
@@ -119,7 +121,7 @@ export interface UseQuerySelectOptions<A, B> extends UseQueryOptions {
 	 * compares plain objects and arrays by their contents) keeps the last
 	 * result, timestamp included. An inline function runs on every render;
 	 * for a costly selection, pass one defined outside the component or with
-	 * `useCallback`, which runs only when the value changes.
+	 * `useCallback`, which runs only when the query's result changes.
 	 *
 	 * If it throws, the hook shows a failure whose cause is the defect, with
 	 * no earlier value; if it throws on a failure's previous success, the
@@ -446,7 +448,8 @@ export const useSuspenseQuery = <A, E, B = A>(
 
 /**
  * What {@link useQueryState} returns while the query has no value and no
- * failure: before its first fetch settles, and for a `null` query.
+ * failure: before its first fetch settles, after a `clear`, and for a `null`
+ * query.
  *
  * @example
  * ```ts
@@ -475,7 +478,8 @@ export interface UseQueryStatePending<A, E> {
 	readonly isFailure: false;
 	/**
 	 * True while a fetch of the query is in progress: the result's
-	 * `waiting`. False for a `null` query, and in a server render.
+	 * `waiting`. False for a `null` query. In a server render, a query the
+	 * cache doesn't have reads as fetching, though nothing fetches it there.
 	 */
 	readonly isFetching: boolean;
 	/** Always false: see {@link UseQueryStateSuccess.isPlaceholder}. */
@@ -529,9 +533,11 @@ export interface UseQueryStateSuccess<A, E> {
 	 */
 	readonly isPlaceholder: boolean;
 	/**
-	 * Refetches the query, and resolves when the refetch settles. Never
-	 * rejects: a failure shows in the fields. It keeps its identity while the
-	 * query stays the same. Resolves at once for a `null` query.
+	 * Refetches the query, as {@link Query.refetch} does, and resolves when
+	 * the refetch settles. Never rejects: a failure shows in the fields. It
+	 * keeps its identity while the query stays the same. Resolves at once
+	 * for a `null` query, and, since a `paused` reader isn't a use, for a
+	 * query only paused readers use.
 	 */
 	readonly refetch: () => Promise<void>;
 	/** The result the fields come from, a `Success`. */
@@ -540,7 +546,8 @@ export interface UseQueryStateSuccess<A, E> {
 
 /**
  * What {@link useQueryState} returns when the query has failed: its last
- * fetch failed, or a refetch after a success did.
+ * fetch failed, or a refetch after a success did. A `select` that throws
+ * gives one too.
  *
  * @example
  * ```ts
@@ -553,7 +560,7 @@ export interface UseQueryStateSuccess<A, E> {
  * @since 0.1.0
  */
 export interface UseQueryStateFailure<A, E> {
-	/** `"failure"`: the query's last fetch failed. */
+	/** `"failure"`: the query's last fetch failed, or `select` threw. */
 	readonly status: "failure";
 	/**
 	 * The last success before the failure, or `undefined` if there was none:
@@ -565,7 +572,10 @@ export interface UseQueryStateFailure<A, E> {
 	 * with a defect or an interruption, which only `cause` holds.
 	 */
 	readonly error: E | undefined;
-	/** Why the query failed: its error, a defect, or an interruption. */
+	/**
+	 * The cause of the failure: the query's error, a defect, or an
+	 * interruption.
+	 */
 	readonly cause: Cause.Cause<E>;
 	/** Always false. */
 	readonly isPending: false;
@@ -573,7 +583,7 @@ export interface UseQueryStateFailure<A, E> {
 	readonly isSuccess: false;
 	/** Always true. */
 	readonly isFailure: true;
-	/** True while the query is fetched again: the result's `waiting`. */
+	/** True while a refetch is in progress: the result's `waiting`. */
 	readonly isFetching: boolean;
 	/** Always false: a failure's `data` is the query's own last success. */
 	readonly isPlaceholder: false;
@@ -614,8 +624,9 @@ export type UseQueryStateResult<A, E> =
 /**
  * Reads a query as {@link useQuery} does, and returns its result as an object
  * of fields: `status`, `data`, `error`, `isFetching`, `isPlaceholder`,
- * `refetch` and more, TanStack Query's shape. It fetches, refetches and takes options as
- * {@link useQuery} does, `select` and `keepPrevious` included.
+ * `refetch` and more, TanStack Query's shape. It fetches, refetches and
+ * takes options as {@link useQuery} does, `select` and `keepPrevious`
+ * included.
  *
  * Check `status` before reading `data`: it narrows the object
  * ({@link UseQueryStateResult}). A failure keeps the last success as `data`,
@@ -935,10 +946,11 @@ export const useSuspenseInfiniteQuery = <A, E, P>(
  * They're dropped if, by the time the run settles, `reset` was called, a
  * newer run started in the component (with `concurrent: "queue"`, one
  * queued after it), or the component unmounted; and for a run that was
- * interrupted, or that never started: dropped by `concurrent: "drop"`, or on
- * a disposed client. The run itself completes all the same. Use them for what matters
- * only to this screen, such as filling in a form field or navigating, and
- * the mutation's own `onSuccess` for what must always happen.
+ * interrupted, or that never started: dropped by `concurrent: "drop"`, or
+ * on a disposed client. The run itself completes all the same. Use them for
+ * what matters only to this screen, such as filling in a form field or
+ * navigating, and the mutation's own `onSuccess` for what must always
+ * happen.
  *
  * A callback that throws is logged with `console.error`; the ones after it
  * still run, and `run` still resolves.
@@ -1018,8 +1030,8 @@ export interface UseMutationResult<Variables, A, E> {
 	 * mutation's `concurrent: false`, a run that a newer one replaces resolves
 	 * with an interrupted `Exit`; with `concurrent: "drop"`, so does a run
 	 * started while the one `result` shows is in progress, at once, and it
-	 * changes nothing. On a
-	 * disposed client the run never starts, and resolves with a died `Exit`.
+	 * changes nothing. On a disposed client the run never starts, and
+	 * resolves with a died `Exit`.
 	 * `options` are callbacks for this run only: see
 	 * {@link UseMutationRunOptions}.
 	 */
@@ -1033,7 +1045,7 @@ export interface UseMutationResult<Variables, A, E> {
 
 /**
  * Uses a mutation in this component, with state of its own: two components
- * using one mutation never share a pending or failed state. A run carries on
+ * using one mutation never share a waiting or failed state. A run carries on
  * after the component unmounts, so its `onSuccess` and `invalidates` still
  * happen, though the callbacks given to `run` don't
  * ({@link UseMutationRunOptions}). The mutation's `concurrent` decides
@@ -1130,7 +1142,8 @@ const noRunsInProgress = () => noRuns;
  * form elsewhere is still saving. A run is listed from when it starts until
  * it settles, however it ends. A run `concurrent: "queue"` holds back is
  * listed while it waits; one that `concurrent: false` makes wait for the run
- * it replaces to roll back is listed once that's done. The list keeps its identity until the runs change.
+ * it replaces to roll back is listed once that's done. The list keeps its
+ * identity until the runs change.
  *
  * A server render lists none, and so does the first render while the page
  * hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
@@ -1177,7 +1190,7 @@ export const useMutationState = <Variables, A, E>(
 };
 
 /**
- * Counts the queries fetching on this client: those the
+ * Counts the queries with a fetch in progress on this client: those the
  * {@link Query.Target} matches, or all of them without one, as
  * {@link Query.invalidate} matches them. Background refetches count, so it
  * suits an app-wide progress bar. The component re-renders when the count
@@ -1271,7 +1284,7 @@ export interface UseRefetchResult {
 	 */
 	readonly refetch: () => Promise<void>;
 	/**
-	 * Whether one of this component's refetches is running. A background
+	 * Whether one of this component's refetches is in progress. A background
 	 * refetch (focus, reconnect, polling) doesn't count.
 	 */
 	readonly isRefetching: boolean;
@@ -1279,8 +1292,8 @@ export interface UseRefetchResult {
 
 /**
  * Refetches queries on demand, such as for pull to refresh, with a flag that
- * is true only while this component's own refetch runs, unlike a query's
- * `waiting`, which a background refetch also sets. It refetches the
+ * is true only while this component's own refetch is in progress, unlike a
+ * query's `waiting`, which a background refetch also sets. It refetches the
  * {@link Query.Target}'s queries in use, as {@link Query.refetch} does. For a
  * screen made of queries with different keys, pass a {@link Query.group} of
  * them: it's refetching until every one has settled. Throws a

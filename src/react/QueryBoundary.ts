@@ -29,12 +29,15 @@ export interface QueryBoundaryFailureProps {
 	 * query's error, or the defect it died with.
 	 */
 	readonly error: unknown;
-	/** Why the query failed: its error, a defect, or an interruption. */
+	/**
+	 * The cause of the failure: the query's error, a defect, or an
+	 * interruption.
+	 */
 	readonly cause: Cause.Cause<unknown>;
 	/**
 	 * Refetches the failed query and renders the children again, which show
-	 * `pending` while the refetch runs. Only that query: another failed query
-	 * below throws again.
+	 * `pending` while the refetch is in progress. Only that query: another
+	 * failed query below throws again.
 	 */
 	readonly retry: () => void;
 }
@@ -56,8 +59,8 @@ export interface QueryBoundaryFailureProps {
  */
 export interface QueryBoundaryProps {
 	/**
-	 * What to show while a query below suspends: the `Suspense` fallback.
-	 * Default: nothing.
+	 * The content to show while a query below suspends: the `Suspense`
+	 * fallback. Default: nothing.
 	 */
 	readonly pending?: React.ReactNode | undefined;
 	/**

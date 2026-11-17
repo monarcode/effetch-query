@@ -212,7 +212,8 @@ export interface QueryClient {
 	 * Marks the target's queries stale, as {@link Query.invalidate} does:
 	 * those in use refetch at once, the rest the next time they're used.
 	 * Without a target, every query. Resolves at once, without waiting for
-	 * the refetches.
+	 * the refetches, and does nothing on a disposed client. Rejects with a
+	 * `KeyHoldsTargetError` for a key that holds queries ({@link Query.Target}).
 	 *
 	 * @see {@link QueryClient.refetch} to wait for them
 	 */
@@ -221,23 +222,26 @@ export interface QueryClient {
 	 * Refetches the target's queries that are in use, as {@link Query.refetch}
 	 * does, and resolves when they've all settled. Without a target, every
 	 * query in use. A query that fails doesn't reject it: each shows its own
-	 * failure.
+	 * failure. It rejects only with a defect, such as a
+	 * `KeyHoldsTargetError` for a key that holds queries
+	 * ({@link Query.Target}). On a disposed client, it resolves at once.
 	 */
 	readonly refetch: (target?: Query.Target | undefined) => Promise<void>;
 	/**
 	 * Puts the target's queries back to `Initial`, as {@link Query.reset}
 	 * does, dropping their values: those in use fetch again at once, the rest
 	 * the next time they're used. Without a target, every query. Resolves at
-	 * once, without waiting for the fetches.
+	 * once, without waiting for the fetches, and does nothing on a disposed
+	 * client. Rejects as {@link QueryClient.invalidate} does.
 	 */
 	readonly reset: (target?: Query.Target | undefined) => Promise<void>;
 	/**
 	 * Drops the target's values without fetching, as {@link Query.clear}
 	 * does, and those of the queries that read them: queries in use show
 	 * `Initial` until something asks for them, such as a component that
-	 * starts using one. Without a target, every
-	 * query: use it on signing out, when refetching would fail. Resolves at
-	 * once.
+	 * starts using one. Without a target, every query: use it on signing
+	 * out, when refetching would fail. Resolves at once, and does nothing on
+	 * a disposed client. Rejects as {@link QueryClient.invalidate} does.
 	 *
 	 * @see {@link QueryClient.reset} to fetch again at once
 	 */
@@ -306,9 +310,9 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
 export type Options = LayerOptions | RuntimeOptions;
 
 /**
- * What {@link make} and {@link layer} take besides `(options: Options)`:
- * with no services declared in {@link Register}, the options can be left
- * out, or given without a layer or a runtime. With services declared, it's
+ * The parameters of {@link make} and {@link layer}. With no services
+ * declared in {@link Register}, the options can be left out, or given
+ * without a layer or a runtime. With services declared, it's
  * `[options: Options]`, so a client must be given them.
  *
  * @example
@@ -438,7 +442,7 @@ export interface RuntimeOptions extends CommonOptions {
  * @since 0.1.0
  */
 export interface CommonOptions {
-	/** Where focus and reconnect come from. Default: `Signals.browser`. */
+	/** The source of focus and reconnect. Default: `Signals.browser`. */
 	readonly signals?: Signals | undefined;
 	/** Defaults and app-wide hooks for every query. */
 	readonly queries?: QueriesOptions | undefined;
@@ -514,9 +518,10 @@ export interface QueryDefaults<E = unknown> {
 	readonly refetchOnMount?: boolean | undefined;
 	/**
 	 * If true, refetches a failed query when a component starts using it,
-	 * however recent the failure. A Suspense reader of a failure with no
-	 * earlier value throws it to an error boundary instead, so it never
-	 * mounts to retry it (see `useResetQueryFailure`). Default: `true`.
+	 * however recent the failure. A suspense reader (React's
+	 * `useSuspenseQuery`) of a failure with no earlier value throws it to an
+	 * error boundary instead, so it never starts using the query to retry it
+	 * (see `useResetQueryFailure`). Default: `true`.
 	 */
 	readonly retryOnMount?: boolean | undefined;
 	/**
@@ -530,9 +535,10 @@ export interface QueryDefaults<E = unknown> {
 	 */
 	readonly refetchOnReconnect?: boolean | undefined;
 	/**
-	 * How often a query in use refetches. A tick that finds a fetch in
-	 * progress doesn't start another. Polling pauses while nothing uses the
-	 * query and resumes when something starts using it. Default: no polling.
+	 * The interval at which a query in use refetches. A tick that finds a
+	 * fetch in progress doesn't start another. Polling pauses while nothing
+	 * uses the query and resumes when something starts using it. Default: no
+	 * polling.
 	 */
 	readonly refetchInterval?: Duration.Input | undefined;
 }
@@ -670,8 +676,9 @@ export interface MutationDefaults<E = unknown> {
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/**
-	 * How one use's runs (one component's `useMutation`, say) overlap.
-	 * Separate uses, and `Mutation.run` calls, never affect each other.
+	 * The policy for how one use's runs (one component's `useMutation`, say)
+	 * overlap. Separate uses, and `Mutation.run` calls, never affect each
+	 * other.
 	 * Default: `true`.
 	 *
 	 * - `true`: runs overlap.
@@ -1041,8 +1048,8 @@ export type DehydratedState = ReadonlyArray<Hydration.DehydratedAtom>;
  */
 export interface DehydrateOptions {
 	/**
-	 * Only the queries this matches, as {@link Query.invalidate} matches them.
-	 * Default: every query.
+	 * A target: only the queries it matches are sent, as
+	 * {@link Query.invalidate} matches them. Default: every query.
 	 */
 	readonly queries?: Query.Target | undefined;
 	/**

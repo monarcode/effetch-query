@@ -338,7 +338,7 @@ export const findPlan = (
  * The value with `f` applied to each entity the plan reaches, the same
  * object where nothing changed. `f` gets only objects, and returns
  * {@link Remove} to drop an entity: from an array (keeping a tuple's fixed
- * elements and a non-empty array's first) or a record, from an optional
+ * elements and a non-empty array's last item) or a record, from an optional
  * field, or to `null` or `undefined` in a union that takes one. Elsewhere it
  * stays, and a whole value that is the entity comes back as `Remove`.
  */

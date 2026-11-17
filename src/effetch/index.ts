@@ -62,7 +62,7 @@ export interface RegisteredSchema extends Fetch.AnySchema {
  * outside your registered services, as {@link RegisteredSchema}. The adapter
  * accepts only these, on the client and on each endpoint: its queries and
  * mutations decode the errors, and its queries send them to the browser (the
- * client's only when given to {@link endpoints}, see
+ * client's only when {@link endpoints} has them, see
  * {@link EndpointsOptions.statusErrors}).
  *
  * @example
@@ -135,8 +135,8 @@ export interface EndpointsOptions<
 	SE extends Fetch.StatusErrorMap | undefined = undefined,
 > {
 	/**
-	 * Put before every key these endpoints make, when another backend has
-	 * the same paths: with `["wallet"]`, `GET /accounts/:id` is
+	 * A prefix put before every key these endpoints make, when another
+	 * backend has the same paths: with `["wallet"]`, `GET /accounts/:id` is
 	 * `["wallet", "accounts", 1]`. Default: no prefix.
 	 */
 	readonly key?: Query.Key | undefined;
@@ -230,7 +230,7 @@ export interface EndpointQueryOptions<
 		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
 		| undefined;
 	/**
-	 * Server pushes that keep a query's value up to date, from the call's
+	 * The server pushes that keep a query's value up to date, from the call's
 	 * `params` and `query`, as {@link Query.MakeOptions.live}: a `Stream` of
 	 * functions, each applied to the value. Default: none.
 	 */
@@ -407,7 +407,7 @@ export interface EndpointMutationOptions<
  * {@link EndpointQueryOptions}, instead.
  *
  * - `Q`: the type of `query`, checked with `Fetch.QueryOf`, so a value typed
- *   with an `interface` is accepted too. Defaults to `Fetch.QueryInput`.
+ *   with an `interface` is accepted too. Default: `Fetch.QueryInput`.
  * - `QS`: the endpoint's `query` schema, if it has one: `query` is then the
  *   schema's type, required when the schema has required fields.
  *
@@ -434,8 +434,9 @@ export type EndpointQueryArgs<
  * options (`params`, `query`, `body`, `headers`, `plugins`), or nothing
  * when none are required. The variables of {@link Endpoints.mutation}.
  *
- * Its `query` is a `Fetch.QueryInput`, which has an index signature: type a
- * query object you pass with a `type` alias rather than an `interface`.
+ * Without a `query` schema (`QS`), its `query` is a `Fetch.QueryInput`,
+ * which has an index signature: type a query object you pass with a `type`
+ * alias rather than an `interface`. With one, it's the schema's type.
  *
  * @example
  * ```ts
@@ -491,9 +492,9 @@ export type ErrorSchema<
  *
  * Calls that send the same request share a query: what isn't sent doesn't
  * count (`params` the path doesn't name, `null` and `undefined` query
- * values and array items, and arrays left empty). Values are otherwise
- * compared as given, so `{ page: 1 }` and `{ page: "1" }` are
- * two queries.
+ * values and array items, and arrays left empty). Without a `query` schema,
+ * values are otherwise compared as given, so `{ page: 1 }` and
+ * `{ page: "1" }` are two queries.
  *
  * The key has no method, scheme or host, so give a backend of its own a
  * prefix ({@link EndpointsOptions.key}), and make one `EndpointQuery` per
@@ -552,7 +553,8 @@ export interface EndpointQuery<
 	>;
 	/**
 	 * The schema error bodies are decoded with: the endpoint's, else the
-	 * `defaultError` given to {@link endpoints}, else `undefined` (the
+	 * client's `defaultError` as {@link endpoints} knows it (from its
+	 * options, or a `Fetch.Service` class's config), else `undefined` (the
 	 * client's applies, but isn't known here).
 	 */
 	readonly error: Fetch.AnySchema | undefined;
@@ -668,9 +670,10 @@ export interface Endpoints<
 	 * with its request URL and response text, so keep secrets out of the
 	 * URLs your server calls; a `NetworkError` without its `cause`; a
 	 * `DecodeError` without its `issue`. Errors from `statusErrors` go as
-	 * their schemas encode them, the client's only when given to
-	 * {@link endpoints} ({@link EndpointsOptions.statusErrors}). A query that
-	 * failed with a plugin's error isn't sent.
+	 * their schemas encode them, the client's only when {@link endpoints}
+	 * has them: read from a `Fetch.Service` class, or given for a
+	 * `Context.Service` key ({@link EndpointsOptions.statusErrors}). A query
+	 * that failed with a plugin's error isn't sent.
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -720,9 +723,9 @@ export interface Endpoints<
 	 * the query field `pageParam` names; the value is an
 	 * {@link InfiniteQuery.InfiniteData} of the endpoint's `output`, and the
 	 * error is {@link Endpoints.query}'s. With a `query` schema, `pageParam`
-	 * names one of its optional fields ({@link EndpointPageField}). Only endpoints without a body. Its
-	 * queries cross from server to browser as {@link Endpoints.query}'s do,
-	 * the page params as JSON.
+	 * names one of its optional fields ({@link EndpointPageField}). Only
+	 * endpoints without a body. Its queries cross from server to browser as
+	 * {@link Endpoints.query}'s do, the page params as JSON.
 	 */
 	readonly infiniteQuery: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,

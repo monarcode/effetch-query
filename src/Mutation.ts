@@ -72,7 +72,7 @@ export const isMutation = (
  * {@link run} or `useMutation`.
  *
  * A definition holds no state. Each use (each component's `useMutation`)
- * keeps its own, so components never share a pending or failed state.
+ * keeps its own, so components never share a waiting or failed state.
  *
  * @example
  * ```ts

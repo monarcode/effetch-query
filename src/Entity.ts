@@ -187,12 +187,12 @@ export const make = <A, Id>(
 /**
  * Writes a value computed from the entity whose id is `id` into every
  * cached query that holds it: each list, each loaded page, its detail
- * query. A failed run puts every one back when it's written in a mutation's
- * `optimistic`, as `Query.update`'s writes are. Unlike `Query.update`, a
- * query keeps its age: the write doesn't make it fresh, and a query that's
- * invalidated, or has no value or no schema, is left alone, since it
- * fetches when next used. A query whose value doesn't change isn't written.
- * If `f` throws, nothing is written.
+ * query. In a mutation's `optimistic`, a failed run puts every one back, as
+ * it does `Query.update`'s writes. Unlike `Query.update`, a query keeps its
+ * age: the write doesn't make it fresh, and a query that's invalidated, or
+ * has no value or no schema, is left alone, since it fetches when next
+ * used. A query whose value doesn't change isn't written. If `f` throws,
+ * nothing is written and the Effect dies with the defect.
  *
  * @example
  * ```ts

@@ -167,12 +167,11 @@ export interface Family<Args, A, E> {
 
 /**
  * What {@link invalidate}, {@link refetch}, {@link reset} and {@link clear}
- * act on: a
- * {@link Query} (that key only), a {@link Family} (every query whose key
- * starts with the family's, its members included; an Effetch endpoint
- * matches only its own queries), a {@link Key} (every query whose key starts
- * with it, so `[]` matches every query), or a {@link Group} of these (every
- * query one of them matches).
+ * act on: a {@link Query} (that key only), a {@link Family} (every query
+ * whose key starts with the family's, its members included; an Effetch
+ * endpoint matches only its own queries), a {@link Key} (every query whose
+ * key starts with it, so `[]` matches every query), or a {@link Group} of
+ * these (every query one of them matches).
  *
  * An array of queries is a key, not a group, and as a key it would match
  * nothing: `[wallet, transactions]` fails with a `KeyHoldsTargetError`
@@ -323,8 +322,8 @@ export interface Options<E> extends QueryClient.QueryDefaults<E> {
 	 */
 	readonly gcTime?: Duration.Input | undefined;
 	/**
-	 * `Reactivity` keys that refetch this query when invalidated, for Effect
-	 * code that publishes them (Effect's SQL clients do). Run
+	 * The `Reactivity` keys that refetch this query when invalidated, for
+	 * Effect code that publishes them (Effect's SQL clients do). Run
 	 * `Reactivity.invalidate` through the client, as
 	 * {@link QueryClient.QueryClient.runPromise} does, to reach it. Default:
 	 * none.
@@ -403,7 +402,7 @@ export interface MakeOptions<A, E> extends Options<E> {
 	 * failure shows.
 	 *
 	 * It's never cached: {@link get}, {@link update}, {@link fetch} and
-	 * `QueryClient.dehydrate` don't see it, a query that reads this one
+	 * {@link QueryClient.dehydrate} don't see it, a query that reads this one
 	 * through `ctx.result` waits for the fetch, a suspense reader shows it
 	 * without suspending, and a server render doesn't show it. Run it
 	 * synchronously, reading the cache with {@link get}: an asynchronous one
@@ -416,22 +415,22 @@ export interface MakeOptions<A, E> extends Options<E> {
 		| Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>
 		| undefined;
 	/**
-	 * Server pushes that keep the value up to date between fetches, such as
-	 * a WebSocket's messages: a `Stream` of functions, each applied to the
+	 * The server pushes that keep the value up to date between fetches, such
+	 * as a WebSocket's messages: a `Stream` of functions, each applied to the
 	 * value as it arrives. It runs while the query is read, and stops about
 	 * a second after its last reader leaves; the value stays cached for
-	 * `gcTime`. `Query.fetch` doesn't start it. An update that throws is
+	 * `gcTime`. {@link fetch} doesn't start it. An update that throws is
 	 * logged with `Effect.logError` and skipped. If the stream fails, the
 	 * error is logged and it starts again the next time the query is read
 	 * after its readers leave: add `Stream.retry` to resubscribe sooner.
 	 *
 	 * A push keeps the value's age, so `staleTime` and the refetches it
-	 * drives work as without one. A push that comes while a fetch runs is
-	 * applied to its result too, and one that comes after an optimistic
-	 * write is applied again if the write is undone, so make each update
-	 * idempotent: an upsert or a removal by id, not a counter's increment. A
-	 * push to a query with no value yet (or a failure) is kept only for a
-	 * fetch in progress. Default: none.
+	 * drives work as without one. A push that comes while a fetch is in
+	 * progress is applied to its result too, and one that comes after an
+	 * optimistic write is applied again if the write is undone, so make each
+	 * update idempotent: an upsert or a removal by id, not a counter's
+	 * increment. A push to a query with no value yet (or a failure) is kept
+	 * only for a fetch in progress. Default: none.
 	 *
 	 * @see {@link stream} for a query whose value is a stream's latest element
 	 */
@@ -480,7 +479,7 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
 		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
 		| undefined;
 	/**
-	 * Server pushes that keep a member's value up to date, from its
+	 * The server pushes that keep a member's value up to date, from its
 	 * argument, as {@link MakeOptions.live}. Default: none.
 	 */
 	readonly live?:
@@ -494,7 +493,8 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
  * The options every stream query takes besides `key` and `run`, in
  * {@link MakeStreamOptions} and {@link StreamFamilyOptions}. A stream keeps
  * its query current, so it has no `staleTime`, and nothing refetches it on
- * mount, focus, reconnect or an interval.
+ * focus, reconnect or an interval, nor when something starts using it,
+ * except a failed one with `retryOnMount`.
  *
  * @example
  * ```ts
@@ -511,20 +511,22 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
  * @since 0.1.0
  */
 export interface StreamOptions<E> {
-	/** How long a query nothing uses stays cached, as {@link Options.gcTime}. Default: 5 minutes. */
+	/** The time a query nothing uses stays cached, as {@link Options.gcTime}. Default: 5 minutes. */
 	readonly gcTime?: Duration.Input | undefined;
 	/**
-	 * How to resubscribe after the stream fails, as `Stream.retry` does: the
-	 * schedule starts over once an element comes through. Defects aren't
-	 * retried. Default: the client's `queries.defaults.retry`, or none.
+	 * The schedule to resubscribe on after the stream fails, as
+	 * `Stream.retry` takes it: the schedule starts over once an element comes
+	 * through. Defects aren't retried. Default: the client's
+	 * `queries.defaults.retry`, or none.
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/**
-	 * Whether a new reader of a query whose stream failed subscribes again.
-	 * Default: the client's `queries.defaults.retryOnMount`, or `true`.
+	 * If true, a query whose stream failed subscribes again when something
+	 * starts using it. Default: the client's `queries.defaults.retryOnMount`,
+	 * or `true`.
 	 */
 	readonly retryOnMount?: boolean | undefined;
-	/** `Reactivity` keys that resubscribe this query when invalidated, as {@link Options.reactivityKeys}. Default: none. */
+	/** The `Reactivity` keys that resubscribe this query when invalidated, as {@link Options.reactivityKeys}. Default: none. */
 	readonly reactivityKeys?: Reactivity.KeysInput | undefined;
 }
 
@@ -556,7 +558,7 @@ export interface MakeStreamOptions<A, E> extends StreamOptions<E> {
 	readonly run:
 		| Stream.Stream<A, E, QueryClient.Requirements>
 		| ((ctx: RunContext) => Stream.Stream<A, E, QueryClient.Requirements>);
-	/** How the latest value crosses from server to browser, as {@link MakeOptions.schema}. */
+	/** The schemas that send the latest value from server to browser, as {@link MakeOptions.schema}. */
 	readonly schema?: Schema<A, E> | undefined;
 	/** A value to show until the first element, as {@link MakeOptions.placeholder}. Default: none. */
 	readonly placeholder?:
@@ -589,7 +591,7 @@ export interface StreamFamilyOptions<Args, A, E> extends StreamOptions<E> {
 		args: Args,
 		ctx: RunContext,
 	) => Stream.Stream<A, E, QueryClient.Requirements>;
-	/** How each member's latest value crosses from server to browser, as {@link MakeOptions.schema}. */
+	/** The schemas that send each member's latest value from server to browser, as {@link MakeOptions.schema}. */
 	readonly schema?: Schema<A, E> | undefined;
 	/** A value to show for a member until its first element, as {@link FamilyOptions.placeholder}. Default: none. */
 	readonly placeholder?:
@@ -698,14 +700,15 @@ export const family = <Args, A, E>(
  *   suspense reader suspends and {@link fetch} waits; after it, each
  *   element shows as a `Success` stamped with the time it came.
  * - {@link refetch}, {@link invalidate} and {@link reset} subscribe again;
- *   {@link clear} stops the stream until the query is read again.
+ *   {@link clear} stops the stream until something asks for the query
+ *   again.
  * - If the stream fails, it's resubscribed on `retry`; once that's done,
  *   the query shows the failure with the last element as its previous
  *   success. A stream that ends keeps its last element; one that ends with
  *   none fails with a `NoSuchElementError` defect.
  * - A server render shows only what's cached, and doesn't start it.
  *   {@link prefetch} on the server runs it to its first element, which
- *   `QueryClient.dehydrate` sends with a `schema`.
+ *   {@link QueryClient.dehydrate} sends with a `schema`.
  *
  * @example
  * ```ts

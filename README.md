@@ -17,7 +17,8 @@ effetch-query caches what your app loads from its server, shares it between
 the components that show it, keeps it fresh in the background, and updates
 it when you change something. Queries and mutations are Effects, run with
 your app's services, and their errors stay typed all the way to the
-component.
+component. It's for apps written with Effect 4, in React, React Native or
+code with no UI at all.
 
 It's the companion to [Effetch](https://github.com/monarcode/effetch), the
 typed HTTP client for Effect: Effetch makes the call, effetch-query caches
@@ -83,6 +84,8 @@ it. It works with any Effect too.
 - [Testing](#testing)
 - [Coming from TanStack Query](#coming-from-tanstack-query)
 - [Reference](#reference)
+  - [API](#api)
+  - [Limitations](#limitations)
 - [Examples](#examples)
 - [Development](#development)
 - [License](#license)
@@ -100,7 +103,7 @@ That bridge was where the trouble lived. TanStack Query sits on the other
 side of a promise, outside Effect: past it, errors lose their Effect types,
 a query can't use your layers, and interrupting an Effect that's no longer
 needed takes wiring of its own. Effetch had made each call effectful; what
-was still missing was a cache that spoke Effect.
+was still missing was a cache built on Effect.
 
 effetch-query is that cache. Instead of patching TanStack Query, it brings
 the parts of it that make apps feel fast into Effect itself: one fetch
@@ -138,6 +141,9 @@ Watch [tanstack-effect-bridge](https://github.com/monarcode/tanstack-effect-brid
 our next project.
 
 ### At a glance
+
+The following React app lists the todos from an API and toggles one when
+it's clicked, in one file:
 
 ```tsx
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
@@ -236,6 +242,8 @@ a query client, two queries, a component that shows them, and a mutation.
 Later sections build on the same files.
 
 ### Install
+
+Install the package with Effetch and Effect:
 
 ```bash
 pnpm add @monarcode/effetch-query @monarcode/effetch effect
@@ -521,6 +529,9 @@ guide goes deeper into each part.
 
 ## Queries in depth
 
+This section covers how queries are made, keyed and kept fresh, the
+options they take, and how to use the cache from Effect code.
+
 ### From endpoints to queries
 
 `api.query`, `api.infiniteQuery` and `api.mutation` add no behaviour of
@@ -539,7 +550,8 @@ query's or mutation's options.
 - **`query` takes endpoints without a body** (`GET`, `HEAD`, `OPTIONS`,
   `TRACE`). Everything else is a `mutation`, whose variables are the call's
   options.
-- **As a target, an endpoint query matches its own queries only:**
+- **As a [target](#using-the-cache-from-effect), an endpoint query
+  matches its own queries only:**
   `Query.invalidate(todo)` reaches every `todo({ params })`, not
   `GET /todos` or `GET /todos/:id/comments`.
 - **Server rendering needs nothing extra** when the endpoint has an
@@ -644,12 +656,12 @@ export const maybeTodo = Query.family({
 
 ### A client made with `Fetch.make`
 
-`Fetch.Service` is the simplest way to share a client. Where the client is
-made by hand, as a `Context.Service` whose layer runs `Fetch.make` (to read
-config from another service, say), `endpoints` can't read the client's
-config until its layer is built. Give it the `defaultError` and
-`statusErrors` the client is made with: share one config object between
-the two.
+Elsewhere, this guide declares its client with `Fetch.Service`. Where the
+client is made by hand, as a `Context.Service` whose layer runs
+`Fetch.make` (to read config from another service, say), `endpoints` can't
+read the client's config until its layer is built. Give it the
+`defaultError` and `statusErrors` the client is made with, from one config
+object the two share:
 
 ```ts
 import * as Context from "effect/Context";
@@ -736,11 +748,11 @@ searchTodos({ query: { due: new Date("2026-11-16"), page: 2 } });
 ```
 
 A call throws an `EndpointQueryError` when its query doesn't match the
-schema, or when a field is `Redacted`: the key would hold the secret and
-send it to the browser, so send secrets in a header. The schema's encoding
-can't need services: the key is made when you call `searchTodos`, outside
-any Effect. For an infinite query, `pageParam` names one of the schema's
-optional fields.
+schema, when a field encodes to an object, or when a field is `Redacted`:
+the key would hold the secret and send it to the browser, so send secrets
+in a header. The schema's encoding can't need services: the key is made
+when you call `searchTodos`, outside any Effect. For an infinite query,
+`pageParam` names one of the schema's optional fields.
 
 ### Freshness and refetching
 
@@ -751,18 +763,20 @@ background when:
 - a component starts using the query (`refetchOnMount`),
 - the app comes back into focus (`refetchOnFocus`) or the device comes back
   online (`refetchOnReconnect`), for queries in use,
-- it's invalidated, or its `refetchInterval` comes round.
+- it's invalidated, or its `refetchInterval` passes.
 
 While it refetches, the query keeps showing its value, with `waiting: true`.
 A query that failed is fetched again when a component starts using it
-(`retryOnMount`). A query nothing uses is dropped after its `gcTime`.
+(`retryOnMount`). A query not in use is dropped after its `gcTime`.
 
 ### Query options
+
+`api.query`, `Query.make` and `Query.family` take the following options:
 
 | Option               | Default   | What it does                                                                     |
 | -------------------- | --------- | -------------------------------------------------------------------------------- |
 | `staleTime`          | `0`       | How long a value counts as fresh (a `Duration.Input`, such as `"1 minute"`).     |
-| `gcTime`             | 5 minutes | How long a query nothing uses keeps its value.                                   |
+| `gcTime`             | 5 minutes | How long a query not in use keeps its value.                                     |
 | `retry`              | none      | A `Schedule` to retry failed fetches with.                                       |
 | `refetchOnMount`     | `true`    | Refetch a stale query when a component starts using it.                          |
 | `retryOnMount`       | `true`    | Refetch a failed query when a component starts using it.                         |
@@ -772,7 +786,11 @@ A query that failed is fetched again when a component starts using it
 | `reactivityKeys`     | none      | Also refetch when these `Reactivity` keys are invalidated (`effect/reactivity`). |
 
 The client's `queries.defaults` sets all but `gcTime` and `reactivityKeys`
-for every query, and a query's own options win.
+for every query, and a query's own options win. All three also take a
+`placeholder` ([Showing a placeholder](#showing-a-placeholder)) and `live`
+updates ([Pushes on a fetched query](#pushes-on-a-fetched-query)), and
+`Query.make` and `Query.family` a `schema` for server rendering
+([Without Effetch](#without-effetch)).
 
 `retry` defaults to none, where TanStack Query retries three times: Effetch
 has a retry plugin, and a query shouldn't retry what the client already
@@ -863,19 +881,27 @@ export const loadTodo = (id: number) => queryClient.runPromise(openTodo(id));
 export const refreshEverything = () => queryClient.invalidate(["todos"]);
 ```
 
-| Function                   | What it does                                                                                   |
-| -------------------------- | ---------------------------------------------------------------------------------------------- |
-| `Query.fetch(query)`       | The value if fresh, otherwise a fetch. Joins a fetch already running. Fails as the query does. |
-| `Query.prefetch(query)`    | Fetches if not fresh, and ignores the result. Never fails.                                     |
-| `Query.get(query)`         | The cached value as an `Option`. Never fetches.                                                |
-| `Query.set(query, value)`  | Writes a value, fresh as if just fetched.                                                      |
-| `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                               |
-| `Query.update(family, f)`  | Writes `f(value, args)` to every cached query of a family, such as `todos`.                    |
-| `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                    |
-| `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                              |
-| `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                  |
-| `Query.clear(target)`      | Drops the values without fetching; queries in use show `Initial` until something asks.         |
-| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.           |
+A **target** is one query (`todo({ params: { id: 1 } })`), a family of
+queries (`todos`, every call of the endpoint), a key (`["todos"]`,
+every query whose key starts with it), or a group of these
+(`Query.group(todos, ["profile"])`, every query one of them matches; see
+[Pull to refresh](#pull-to-refresh)).
+
+The following table lists the cache functions:
+
+| Function                   | What it does                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `Query.fetch(query)`       | The value if fresh, otherwise a fetch. Joins a fetch in progress. Fails as the query does. |
+| `Query.prefetch(query)`    | Fetches if not fresh, and ignores the result. Never fails.                                 |
+| `Query.get(query)`         | The cached value as an `Option`. Never fetches.                                            |
+| `Query.set(query, value)`  | Writes a value, fresh as if just fetched.                                                  |
+| `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                           |
+| `Query.update(family, f)`  | Writes `f(value, args)` to every cached query of a family, such as `todos`.                |
+| `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                |
+| `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                          |
+| `Query.reset(target)`      | Drops the values; queries in use fetch again.                                              |
+| `Query.clear(target)`      | Drops the values without fetching; queries in use show `Initial` until something asks.     |
+| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.       |
 
 #### Outside Effect
 
@@ -893,25 +919,24 @@ function does:
 | `client.clear(target)`      | `Promise<void>`, resolved at once.                                              |
 
 Without a target, `invalidate`, `refetch`, `reset` and `clear` act on every
-query. `fetch` and `prefetch` take `{ signal }` to stop waiting when it
+query. They reject only with a defect, such as a `KeyHoldsTargetError` for
+a key that holds queries (`[todos, profile]`): combine targets with
+`Query.group`. `fetch` and `prefetch` take `{ signal }` to stop waiting when it
 aborts.
 
 To read the cache where you can't wait for a promise, such as a form
 listener, `QueryClient.get(queryClient, query)` returns the cached value as
 an `Option`, as `Query.get` does.
 
-A **target** is one query (`todo({ params: { id: 1 } })`), a family of
-queries (`todos`, every call of the endpoint), a key (`["todos"]`,
-every query whose key starts with it), or a group of these
-(`Query.group(todos, ["profile"])`, every query one of them matches; see
-[Pull to refresh](#pull-to-refresh)).
-
 ## Mutations in depth
+
+This section covers optimistic updates, the options a mutation takes,
+entities, and how a mutation says which queries it changes.
 
 ### Optimistic updates
 
-An optimistic update shows the change before the server confirms it. The
-simplest one leaves the cache alone: while a run is in progress,
+An optimistic update shows the change before the server confirms it. It
+can leave the cache alone: while a run is in progress,
 `useMutation`'s `variables` hold what it sends, so the component that runs
 it can show the change itself. Here a new todo shows, faded, until the list
 has it:
@@ -1007,9 +1032,11 @@ old value never flashes back while the refetch runs.
 
 ### Mutation options
 
+`api.mutation` and `Mutation.make` take the following options:
+
 | Option        | What it does                                                                                   |
 | ------------- | ---------------------------------------------------------------------------------------------- |
-| `optimistic`  | `(variables) => Effect`: cache writes to show right away, undone if the mutation fails.        |
+| `optimistic`  | `(variables) => Effect`: cache writes to show at once, undone if the mutation fails.           |
 | `onSuccess`   | `(value, variables) => Effect`, after a success.                                               |
 | `onFailure`   | `(cause, variables) => Effect`, after a failure and the rollback.                              |
 | `onSettled`   | `(exit, variables) => Effect`, after either.                                                   |
@@ -1036,7 +1063,7 @@ an Effect.
 
 ### Entities
 
-A todo is often in many queries at once: its own detail, a list per
+A todo is often in many queries at the same time: its own detail, a list per
 filter, each loaded page of an infinite list. An entity writes it in all of
 them. Say once what identifies it, beside its schema:
 
@@ -1048,12 +1075,12 @@ import { Todo } from "./api.js";
 export const Todos = Entity.make(Todo, { id: (todo) => todo.id });
 ```
 
-Then write it, or read it, by id:
+Then write it, or read it, by ID:
 
 - `Entity.update(Todos, id, f)` writes `f` of the todo into every cached
   query that holds it.
 - `Entity.set(Todos, todo)` writes a whole todo, such as a mutation's
-  result, over every copy with its id. It adds it to no list: invalidate
+  result, over every copy with its ID. It adds it to no list: invalidate
   the lists it should join.
 - `Entity.remove(Todos, id)` drops it from lists and records, and empties
   an optional or `NullOr` field. A required field and a detail query's
@@ -1079,7 +1106,7 @@ export const deleteTodo = api.mutation(Fetch.endpoint("DELETE /todos/:id"), {
 });
 ```
 
-Ids are compared with `Equal.equals`, so convert a route param first
+IDs are compared with `Equal.equals`, so convert a route param first
 (`Number(params.id)`); a number and a string don't match.
 
 Nothing is normalized: each query keeps its own value, and an entity write
@@ -1209,13 +1236,16 @@ Effect code) adds the next one:
 - On the last page, it returns the pages without fetching.
 - A page that fails keeps the loaded pages: the result is a `Failure` whose
   `previousSuccess` still holds them.
-- A refetch (invalidation, focus, a stale mount) fetches as many pages as
-  are loaded, one after the other, each from the page before it, so a list
-  that changed underneath doesn't show duplicates or gaps.
+- A refetch (after an invalidation, on focus, or when a component starts
+  using the query while it's stale) fetches as many pages as are loaded,
+  one after the other, each from the page before it, so a list that
+  changed underneath doesn't show duplicates or gaps.
 
 An infinite query **is** a query: invalidation, the cache functions and the
 client's defaults work on it as on any other. To change its pages in an
 optimistic update, `Query.update` the whole `{ pages, pageParams }` value.
+
+An infinite query takes the following options:
 
 | Option              | What it does                                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -1224,7 +1254,7 @@ optimistic update, `Query.update` the whole `{ pages, pageParams }` value.
 | `nextPageParam`     | `(lastPage, pages, lastPageParam, pageParams) => param`: the next page's param, or `undefined` / `null` for none.        |
 | `previousPageParam` | The same, from the first page, for `fetchPreviousPage`. Without it, there's no previous page.                            |
 | `maxPages`          | The most pages to keep. Past it, a page is dropped from the far end; give `previousPageParam` too, so it can load again. |
-| the rest            | As for [queries](#query-options): `staleTime`, `retry` (for each page), `refetchOnFocus`, …                              |
+| Query options       | As in [Query options](#query-options), such as `staleTime` and `refetchOnFocus`. `retry` applies to each page.           |
 
 ## Live queries
 
@@ -1239,6 +1269,9 @@ for the next reader.
 `Query.stream` makes a query whose value is a `Stream`'s latest element,
 such as a price feed. Until the first element, the query is `Initial` and
 waiting: `useSuspenseQuery` suspends, and `Query.fetch` waits for it.
+
+The following example shows prices from a WebSocket. First, `socket.ts`
+turns a socket's messages into a stream:
 
 ```ts socket.ts
 import * as Cause from "effect/Cause";
@@ -1272,6 +1305,8 @@ export const socketMessages = (url: string) =>
   );
 ```
 
+Then `prices.ts` defines a stream query per symbol, from those messages:
+
 ```ts prices.ts
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
@@ -1300,9 +1335,10 @@ export const price = Query.streamFamily({
 Read it as any other query, with `useQuery(price("ACME"))` or
 `useSuspenseQuery`. What differs from a fetched query:
 
-- It has no `staleTime`: nothing refetches it on mount, focus, reconnect or
-  an interval. `Query.refetch`, `Query.invalidate` and `Query.reset`
-  subscribe again; `Query.clear` stops it until it's read again.
+- It has no `staleTime`: nothing refetches it when a component starts
+  using it, on focus, on reconnect or on an interval. `Query.refetch`,
+  `Query.invalidate` and `Query.reset` subscribe again; `Query.clear` stops
+  it until it's read again.
 - A failure is retried with `retry`, which starts over once an element comes
   through. When `retry` is done, the query shows the failure with the last
   element as its previous success; a new reader subscribes again
@@ -1339,8 +1375,9 @@ export const jobProgress = api.query(
 
 `live` keeps a fetched value up to date between fetches, from a stream of
 updates: functions that each take the value and return the next one. With
-the `socketMessages` helper from the previous section, a WebSocket that
-announces changes to the todo list keeps it current:
+the `socketMessages` helper from
+[A query from a stream](#a-query-from-a-stream), a WebSocket that announces
+changes to the todo list keeps it current:
 
 ```ts live-todos.ts
 import * as Schedule from "effect/Schedule";
@@ -1378,7 +1415,7 @@ export const liveTodos = api.query(listTodos, { live: () => changes });
 
 A push keeps the value's age, so `staleTime` and the refetches it drives
 work as they do without one, and catch changes the stream missed. Make each
-update idempotent, such as an upsert or a removal by id, because some are
+update idempotent, such as an upsert or a removal by ID, because some are
 applied twice:
 
 - A push that comes while a fetch runs is applied to the fetch's result
@@ -1397,7 +1434,7 @@ on `api.query`.
 ## React
 
 `QueryProvider` gives your components the client
-([step 4](#4-showing-a-query)). Every hook here comes from
+([4. Showing a query](#4-showing-a-query)). Every hook here comes from
 `@monarcode/effetch-query/react`.
 
 ### Reading queries
@@ -1526,7 +1563,8 @@ An inline function runs on every render; for a costly selection, define it
 outside the component or with `useCallback`. The cache keeps the whole
 value, so other components reading the query see it unchanged, and the
 query still refetches on mount, focus and polling as without `select`. A
-`select` that throws shows as a failure with the defect.
+`select` that throws shows as a failure with the defect;
+`useSuspenseQuery` throws it to the error boundary as a `QueryFailure`.
 
 ### Reading many queries
 
@@ -1646,7 +1684,8 @@ export function TodoFailed({ error, reset }: ErrorComponentProps) {
 ### Running mutations
 
 `useMutation` gives each component its own state for a mutation: two
-buttons that run `toggleTodo` never share a pending or failed state.
+buttons that run `toggleTodo` never share a waiting or failed state. This
+checkbox toggles a todo, and clears a failure after three seconds:
 
 ```tsx
 import * as Exit from "effect/Exit";
@@ -1838,7 +1877,8 @@ export function RefreshButton() {
 
 A screen that shows queries from several features, each with its own key,
 refreshes them together with `Query.group`. Define the group once: it's a
-target like any other, so a mutation can invalidate it too.
+target like any other, so a mutation can invalidate it too. Here the home
+screen refreshes the todos and the profile together:
 
 ```tsx
 import * as Schema from "effect/Schema";
@@ -1873,7 +1913,8 @@ export function HomeRefresh() {
 ```
 
 Pass the group, not an array: `useRefetch([todos, profile])` compiles,
-because an array is a key, but it matches no query.
+because an array is a key, but a key that holds queries refetches nothing
+and fails with a `KeyHoldsTargetError` defect.
 
 ### Atoms
 
@@ -1940,7 +1981,7 @@ that starts using one, `client.fetch`, `invalidate` or `refetch`. A
 component already showing one keeps showing `Initial`, or its Suspense
 fallback. A query that reads a cleared one through `ctx.result` is
 cleared too. A `client.fetch` waiting on one is interrupted, and a mutation
-still running doesn't roll its optimistic writes back over the cleared
+run in progress doesn't roll its optimistic writes back over the cleared
 values. `client.reset()` drops the values too, but fetches those in use
 again at once.
 
@@ -1950,8 +1991,8 @@ again. If every mutation invalidates the whole cache
 after signing out fetches the queries in use with no session.
 
 **Or make a client per account.** Give `QueryProvider` a `make` instead of
-a `client`, and the account's ID as `resetKey`: it makes a client for each
-account, and disposes the one before.
+a `client`, and the account's ID as `resetKey`. It makes a client for each
+account, and disposes the one before:
 
 ```tsx
 import { QueryClient } from "@monarcode/effetch-query";
@@ -2040,8 +2081,8 @@ export function TodoCount() {
 
 A paused reader keeps showing what it had and doesn't count as a use of
 the query. When the screen comes back, the query refetches if it's stale,
-as on a mount. A query only paused readers use is dropped after `gcTime`,
-like any other query nothing uses.
+as on a mount. A query whose readers are all paused isn't in use, so it's
+dropped after `gcTime` like any other.
 
 On a Hermes older than its 2026 releases, `FinalizationRegistry` is
 missing, so a family keeps a small definition (about 2 KB) for every
@@ -2053,7 +2094,8 @@ of arguments in one session, such as one keyed by free-text search.
 
 Any Effect can be a query. `Query.make` defines one, `Query.family` one per
 argument, and `Mutation.make` a mutation, each with an Effect you write.
-Register the services they use, as in [step 1](#1-your-api-client):
+Register the services they use, as in
+[1. Your API client](#1-your-api-client):
 
 ```ts
 import * as Context from "effect/Context";
@@ -2146,7 +2188,7 @@ Render a page on the server with its data, then pick that data up in the
 browser without fetching it again. It works with any React server renderer
 (`renderToString`, `renderToPipeableStream`, a framework's), and without
 React through `QueryClient.hydrate`. If you use a framework, read this
-section first, then [its own](#frameworks).
+section first, then [Frameworks](#frameworks).
 
 ### Sending the cache
 
@@ -2175,7 +2217,7 @@ and send `QueryClient.dehydrate`'s result with the HTML:
 ```tsx
 import * as ManagedRuntime from "effect/ManagedRuntime";
 
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
   HydrationBoundary,
   QueryProvider,
@@ -2226,12 +2268,13 @@ export async function renderPage(): Promise<string> {
   failures, pass `failures: "include"`. An Effetch `HttpError` goes without
   its headers, but with its URL and response text, so keep secrets out of
   the URLs your server calls. Errors from `statusErrors` go as their schemas
-  encode them, the client's only when given to `endpoints`
-  ([Errors by status](#errors-by-status)).
+  encode them. The client's go only when `endpoints` has them: it reads
+  them from a `Fetch.Service` class, and a `Context.Service` key needs
+  them given ([Errors by status](#errors-by-status)).
 - **Keys must be JSON.** A key that isn't throws `NonJsonKeyError`, and two
   queries with one key throw `DuplicateQueryKeyError`.
-- `queries: ["todos"]` sends only the queries under a key, as
-  `Query.invalidate` matches them.
+- `queries` sends only the queries a target matches, as `Query.invalidate`
+  matches them: `queries: ["todos"]` sends those under `["todos"]`.
 
 ### Loading it in the browser
 
@@ -2289,15 +2332,16 @@ export const state = QueryClient.dehydrate(client, { pending: "promise" });
 ```
 
 A promise doesn't survive `JSON.stringify`: use it where your framework
-streams promises to the browser, as the frameworks below do. Keep the
-client until its promises settle. On a server that answers with a streamed
-`Response`, `QueryClient.disposeAfter(client, response)` disposes the
-client once the body has been sent.
+streams promises to the browser, as those in [Frameworks](#frameworks) do.
+Keep the client until its promises settle. On a server that answers with a
+streamed `Response`, `QueryClient.disposeAfter(client, response)` disposes
+the client once the body has been sent.
 
 ## Frameworks
 
-Each framework below builds on [Server rendering](#server-rendering). The
-examples use `todos` and `TodoList` from there.
+Each framework in this section builds on
+[Server rendering](#server-rendering). The examples use `todos` and
+`TodoList` from there.
 
 ### TanStack Router and Start
 
@@ -2310,7 +2354,7 @@ the router is made:
 ```tsx router.tsx
 import * as ManagedRuntime from "effect/ManagedRuntime";
 
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import { connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 import {
   createRootRouteWithContext,
@@ -2358,11 +2402,10 @@ export function getRouter() {
   queries started while rendering stream in as they start. A loader can
   start a prefetch without awaiting it,
   `void context.queryClient.prefetch(query)`, so the page renders at once
-  and the value follows. The client is disposed when
-  the request ends.
+  and the value follows. The client is disposed when the request ends.
 - **In the browser**, it all loads into the client before React hydrates:
   no `HydrationBoundary`, and nothing is fetched while it's fresh.
-- **Preloading** a route on hover runs its loader, and `Query.fetch`
+- **Preloading** a route on hover runs its loader, and `client.fetch`
   fetches only what's stale.
 
 A query or mutation that dies with the router's `redirect()` navigates
@@ -2398,6 +2441,9 @@ follows it, on the server too. Load a query that may redirect with `fetch`:
 a fetch that's only prefetched leaves the redirect to its readers, which
 show it as a failure instead.
 
+`connectQueryClient` takes the following options besides `router` and
+`queryClient`:
+
 | Option            | What it does                                                                                             |
 | ----------------- | -------------------------------------------------------------------------------------------------------- |
 | `dehydrate`       | `queries` to send only some queries, `failures: "include"` to send failures, as `QueryClient.dehydrate`. |
@@ -2408,7 +2454,7 @@ show it as a failure instead.
 
 The App Router needs no integration package: the core and `./react` cover
 it. Make each request's client for the server components with React's
-`cache()`, and dispose it with Next's `after()`:
+`cache()`, and dispose it with Next.js's `after()`:
 
 ```ts query-client.ts
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -2445,8 +2491,10 @@ client component: mark it with `"use client"`, in a file of its own:
 export { TodoList } from "./todo-list.js";
 ```
 
+The page prefetches the todos and passes their state to `TodoList`:
+
 ```tsx
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import { HydrationBoundary } from "@monarcode/effetch-query/react";
 
 import { getQueryClient } from "./query-client.js";
@@ -2468,8 +2516,8 @@ export default async function TodosPage() {
 
 The client components get their own client from a `QueryProvider` in the
 root layout. The browser keeps one for the page's lifetime; on the server,
-Next renders client components for every request, so each render gets its
-own:
+Next.js renders client components for every request, so each render gets
+its own:
 
 ```tsx
 "use client";
@@ -2506,16 +2554,22 @@ export function Providers({ children }: { readonly children: ReactNode }) {
 - **A server render's client isn't disposed:** nothing says when React is
   done with it, so it's kept until its queries' `gcTime` passes. Making it
   from a `runtime`, as here, means it never builds services of its own.
-- **Call Next's `redirect()` and `notFound()` from server components.** A
-  query whose run calls one, inside `Effect.suspend`, makes `runPromise`
-  reject with what it throws, and Next follows it. In a client component
-  the failure is a `QueryFailure`, which Next doesn't recognise.
+- **Call Next.js's `redirect()` and `notFound()` from server components.**
+  A query whose run calls one, inside `Effect.suspend`, makes
+  `client.fetch` reject with what it throws, and Next.js follows it. In a
+  client component the failure is a `QueryFailure`, which Next.js doesn't
+  treat as a redirect or a not-found.
 - **Keep queries out of `"use client"` files:** a server component that
   imports from one gets references to its exports, not the queries.
 
-In the Pages Router, make a client per request in `getServerSideProps`,
-return `QueryClient.dehydrate(client)` as a prop, dispose the client, and
-render the page under a `HydrationBoundary` given that prop.
+To use the Pages Router instead:
+
+1. In `getServerSideProps`, make a client for the request, and prefetch
+   what the page needs.
+2. Read the cache with `QueryClient.dehydrate(client)`, then dispose the
+   client.
+3. Return the dehydrated state as a prop.
+4. Render the page under a `HydrationBoundary` given that prop.
 
 ### React Router
 
@@ -2583,7 +2637,7 @@ A route's loader prefetches into the request's client and returns its
 state, which the route hands to a `HydrationBoundary`:
 
 ```tsx
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import { HydrationBoundary } from "@monarcode/effetch-query/react";
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
 
@@ -2607,10 +2661,10 @@ export default function TodosRoute() {
 }
 ```
 
-The server render uses the request's client too. Reveal the entries
-(`npx react-router reveal`); `entry.server.tsx`'s `handleRequest` gets the
-router's context as `loadContext`. Render this where it renders
-`<ServerRouter>`:
+The server render uses the request's client too. To get the entry files,
+run `npx react-router reveal`. In `entry.server.tsx`, `handleRequest` gets
+the router's context as `loadContext`; render the following where it
+renders `<ServerRouter>`:
 
 ```tsx
 import { QueryProvider } from "@monarcode/effetch-query/react";
@@ -2664,8 +2718,8 @@ startTransition(() => {
 
 - **A query still loading streams in:** React Router streams the promises
   in loader data. Start a prefetch without awaiting it,
-  `void client.prefetch(query)`, and the page renders at once. One still loading at the entry's `streamTimeout` is fetched in
-  the browser instead.
+  `void client.prefetch(query)`, and the page renders at once. One still
+  loading at the entry's `streamTimeout` is fetched in the browser instead.
 - **On navigation**, the loaders run through a `.data` request, which
   brings the page's state the same way. Each navigation runs them again,
   with a new client, so they refetch on the server whatever the browser
@@ -2674,10 +2728,14 @@ startTransition(() => {
 - **Redirect from loaders.** A query whose run dies with `redirect()`, made
   inside the Effect
   (`Effect.suspend(() => Effect.die(redirect("/login")))`), makes
-  `runPromise` reject with the `Response`, and the router follows it. Load
-  such a query with `Query.fetch` in the loader.
+  `client.fetch` reject with the `Response`, and the router follows it.
+  Load such a query with `client.fetch` in the loader.
 
 ## The client
+
+The query client holds the cache and runs your queries and mutations with
+your services. `QueryClient.make` and `QueryClient.layer` take the
+following options:
 
 | Option      | What it does                                                                                                               |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -2691,16 +2749,19 @@ startTransition(() => {
 An app that declares no services in `Register` can leave out `layer` and
 `runtime`, or every option: `QueryClient.make()`.
 
-| Member                                                                | What it is                                                                                   |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `client.runPromise`, `client.runPromiseExit`                          | Run an Effect with the client, your services and `Reactivity`.                               |
-| `client.fetch`, `prefetch`, `invalidate`, `refetch`, `reset`, `clear` | The cache functions for code outside Effect ([Outside Effect](#outside-effect)).             |
-| `client.registry`                                                     | The `AtomRegistry` holding the cache, for your own atoms.                                    |
-| `client.dispose()`                                                    | Drops the cache, interrupts running fetches and closes the layer; resolves once that's done. |
-| `QueryClient.layer(options)`                                          | A client as a `Layer<QueryClient>`, disposed with its scope: for Effect programs and tests.  |
+The following table lists a client's members, and `QueryClient.layer`:
+
+| Member                                                                | What it is                                                                                    |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `client.runPromise`, `client.runPromiseExit`                          | Run an Effect with the client, your services and `Reactivity`.                                |
+| `client.fetch`, `prefetch`, `invalidate`, `refetch`, `reset`, `clear` | The cache functions for code outside Effect ([Outside Effect](#outside-effect)).              |
+| `client.registry`                                                     | The `AtomRegistry` holding the cache, for your own atoms.                                     |
+| `client.dispose()`                                                    | Drops the cache, interrupts what's in progress and closes the layer; resolves once it's done. |
+| `QueryClient.layer(options)`                                          | A client as a `Layer<QueryClient>`, disposed with its scope: for Effect programs and tests.   |
 
 **App-wide hooks** run for every query or mutation, with your services:
-for logging, error reporting, or signing out when a session expires.
+for logging, error reporting, or signing out when a session expires. This
+client sets query defaults and logs every failure:
 
 ```ts
 import * as Cause from "effect/Cause";
@@ -2795,8 +2856,8 @@ outside.
 
 In React tests, render under a `QueryProvider` with a fresh client, and
 dispose it after each test. To control time (`staleTime`, `refetchInterval`,
-`gcTime`), fake only the timers, and leave `setImmediate` real: Effect's
-scheduler runs on it.
+`gcTime`), fake only the timers, and leave `setImmediate` real, since
+Effect's scheduler runs on it:
 
 ```ts
 import { vi } from "vitest";
@@ -2806,46 +2867,54 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ## Coming from TanStack Query
 
-| TanStack Query                                                      | effetch-query                                                                                |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `queryOptions({ queryKey, queryFn })`                               | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                        |
-| `useQuery`, `useSuspenseQuery`                                      | Same names; they return an `AsyncResult`                                                     |
-| `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch`  | `useQueryState`: the same fields, with `status` narrowing `data` and `error`                 |
-| `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                             |
-| `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`        |
-| `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                   |
-| `useMutation`'s `variables`; mutation `scope`                       | `variables`; `concurrent: "queue"` (per `useMutation`)                                       |
-| `useIsFetching`, `useIsMutating`, `useMutationState`                | Same names; `useMutationState(mutation)` lists one mutation's runs in progress               |
-| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                |
-| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                          |
-| `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family or a key prefix        |
-| `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                           |
-| `useQueryErrorResetBoundary` with an error boundary and `Suspense`  | `QueryBoundary`; with a router's boundary, `useResetQueryFailure`                            |
-| `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                             |
-| `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                       |
-| `QueryCache({ onError, onSuccess, onSettled })`                     | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                |
-| `MutationCache({ onMutate, onError, … })`                           | `mutations.onMutate`, `mutations.onFailure`, …                                               |
-| `select`                                                            | `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it       |
-| `enabled: false`                                                    | `useQuery(null)`                                                                             |
-| `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                    |
-| `placeholderData` from the cache                                    | `placeholder` on `api.query`, `Query.make` / `Query.family`                                  |
-| `isPlaceholderData`                                                 | `isPlaceholder` on `useQueryState`                                                           |
-| `useQueries`; `subscribed: false`                                   | `useQueries`; `paused: true` on the reading hooks                                            |
-| `retry: 3`                                                          | `retry: Schedule` (default none)                                                             |
-| `onMutate` returning a rollback context                             | `optimistic`, undone automatically                                                           |
-| `dehydrate`, `hydrate`, `HydrationBoundary`                         | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema` |
-| `setupRouterSsrQueryIntegration`                                    | `connectQueryClient` (`./react/tanstack-router`)                                             |
-| `useInfiniteQuery`, `fetchNextPage`                                 | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                       |
-| `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
-| `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                   |
-| A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                 |
-| `experimental_streamedQuery`                                        | `Query.stream`, `Query.streamFamily`; `api.query` of an SSE or NDJSON endpoint               |
-| `setQueryData` from a WebSocket's messages                          | `live` on `api.query`, `Query.make` / `Query.family`                                         |
-| `cancelQueries`, devtools                                           | Not in 0.1                                                                                   |
+The following table maps TanStack Query's APIs to effetch-query's:
+
+| TanStack Query                                                      | effetch-query                                                                                  |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `queryOptions({ queryKey, queryFn })`                               | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                          |
+| `useQuery`, `useSuspenseQuery`                                      | Same names; they return an `AsyncResult`                                                       |
+| `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch`  | `useQueryState`: the same fields, with `status` narrowing `data` and `error`                   |
+| `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                               |
+| `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`          |
+| `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                     |
+| `useMutation`'s `variables`; mutation `scope`                       | `variables`; `concurrent: "queue"` (per `useMutation`)                                         |
+| `useIsFetching`, `useIsMutating`, `useMutationState`                | Same names; `useMutationState(mutation)` lists one mutation's runs in progress                 |
+| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                  |
+| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                            |
+| `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family, a key prefix or a group |
+| `invalidateQueries` in a mutation's `onSuccess`                     | `invalidates` on the mutation; `endpoints(Api, { invalidates: "route" })` for every endpoint   |
+| `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                             |
+| `useQueryErrorResetBoundary` with an error boundary and `Suspense`  | `QueryBoundary`; with a router's boundary, `useResetQueryFailure`                              |
+| `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                               |
+| `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                         |
+| `QueryCache({ onError, onSuccess, onSettled })`                     | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                  |
+| `MutationCache({ onMutate, onError, … })`                           | `mutations.onMutate`, `mutations.onFailure`, …                                                 |
+| `select`                                                            | `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it         |
+| `enabled: false`                                                    | `useQuery(null)`                                                                               |
+| `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                      |
+| `placeholderData` from the cache                                    | `placeholder` on `api.query`, `Query.make` / `Query.family`                                    |
+| `isPlaceholderData`                                                 | `isPlaceholder` on `useQueryState`                                                             |
+| `useQueries`; `subscribed: false`                                   | `useQueries`; `paused: true` on the reading hooks                                              |
+| `retry: 3`                                                          | `retry: Schedule` (default none)                                                               |
+| `onMutate` returning a rollback context                             | `optimistic`, undone automatically                                                             |
+| `dehydrate`, `hydrate`, `HydrationBoundary`                         | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema`   |
+| `setupRouterSsrQueryIntegration`                                    | `connectQueryClient` (`./react/tanstack-router`)                                               |
+| `useInfiniteQuery`, `fetchNextPage`                                 | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                         |
+| `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                    |
+| `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                     |
+| A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                   |
+| `experimental_streamedQuery`                                        | `Query.stream`, `Query.streamFamily`; `api.query` of an SSE or NDJSON endpoint                 |
+| `setQueryData` from a WebSocket's messages                          | `live` on `api.query`, `Query.make` / `Query.family`                                           |
+| `cancelQueries`, devtools                                           | Not in 0.1                                                                                     |
 
 ## Reference
 
+This section lists what each entry point exports, and the library's
+limitations.
+
 ### API
+
+Each entry point exports the following:
 
 | Import                                           | Exports                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2884,16 +2953,19 @@ package, and the full apps tested end to end in
 - [`react-router/`](examples/react-router): the same app in React Router's
   framework mode, on Effetch endpoints.
 
-Its [README](examples/README.md) walks through each one.
+[The examples README](examples/README.md) walks through each one.
 
 ## Development
 
 You need Node 24 and pnpm 10 (`corepack enable` picks the pinned version).
+To install the dependencies and run every check, run:
 
 ```bash
 pnpm install
 pnpm run check
 ```
+
+The package has the following scripts:
 
 | Script                | What it does                                                                                                                    |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -2904,7 +2976,7 @@ pnpm run check
 | `pnpm run format`     | Formats with oxfmt (`format:check` only checks).                                                                                |
 | `pnpm run check:docs` | Checks every public export has a description, `@example` and `@since`, and compiles every example in the JSDoc and this README. |
 | `pnpm run smoke`      | Packs the package, installs it in a fresh project, typechecks and runs consumers, and checks go-to-definition and hovers.       |
-| `pnpm run check`      | All of the above, plus publint and attw. CI runs it on every pull request.                                                      |
+| `pnpm run check`      | All of these, plus publint and attw. CI runs it on every pull request.                                                          |
 
 The pre-commit hook runs `lint` and `format:check`.
 
