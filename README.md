@@ -3595,6 +3595,13 @@ export const viewer = Query.make({
 });
 ```
 
+If your client maps a 401 to its own error with `statusErrors`
+([Errors by status](#errors-by-status)), catch that error's tag, as the
+[`tanstack-start`](./examples/tanstack-start) and
+[`react-router`](./examples/react-router) examples do with `Unauthorized`.
+A 401 whose body doesn't decode stays an `HttpError`, so keep that branch
+if your server can send one.
+
 In a loader, `client.fetch` rejects with the redirect and the router
 follows it, on the server too. Load a query that may redirect with
 `fetch`: a fetch that's only prefetched leaves the redirect to its

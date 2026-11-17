@@ -98,8 +98,12 @@ How they work:
   loaders: in `beforeLoad` with TanStack Router, in `middleware` and
   `clientMiddleware` with React Router. Signed out, `viewer` dies with the
   router's `redirect()` to `/login`, and the router follows it. `/login`
-  sends a signed-in visitor home. Signing out clears the cookie and resets
-  every query.
+  sends a signed-in visitor home. Signing out clears the cookie and every
+  query (`client.clear()`). That covers the app's own button, which is all
+  these apps handle: a session that ends elsewhere, such as in another tab
+  or when the token expires, leaves the cache to the next account.
+  [Sign out and switch accounts](../README.md#sign-out-and-switch-accounts)
+  explains when to make a client per account instead.
 - **Typed errors.** A 401 is an `Unauthorized`, which `viewer` catches by
   its tag, and a missing todo a `TodoNotFound`, whose page offers no "Try
   again": trying again can't make it exist.

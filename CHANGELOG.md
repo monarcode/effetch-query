@@ -161,7 +161,8 @@ and rc.2 additions were.
     (`QueryProvider` with `make` and `resetKey`), which follows the account
     when a session ends or changes away from your sign-out button, such as
     in another tab. `client.clear()` stays as the simpler option when only
-    your button ends the session.
+    your button ends the session. The TanStack guide's redirect example
+    says to catch the typed error when `statusErrors` maps the 401.
   - The TanStack mapping covers every addition, and names
     `queryClient.query()`, which TanStack Query 5.102 added, deprecating
     `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
