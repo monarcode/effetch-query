@@ -38,6 +38,18 @@ export const SignedIn = Schema.Struct({
 /** What dummyjson sends back when a request fails. */
 export const ApiError = Schema.Struct({ message: Schema.String });
 
+/** A 401: no session, or one that has expired. */
+export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
+	"Unauthorized",
+	{ message: Schema.String },
+) {}
+
+/** A 404 for a todo, with dummyjson's message saying which. */
+export class TodoNotFound extends Schema.TaggedError<TodoNotFound>()(
+	"TodoNotFound",
+	{ message: Schema.String },
+) {}
+
 /** The signed-in user's access token, read for every request. */
 export class Session extends Context.Service<
 	Session,
@@ -51,6 +63,9 @@ export class Session extends Context.Service<
 export class DummyJson extends Fetch.Service<DummyJson>()("DummyJson", {
 	baseUrl: import.meta.env.VITE_DUMMYJSON_URL ?? "https://dummyjson.com",
 	defaultError: ApiError,
+	// Every endpoint fails with an `Unauthorized` on a 401, typed, so code
+	// can catch it by its tag.
+	statusErrors: { 401: Unauthorized },
 	plugins: [bearer({ token: Session.use((session) => session.token) })],
 }) {}
 

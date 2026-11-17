@@ -3831,6 +3831,11 @@ export default function TodosRoute() {
 }
 ```
 
+With React Router's generated route types (`react-router typegen`), type
+the loader with `Route.LoaderArgs` and read the state from the component's
+`loaderData` prop (`Route.ComponentProps`), as the
+[`react-router` example](./examples/react-router) does.
+
 **4. Give the server render the request's client.** To get the entry
 files, run `npx react-router reveal`. In `entry.server.tsx`,
 `handleRequest` gets the router's context as `loadContext`; render the
@@ -3902,6 +3907,13 @@ A few things to know about React Router:
   (`Effect.suspend(() => Effect.die(redirect("/login")))`), makes
   `client.fetch` reject with the `Response`, and the router follows it.
   Load such a query with `client.fetch` in the loader.
+- **Guard a layout in middleware.** To check the user once for every page
+  under a layout, fetch the query in the layout route's `middleware` and
+  `clientMiddleware`, which run before its pages' loaders, and put the
+  value in a router context (`createContext`) for those loaders to read.
+  The [`react-router` example](./examples/react-router) does this with
+  the signed-in user. The pages' loaders wait for it, so give the query a
+  `staleTime`: while it's fresh, `fetch` answers from the cache at once.
 
 ## The client
 

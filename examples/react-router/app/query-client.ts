@@ -2,10 +2,23 @@ import type * as Effect from "effect/Effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import type * as HttpClient from "effect/http/HttpClient";
 import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
 
+import * as Fetch from "@monarcode/effetch";
 import { QueryClient } from "@monarcode/effetch-query";
 
 import { DummyJson, Session } from "./dummyjson.js";
+
+/**
+ * Retries a fetch that didn't reach the server, twice, a little later each
+ * time. A response, even an error, is the server's answer: it isn't retried.
+ */
+const retryNetworkFailures = Schedule.exponential("250 millis").pipe(
+	Schedule.while(
+		({ input, attempt }) =>
+			input instanceof Fetch.NetworkError && attempt <= 2,
+	),
+);
 
 /**
  * A query client that calls dummyjson.com with `token`: one per request on
@@ -21,5 +34,7 @@ export const makeQueryClient = (
 		layer: DummyJson.layer.pipe(
 			Layer.provide(Layer.merge(Layer.succeed(Session, { token }), http)),
 		),
-		queries: { defaults: { staleTime: "1 minute" } },
+		queries: {
+			defaults: { staleTime: "1 minute", retry: retryNetworkFailures },
+		},
 	});

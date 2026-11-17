@@ -10,8 +10,9 @@ import { AppShell, LoginCard } from "../../../ui/components.js";
 import { describeError, login, viewer } from "../api.js";
 
 export const Route = createFileRoute("/login")({
+	head: () => ({ meta: [{ title: "Sign in · Todos" }] }),
 	// Already signed in: there's nothing to do here.
-	loader: async ({ context }) => {
+	beforeLoad: async ({ context }) => {
 		if (context.readToken() === undefined) {
 			return;
 		}

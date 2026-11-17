@@ -73,6 +73,36 @@ fullAppSuite({
 		(0, eval)(readFileSync(path.join(assets, String(manifest)), "utf8"));
 		// `react-router/dom` keeps the page it hydrated; this one gets its own.
 		vi.resetModules();
+		const router = await import("react-router");
+		// What React Router's Vite plugin does to a route module (its
+		// `with-props` transform): its components get their route's
+		// `loaderData`, `params` and `error` as props (`Route.ComponentProps`).
+		const withProps = (module: Record<string, unknown>) => ({
+			...module,
+			default: router.UNSAFE_withComponentProps(
+				module.default as Parameters<
+					typeof router.UNSAFE_withComponentProps
+				>[0],
+			),
+			...(module.ErrorBoundary === undefined
+				? {}
+				: {
+						ErrorBoundary: router.UNSAFE_withErrorBoundaryProps(
+							module.ErrorBoundary as Parameters<
+								typeof router.UNSAFE_withErrorBoundaryProps
+							>[0],
+						),
+					}),
+			...(module.HydrateFallback === undefined
+				? {}
+				: {
+						HydrateFallback: router.UNSAFE_withHydrateFallbackProps(
+							module.HydrateFallback as Parameters<
+								typeof router.UNSAFE_withHydrateFallbackProps
+							>[0],
+						),
+					}),
+		});
 		Reflect.set(
 			window,
 			"__reactRouterRouteModules",
@@ -80,7 +110,7 @@ fullAppSuite({
 				await Promise.all(
 					Object.entries(routeModules).map(async ([id, load]) => [
 						id,
-						await load(),
+						withProps(await load()),
 					]),
 				),
 			),

@@ -46,6 +46,16 @@ export class ApiError extends Data.TaggedError("ApiError")<{
 	readonly message: string;
 }> {}
 
+/** A 401: no session, or one that has expired. */
+export class Unauthorized extends Data.TaggedError("Unauthorized")<{
+	readonly message: string;
+}> {}
+
+/** A 404 for a todo, with dummyjson's message saying which. */
+export class TodoNotFound extends Data.TaggedError("TodoNotFound")<{
+	readonly message: string;
+}> {}
+
 export interface Credentials {
 	readonly username: string;
 	readonly password: string;
@@ -53,17 +63,25 @@ export interface Credentials {
 
 const ErrorBody = Schema.Struct({ message: Schema.String });
 
-/** Fails with dummyjson's message, or only the status if it sent none. */
+/**
+ * Fails with dummyjson's message, or only the status if it sent none: an
+ * `Unauthorized` for a 401, so code can catch it by its tag.
+ */
 const failWith = (response: HttpClientResponse.HttpClientResponse) =>
-	Effect.flatMap(response.json, (body) =>
-		Effect.fail(
-			new ApiError({
-				status: response.status,
-				message: Schema.is(ErrorBody)(body)
-					? body.message
-					: `dummyjson answered ${response.status}`,
-			}),
-		),
+	// A body that isn't JSON still fails by its status: a 401 is still
+	// `Unauthorized`.
+	Effect.flatMap(
+		Effect.orElseSucceed(response.json, () => undefined),
+		(body) => {
+			const message = Schema.is(ErrorBody)(body)
+				? body.message
+				: `dummyjson answered ${response.status}`;
+			return Effect.fail(
+				response.status === 401
+					? new Unauthorized({ message })
+					: new ApiError({ status: response.status, message }),
+			);
+		},
 	);
 
 /** The signed-in user's access token, read for every request. */
@@ -126,7 +144,16 @@ const makeDummyJson = Effect.gen(function* () {
 			send(HttpClientRequest.get(`/todos/user/${userId}`), TodoPage),
 		todos: (params: { readonly limit: number; readonly skip: number }) =>
 			send(HttpClientRequest.get("/todos", { urlParams: params }), TodoPage),
-		todo: (id: number) => send(HttpClientRequest.get(`/todos/${id}`), Todo),
+		todo: (id: number) =>
+			send(HttpClientRequest.get(`/todos/${id}`), Todo).pipe(
+				Effect.catchTag("ApiError", (error) =>
+					Effect.fail(
+						error.status === 404
+							? new TodoNotFound({ message: error.message })
+							: error,
+					),
+				),
+			),
 		updateTodo: (id: number, patch: { readonly completed: boolean }) =>
 			send(
 				HttpClientRequest.patch(`/todos/${id}`).pipe(

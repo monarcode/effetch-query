@@ -95,17 +95,27 @@ export const toggleTodo = api.mutation(
 	},
 );
 
+/** A page of todos, counting one fewer. */
+const oneFewer = (page: TodoPage): TodoPage => ({
+	...page,
+	total: page.total - 1,
+});
+
 export const deleteTodo = api.mutation(
 	Fetch.endpoint("DELETE /todos/:id", { output: Todo }),
 	{
 		// Removing it leaves the totals, which only the lists know about.
 		optimistic: ({ params }) =>
-			Effect.andThen(
-				Entity.remove(Todos, Number(params.id)),
-				Query.update(userTodos, (page) => ({
-					...page,
-					total: page.total - 1,
-				})),
+			Effect.all(
+				[
+					Entity.remove(Todos, Number(params.id)),
+					Query.update(userTodos, oneFewer),
+					Query.update(allTodos, (data) => ({
+						...data,
+						pages: data.pages.map(oneFewer),
+					})),
+				],
+				{ discard: true },
 			),
 	},
 );

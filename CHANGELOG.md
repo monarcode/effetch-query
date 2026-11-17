@@ -161,14 +161,19 @@ and rc.2 additions were.
     `queryClient.query()`, which TanStack Query 5.102 added, deprecating
     `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
 
-- The `tanstack-start` example follows TanStack Router's patterns and uses
-  more of the library: typed `Unauthorized` and `TodoNotFound` errors from
-  `statusErrors`, the sign-in guard in `beforeLoad`, numeric params with
-  `params.parse`, `pendingComponent`, page titles, a todo opened from a
+- The full examples (`tanstack-start`, `tanstack-start-httpclient` and
+  `react-router`) follow their router's patterns and use more of the
+  library: typed `Unauthorized` and `TodoNotFound` errors, one guard for
+  the signed-in pages (`beforeLoad` in TanStack Router, `middleware` in
+  React Router), React Router's generated route types, `params.parse` and
+  `pendingComponent` in TanStack Router, page titles, a todo opened from a
   list shown at once (`placeholder` with `Entity.get`), app-wide
   `useIsFetching` and `useIsMutating` indicators, `select`, sign-in with
   `concurrent: "drop"`, and a `retry` for network failures. The shared
-  `AppShell` takes `loading` and `saving`.
+  `AppShell` takes `loading` and `saving`, and the shared suite tests all
+  of it on all three built apps. In `tanstack-start-httpclient`, "Load
+  more" after a delete no longer repeats a todo, and All todos' count
+  drops with a delete in every app.
 
 ### Deprecated
 
