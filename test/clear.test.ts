@@ -249,6 +249,61 @@ describe("Query.clear", () => {
 		);
 	});
 
+	it("drops what hydrate left for a query no one has read", async () => {
+		const schema = { success: Schema.String };
+		const staleTime = "1 hour";
+		const make = (run: string) => ({
+			me: Query.make({
+				key: ["me"],
+				run: Effect.succeed(run),
+				schema,
+				staleTime,
+			}),
+			other: Query.make({
+				key: ["other"],
+				run: Effect.succeed(run),
+				schema,
+				staleTime,
+			}),
+		});
+		const server = await makeClient();
+		const sent = make("server");
+		await server.fetch(sent.me);
+		await server.fetch(sent.other);
+		const client = await makeClient();
+		QueryClient.hydrate(client, QueryClient.dehydrate(server));
+		const { me, other } = make("browser");
+
+		await client.clear(["me"]);
+
+		expect(await client.fetch(me)).toBe("browser");
+		expect(await client.fetch(other)).toBe("server");
+	});
+
+	it("drops every hydrated value with no target", async () => {
+		const schema = { success: Schema.String };
+		const staleTime = "1 hour";
+		const server = await makeClient();
+		await server.fetch(
+			Query.make({ key: ["me"], run: Effect.succeed("server"), schema }),
+		);
+		const client = await makeClient();
+		QueryClient.hydrate(client, QueryClient.dehydrate(server));
+
+		await client.clear();
+
+		expect(
+			await client.fetch(
+				Query.make({
+					key: ["me"],
+					run: Effect.succeed("browser"),
+					schema,
+					staleTime,
+				}),
+			),
+		).toBe("browser");
+	});
+
 	it("shows an atom derived from it as Initial, until something asks", async () => {
 		const client = await makeClient();
 		const { query } = tracked(["derived"], (n) => Effect.succeed(n));

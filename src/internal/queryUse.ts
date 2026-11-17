@@ -168,6 +168,14 @@ export const makeQueryUse = (
 		}
 		return keptCopy.shown;
 	};
+	// What `select` last got, before selecting: a paused reader remembers
+	// it, so a `select` that changes while paused applies to it.
+	let raw:
+		| {
+				readonly query: Query.Query<any, any> | null;
+				readonly result: AsyncResult.AsyncResult<any, any>;
+		  }
+		| undefined;
 	let selected:
 		| {
 				readonly query: Query.Query<any, any> | null;
@@ -182,6 +190,7 @@ export const makeQueryUse = (
 			result: AsyncResult.AsyncResult<A, E>,
 			select: ((value: A) => B) | undefined,
 		): AsyncResult.AsyncResult<B, E> => {
+			raw = { query, result };
 			if (select === undefined) {
 				return result as unknown as AsyncResult.AsyncResult<B, E>;
 			}
@@ -242,7 +251,7 @@ export const makeQueryUse = (
 			if (query === null) {
 				return;
 			}
-			freezer.remember(query, result);
+			freezer.remember(query, raw?.query === query ? raw.result : result);
 			if (
 				AsyncResult.isSuccess(result) &&
 				!isPlaceholder(registry, result)
@@ -295,7 +304,7 @@ const notFetching = AsyncResult.initial<never, never>();
  * paused reader, so neither is shown waiting.
  */
 export interface Freezer {
-	/** Remembers what the reader showed of `query`. */
+	/** Remembers what the reader showed of `query`, before any `select`. */
 	readonly remember: (
 		query: Query.Query<any, any>,
 		result: AsyncResult.AsyncResult<any, any>,
@@ -303,10 +312,10 @@ export interface Freezer {
 	/** Forgets every query's remembered result. */
 	readonly forget: () => void;
 	/**
-	 * What a paused reader shows of `query`: what it remembered of it, unless
-	 * `clear` dropped the query since, or else the query's server value (the
-	 * cache, without fetching) with `select` applied. A re-render gets the
-	 * same object while what it shows is the same.
+	 * What a paused reader shows of `query`, with `select` applied: what it
+	 * remembered of it, unless `clear` dropped the query since, or else the
+	 * query's server value (the cache, without fetching). A re-render gets
+	 * the same object while what it shows is the same.
 	 */
 	readonly show: <A, E, B>(
 		query: Query.Query<A, E>,
@@ -328,6 +337,7 @@ export const makeFreezer = (registry: AtomRegistry.AtomRegistry): Freezer => {
 		Query.Query<any, any>,
 		{
 			readonly source: AsyncResult.AsyncResult<any, any>;
+			readonly select: ((value: any) => unknown) | undefined;
 			readonly output: AsyncResult.AsyncResult<any, any>;
 		}
 	>();
@@ -363,17 +373,32 @@ export const makeFreezer = (registry: AtomRegistry.AtomRegistry): Freezer => {
 			select?: ((value: A) => B) | undefined,
 		): AsyncResult.AsyncResult<B, E> => {
 			const kept = remembered.get(query);
-			if (kept !== undefined && kept.clears === clearsOf(query)) {
-				return settle(kept.result);
-			}
-			const source = settle(Atom.getServerValue(query, registry));
+			const source = settle(
+				kept !== undefined && kept.clears === clearsOf(query)
+					? kept.result
+					: Atom.getServerValue(query, registry),
+			);
 			const last = cached.get(query);
-			if (last !== undefined && sameShown(last.source, source)) {
+			const sameSource =
+				last !== undefined && sameShown(last.source, source);
+			if (sameSource && last.select === select) {
 				return last.output as AsyncResult.AsyncResult<B, E>;
 			}
-			const output =
+			const mapped =
 				select === undefined ? source : selectResult(source, select);
-			cached.set(query, { source, output });
+			// An inline `select` is new on every render: an equal selection
+			// keeps the object.
+			const output =
+				sameSource && sameShown(last.output, mapped) ? last.output : mapped;
+			// A selection of a placeholder is one too, as `select` marks it.
+			if (
+				output === mapped &&
+				mapped !== source &&
+				isPlaceholder(registry, source)
+			) {
+				markPlaceholder(registry, mapped);
+			}
+			cached.set(query, { source, select, output });
 			return output as AsyncResult.AsyncResult<B, E>;
 		},
 	};

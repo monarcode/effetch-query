@@ -3,8 +3,10 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
 import { clearQuery, resetQuery, settled } from "./cache.js";
-import { matching } from "./keyIndex.js";
+import { keyOfHash } from "./hashKey.js";
+import { matcher, matching } from "./keyIndex.js";
 import { cachedQuery, internals, isQuery, wake } from "./queryAtom.js";
+import { StateAtom } from "./runtime.js";
 import { isInUse } from "./usage.js";
 
 /** Marks the matching queries stale: those in use refetch at once. */
@@ -70,6 +72,32 @@ export const clear = (
 ): void => {
 	for (const query of withReaders(registry, matching(registry, target))) {
 		clearQuery(registry, query);
+	}
+	dropHydrated(registry, target);
+};
+
+/**
+ * Drops what `hydrate` left for the matching queries no one has read yet,
+ * values and results the server is still sending, so a cleared cache
+ * doesn't show them when a query is first read.
+ */
+const dropHydrated = (
+	registry: AtomRegistry.AtomRegistry,
+	target: Query.Target,
+): void => {
+	const { streamed } = registry.get(StateAtom);
+	const { preloadedSerializable: preloaded } = registry;
+	if (preloaded.size === 0 && streamed.size === 0) {
+		return;
+	}
+	// By key alone: there's no query to ask a family that matches its own.
+	const matches = matcher(target, true);
+	for (const hash of [...preloaded.keys(), ...streamed.keys()]) {
+		const key = keyOfHash(hash);
+		if (key !== undefined && matches({ key } as Query.Query<any, any>)) {
+			preloaded.delete(hash);
+			streamed.delete(hash);
+		}
 	}
 };
 

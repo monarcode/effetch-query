@@ -79,19 +79,28 @@ const resultsAtom = (
 		},
 	);
 
+interface ResultsEntry {
+	readonly queries: ReadonlyArray<AnyQuery | null>;
+	readonly atom: Atom.Atom<Results>;
+}
+
 export const makeQueriesUse = (
 	registry: AtomRegistry.AtomRegistry,
 ): QueriesUse => {
 	const state = () => registry.get(StateAtom);
-	// The committed list's atom and the latest rendered one, so a render
-	// React drops doesn't replace the atom the committed list subscribes to.
-	let atoms: ReadonlyArray<{
-		readonly queries: ReadonlyArray<AnyQuery | null>;
-		readonly atom: Atom.Atom<Results>;
-	}> = [];
+	// The committed list's atom and the latest rendered one, so renders
+	// React drops don't replace the atom the committed list subscribes to.
+	let committed: ResultsEntry | undefined;
+	let rendered: ResultsEntry | undefined;
 	// The fetch count when each query not yet mounted was first rendered.
 	const joined = new Map<AnyQuery, number>();
 	let current = new Set<AnyQuery>();
+	const entryFor = (
+		queries: ReadonlyArray<AnyQuery | null>,
+	): ResultsEntry | undefined =>
+		[committed, rendered].find(
+			(entry) => entry !== undefined && sameQueries(entry.queries, queries),
+		);
 	let mountedAt = state().fetchCount;
 	const freezer = makeFreezer(registry);
 	const keep = () => {
@@ -120,15 +129,12 @@ export const makeQueriesUse = (
 					joined.set(query, at);
 				}
 			}
-			const found = atoms.find((entry) =>
-				sameQueries(entry.queries, queries),
-			);
+			const found = entryFor(queries);
 			if (found !== undefined) {
 				return found.atom;
 			}
-			const atom = resultsAtom(queries);
-			atoms = [...atoms.slice(-1), { queries, atom }];
-			return atom;
+			rendered = { queries, atom: resultsAtom(queries) };
+			return rendered.atom;
 		},
 		stable,
 		mounted: (queries) => {
@@ -152,9 +158,8 @@ export const makeQueriesUse = (
 			mountedAt = state().fetchCount;
 			joined.clear();
 			if (queries !== null) {
-				atoms = atoms.filter((entry) =>
-					sameQueries(entry.queries, queries),
-				);
+				committed = entryFor(queries);
+				rendered = undefined;
 			}
 		},
 		showed: (queries, results) => {

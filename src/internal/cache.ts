@@ -335,7 +335,8 @@ const dropQuery = (
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<any, any>,
 ): void => {
-	if (!isInUse(registry, query)) {
+	// A `live` query's cache is in use without it while a fetch waits.
+	if (!isInUse(registry, internals(query).cache)) {
 		resetQuery(registry, query);
 		return;
 	}

@@ -1,6 +1,7 @@
 import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
@@ -349,7 +350,9 @@ export const applyPlan = (
 ): unknown => {
 	switch (plan._tag) {
 		case "Entity":
-			return Predicate.isObjectKeyword(value) ? f(value) : value;
+			return Predicate.isObjectKeyword(value)
+				? keepClass(value, f(value))
+				: value;
 		case "Lazy":
 			return plan.cell.plan === undefined
 				? value
@@ -453,15 +456,31 @@ const applyClass = (
 ): unknown => {
 	// A class over the entity's own struct is the entity: `f` gets the
 	// instance itself.
-	const next =
+	return keepClass(
+		value,
 		plan.fields._tag === "Entity"
 			? f(value)
-			: applyPlan(plan.fields, { ...value }, f);
+			: applyPlan(plan.fields, { ...value }, f),
+	);
+};
+
+/**
+ * `next` with `value`'s class, when `value` is an instance and `next` a
+ * plain copy, such as an updater's `{ ...todo, title }`: the class's codec
+ * encodes only instances, and its methods would be gone. A copy with the
+ * same fields gives back `value` itself.
+ */
+const keepClass = (value: object, next: unknown): unknown => {
 	if (next === Remove || next === value || !Predicate.isObject(next)) {
 		return next;
 	}
-	const prototype = Object.getPrototypeOf(value);
-	if (Object.getPrototypeOf(next) === prototype) {
+	const prototype: unknown = Object.getPrototypeOf(value);
+	if (
+		prototype === Object.prototype ||
+		prototype === null ||
+		Array.isArray(value) ||
+		Object.getPrototypeOf(next) === prototype
+	) {
 		return next;
 	}
 	const names = Object.keys(next);
@@ -472,7 +491,7 @@ const applyClass = (
 				(value as Record<string, unknown>)[name],
 		)
 		? value
-		: Object.assign(Object.create(prototype), next);
+		: Object.assign(Object.create(prototype as object), next);
 };
 
 /** What a definition needs from an entity: its schema's AST, its id and where it was found. */
@@ -499,7 +518,10 @@ const planIn = (
 	return plan ?? undefined;
 };
 
-/** Each cached query that holds the entity, with its value and when that value was fetched or written. */
+/**
+ * Each cached query that holds the entity, with its last success, when that
+ * was fetched or written, and whether the query shows a failure over it.
+ */
 const holding = (
 	registry: AtomRegistry.AtomRegistry,
 	entity: EntityDefinition<any, any>,
@@ -508,13 +530,13 @@ const holding = (
 	readonly plan: Plan;
 	readonly value: unknown;
 	readonly timestamp: number;
+	readonly failed: boolean;
 }> =>
 	Array.from(registry.get(StateAtom).index).flatMap((query) => {
 		const plan = planIn(entity, query);
-		const success =
-			plan === undefined
-				? Option.none()
-				: Option.flatMap(peek(registry, query), lastSuccess);
+		const current =
+			plan === undefined ? Option.none() : peek(registry, query);
+		const success = Option.flatMap(current, lastSuccess);
 		return plan === undefined || Option.isNone(success)
 			? []
 			: [
@@ -523,6 +545,7 @@ const holding = (
 						plan,
 						value: success.value.value,
 						timestamp: success.value.timestamp,
+						failed: Option.exists(current, AsyncResult.isFailure),
 					},
 				];
 	});
@@ -530,7 +553,8 @@ const holding = (
 /**
  * Writes `f` over every cached copy of the entity whose id is `id`, with
  * {@link patchValue}: a query keeps its timestamp, and one that's
- * invalidated or not cached isn't written. Every value is computed before
+ * invalidated, not cached or failed isn't written: a write would hide its
+ * failure, and it fetches when next used. Every value is computed before
  * any is written, so an `f` or `id` that throws writes nothing. Queries
  * whose value doesn't change aren't written. Returns one undo for them all.
  */
@@ -543,7 +567,10 @@ export const writeEntity = <A, Id>(
 	const each = (copy: object) =>
 		Equal.equals(entity.id(copy as A), id) ? f(copy as A) : copy;
 	const writes = holding(registry, entity).flatMap(
-		({ query, plan, value, timestamp }) => {
+		({ query, plan, value, timestamp, failed }) => {
+			if (failed) {
+				return [];
+			}
 			const next = applyPlan(plan, value, each);
 			return next === value || next === Remove
 				? []

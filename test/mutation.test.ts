@@ -157,6 +157,40 @@ describe("Mutation.run", () => {
 		expect(queries.map(({ fetches }) => fetches.count)).toEqual([1, 2, 2, 1]);
 	});
 
+	it("fails before its run when invalidates holds a key that holds a query", async () => {
+		const client = await makeClient();
+		const { query } = tracked(["todos"], () => Effect.succeed(1));
+		let runs = 0;
+		const save = Mutation.make({
+			run: () => Effect.sync(() => runs++),
+			invalidates: [[query]],
+		});
+
+		const exit = await client.runPromiseExit(Mutation.run(save, undefined));
+
+		expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
+			_tag: "KeyHoldsTargetError",
+		});
+		expect(runs).toBe(0);
+	});
+
+	it("succeeds, and skips the target, when invalidates returns a key that holds a query", async () => {
+		const client = await makeClient();
+		const { query } = tracked(["todos"], () => Effect.succeed(1));
+		const settled: Array<string> = [];
+		const save = Mutation.make({
+			run: () => Effect.succeed("saved"),
+			invalidates: () => [[query], ["other"]],
+			onSuccess: () => Effect.sync(() => settled.push("success")),
+			onFailure: () => Effect.sync(() => settled.push("failure")),
+		});
+
+		const exit = await client.runPromiseExit(Mutation.run(save, undefined));
+
+		expect(exit).toEqual(Exit.succeed("saved"));
+		expect(settled).toEqual(["success"]);
+	});
+
 	it("calls its options and the client's hooks in order on failure", async () => {
 		const log: Array<string> = [];
 		const step = (name: string) => Effect.sync(() => log.push(name));

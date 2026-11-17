@@ -204,6 +204,25 @@ describe("Query.stream", () => {
 		second();
 	});
 
+	it("shows a failure over a value written on it", async () => {
+		const client = await makeClient();
+		const { registry } = client;
+		const ticks = source<number, string>();
+		const price = Query.stream({ key: ["price"], run: ticks.stream });
+		const unmount = registry.mount(price);
+		await tick();
+		ticks.emit(1);
+		await tick();
+		await client.runPromise(Query.set(price, 5));
+		expect(show(registry.get(price))).toBe("Success 5");
+
+		ticks.fail("dropped");
+		await tick();
+
+		expect(AsyncResult.isFailure(registry.get(price))).toBe(true);
+		unmount();
+	});
+
 	it("keeps the last element when it ends, and fails when it ends with none", async () => {
 		const client = await makeClient();
 		const ended = Query.stream({ key: ["ended"], run: Stream.make(1, 2) });
@@ -611,6 +630,30 @@ describe("live queries, from the review", () => {
 			);
 			expect(pushes.counts().starts).toBe(0);
 		}
+	});
+
+	it("clear interrupts a fetch of a live query no one reads, without fetching again", async () => {
+		const client = await makeClient();
+		const pushes = source<Update>();
+		const respond = gate();
+		let runs = 0;
+		const query = Query.make({
+			key: ["todos"],
+			run: Effect.suspend(() => {
+				runs++;
+				return Effect.as(respond.wait, listOf([`run ${runs}`]));
+			}),
+			live: pushes.stream,
+		});
+		const fetch = client.runPromiseExit(Query.fetch(query));
+		await tick();
+
+		await client.clear(query);
+		respond.open();
+
+		expect(Exit.hasInterrupts(await fetch)).toBe(true);
+		await tick();
+		expect(runs).toBe(1);
 	});
 
 	it("doesn't apply pushes from before a clear to what's fetched after it", async () => {

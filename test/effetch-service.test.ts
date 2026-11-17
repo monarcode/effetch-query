@@ -225,6 +225,12 @@ describe("endpoints with a query schema", () => {
 		).toEqual(["todos", "search", { due, per_page: "20" }]);
 	});
 
+	it("leaves out an optional field given as undefined, as Effetch does", () => {
+		const query = search({ query: { due: new Date(due), page: undefined } });
+		expect(query.key).toEqual(["todos", "search", { due }]);
+		expect(query).toBe(search({ query: { due: new Date(due) } }));
+	});
+
 	it("shares a query between calls that send the same request", () => {
 		expect(search({ query: { due: new Date(due) } })).toBe(
 			search({ query: { due: new Date(due) } }),
@@ -275,6 +281,24 @@ describe("endpoints with a query schema", () => {
 		expect(
 			(await browser.fetch(search({ query: { due: new Date(due) } }))).todos,
 		).toEqual([{ id: 1, title: due }]);
+	});
+
+	it("clear drops hydrated queries and infinite queries no one has read", async () => {
+		const { handler } = backend();
+		const server = await serve([handler]);
+		await server.fetch(search({ query: { due: new Date(due) } }));
+		await server.fetch(searchPages({ query: { due: new Date(due) } }));
+		const browser = await roundTrip(server);
+		expect(browser.registry.preloadedSerializable.size).toBe(2);
+
+		await browser.clear(["todos"]);
+
+		expect(browser.registry.preloadedSerializable.size).toBe(0);
+		// The browser's backend answers nothing, and nothing is left to show.
+		const exit = await browser.runPromiseExit(
+			Query.fetch(search({ query: { due: new Date(due) } })),
+		);
+		expect(exit._tag).toBe("Failure");
 	});
 
 	it("passes a mutation's query to the endpoint as given", async () => {

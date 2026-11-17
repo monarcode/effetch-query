@@ -9,6 +9,7 @@ import * as QueryClient from "../QueryClient.js";
 import { resolveMutationOptions } from "./defaults.js";
 import { emit } from "./events.js";
 import { runHook } from "./hooks.js";
+import { matcher } from "./keyIndex.js";
 import { makeRecorded, OptimisticWrites } from "./optimistic.js";
 import { ConfigAtom, StateAtom } from "./runtime.js";
 
@@ -63,6 +64,14 @@ export const execute = <Variables, A, E>(
 		const event = { mutation, variables };
 		const run = Effect.suspend(() => definition.run(variables));
 		const program = Effect.gen(function* () {
+			const { invalidates = [] } = definition;
+			if (typeof invalidates !== "function") {
+				// A key that holds targets fails here, before the request, rather
+				// than after the server saved the change.
+				yield* Effect.sync(() =>
+					invalidates.forEach((target) => matcher(target)),
+				);
+			}
 			if (definition.optimistic !== undefined) {
 				yield* Effect.provideService(
 					definition.optimistic(variables),
@@ -80,12 +89,19 @@ export const execute = <Variables, A, E>(
 				if (definition.onSuccess !== undefined) {
 					yield* definition.onSuccess(exit.value, variables);
 				}
-				const { invalidates = [] } = definition;
 				yield* Effect.forEach(
 					typeof invalidates === "function"
 						? invalidates(exit.value, variables)
 						: invalidates,
-					Query.invalidate,
+					// The change is saved: a key that holds targets is logged, not
+					// turned into a failed run.
+					(target) =>
+						Effect.catchDefect(Query.invalidate(target), (defect) =>
+							Effect.logError(
+								"A mutation's invalidates target was skipped",
+								Cause.die(defect),
+							),
+						),
 					{ discard: true },
 				);
 				yield* runHook("mutations", mutations.onSuccess, {

@@ -9,6 +9,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InfiniteQuery, Query, QueryClient } from "../src/index.js";
+import { makeQueriesUse } from "../src/internal/queriesUse.js";
 import { isInUse } from "../src/internal/usage.js";
 import {
 	QueryProvider,
@@ -334,6 +335,41 @@ describe("paused", () => {
 
 		expect(text("r")).toBe("Success 1");
 		slow.open();
+	});
+
+	it("applies a select that changes while paused to what it kept", async () => {
+		const client = await makeClient();
+		const query = Query.make({
+			key: ["tags"],
+			run: Effect.succeed(["a1", "a2", "b1"]),
+		});
+		const Filtered = ({
+			tag,
+			paused,
+		}: {
+			readonly tag: string;
+			readonly paused: boolean;
+		}) => (
+			<p data-testid="r">
+				{show(
+					useQuery(query, {
+						paused,
+						select: (tags) =>
+							tags.filter((t) => t.startsWith(tag)).join(),
+					}),
+				)}
+			</p>
+		);
+		const view = render(
+			withClient(client, <Filtered tag="a" paused={false} />),
+		);
+		await act(async () => {});
+		expect(text("r")).toBe('Success "a1,a2"');
+		view.rerender(withClient(client, <Filtered tag="a" paused />));
+
+		view.rerender(withClient(client, <Filtered tag="b" paused />));
+
+		expect(text("r")).toBe('Success "b1"');
 	});
 
 	it("shows what the cache has once clear drops the query", async () => {
@@ -671,6 +707,25 @@ describe("isPlaceholder", () => {
 		expect(text()).toBe("success placeholder idle -1");
 	});
 
+	it("stays true for a selected placeholder a paused reader keeps", async () => {
+		const client = await makeClient();
+		const { todo } = gated();
+		const State = ({ paused }: { readonly paused: boolean }) => (
+			<p data-testid="result">
+				{describeState(
+					useQueryState(todo(1), { paused, select: (n) => n * 2 }),
+				)}
+			</p>
+		);
+		const view = render(withClient(client, <State paused={false} />));
+		await act(async () => {});
+		expect(text()).toBe("success placeholder fetching -2");
+
+		view.rerender(withClient(client, <State paused />));
+
+		expect(text()).toBe("success placeholder idle -2");
+	});
+
 	it("keeps a paused keepPrevious reader's value, not fetching, until it resumes", async () => {
 		const client = await makeClient();
 		const { todo, openAll } = gated();
@@ -718,5 +773,21 @@ describe("isPlaceholder", () => {
 		await vi.waitFor(() => expect(seen?.status).toBe("failure"));
 		expect(seen?.isPlaceholder).toBe(false);
 		expect(seen?.data).toBeUndefined();
+	});
+});
+
+describe("useQueries' atoms", () => {
+	it("keeps the committed list's atom through renders React drops", async () => {
+		const client = await makeClient();
+		const { todo } = counted();
+		const use = makeQueriesUse(client.registry);
+		const first = [todo(1)];
+		const atom = use.read(first, false);
+		use.mounted(first);
+
+		use.read([todo(2)], false);
+		use.read([todo(3)], false);
+
+		expect(use.read([todo(1)], false)).toBe(atom);
 	});
 });

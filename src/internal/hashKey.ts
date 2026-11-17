@@ -52,3 +52,23 @@ export const hashKey = (key: QueryKey, kind?: string | undefined): string => {
 		kind === undefined ? "effetch-query" : `effetch-query/${kind}`;
 	return `${prefix}:${JSON.stringify(key.map(canonical))}`;
 };
+
+const hashPrefix = /^effetch-query(?:\/[^:]*)?:/;
+
+/**
+ * The key a {@link hashKey} hash was made from, or `undefined` for a hash
+ * another serializable atom left: `clear` finds by it the values `hydrate`
+ * left for queries no one has read yet.
+ */
+export const keyOfHash = (hash: string): QueryKey | undefined => {
+	const prefix = hashPrefix.exec(hash);
+	if (prefix === null) {
+		return undefined;
+	}
+	try {
+		const key: unknown = JSON.parse(hash.slice(prefix[0].length));
+		return Array.isArray(key) ? key : undefined;
+	} catch {
+		return undefined;
+	}
+};

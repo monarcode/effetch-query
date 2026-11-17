@@ -65,6 +65,9 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
 ## Code style
 
 - Write clean, maintainable code that reads like the code around it.
+- In prose (docs, JSDoc, examples), this package is **Effetch Query** and
+  its HTTP client is **Effetch**. `effetch-query` and `effetch` are only
+  the npm and GitHub names.
 - Keep comments rare. Write one only for non-obvious behaviour, a workaround,
   or a note a future maintainer needs, and make it say why, not what.
 - Document the public API in JSDoc: what it does, an `@example` that compiles

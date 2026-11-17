@@ -791,6 +791,9 @@ export const makeQuery = <A, E>(definition: {
 												? settled(run, fiber, generation, failed)
 												: Effect.void;
 										}
+										// Before the write, as for an element, so the failure shows
+										// over a value written on the query.
+										markWritten(registry, local, generation, failed);
 										registry.set(
 											cell,
 											AsyncResult.failure(exit.cause, {

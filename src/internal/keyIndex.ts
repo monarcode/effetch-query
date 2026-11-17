@@ -84,20 +84,22 @@ const hasKeyMatcher = (
  * Which queries a target matches: a key or a family matches the queries with
  * its own key or a longer one, a query those with its exact key, a family
  * with a {@link KeyMatcher} its own members, and a group those any of its
- * targets matches.
+ * targets matches. `byKey` matches a family by its key alone, for a key
+ * with no query to ask.
  */
 export const matcher = (
 	target: QueryTarget,
+	byKey = false,
 ): ((query: Query<any, any>) => boolean) => {
 	if (isGroup(target)) {
-		const members = target.targets.map(matcher);
+		const members = target.targets.map((member) => matcher(member, byKey));
 		return (query) => members.some((matches) => matches(query));
 	}
 	if (isQuery(target)) {
 		const own = target.key;
 		return ({ key }) => key.length === own.length && startsWith(key, own);
 	}
-	if (hasKeyMatcher(target)) {
+	if (hasKeyMatcher(target) && !byKey) {
 		return target[KeyMatcherId];
 	}
 	const prefix = isQueryKey(target) ? checkKey(target) : target.key;

@@ -869,7 +869,8 @@ const callArgs = (
 		for (const [name, value] of Object.entries(
 			encoded as Record<string, unknown>,
 		)) {
-			if (!isSent(value)) {
+			// Left out, as Effetch leaves it out of the request.
+			if (value !== undefined && !isSent(value)) {
 				fail(`"${name}" doesn't encode to a string or a list of strings`);
 			}
 		}

@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 import type * as SchemaAST from "effect/SchemaAST";
 import * as SchemaTransformation from "effect/SchemaTransformation";
@@ -296,6 +297,27 @@ describe("the review's edge cases", () => {
 			user,
 		]);
 		expect(write(schema, [one, two, user], drop)).toEqual([two, user]);
+	});
+
+	it("keeps a Schema.Class entity's class when f returns a plain copy", () => {
+		class TodoClass extends Schema.Class<TodoClass>("PlainCopyTodo")({
+			id: Schema.Finite,
+			title: Schema.String,
+		}) {
+			get label() {
+				return `#${this.id} ${this.title}`;
+			}
+		}
+
+		const renamed = write(
+			Schema.Array(TodoClass),
+			[new TodoClass(one), new TodoClass(two)],
+			(todo) => ({ ...(todo as TodoClass), title: "renamed" }),
+			TodoClass.ast,
+		) as ReadonlyArray<TodoClass>;
+
+		expect(renamed[0]).toBeInstanceOf(TodoClass);
+		expect(renamed[0]?.label).toBe("#1 renamed");
 	});
 
 	it("passes a class over the entity's struct to f, and removes it whole", () => {
@@ -596,6 +618,32 @@ describe("what an entity write leaves", () => {
 			Option.some({ id: 2, title: "newer" }),
 		);
 		vi.useRealTimers();
+	});
+
+	it("leaves a failed query's failure showing", async () => {
+		const client = await makeClient();
+		let fail = false;
+		const list = Query.make({
+			key: ["todos", "failing"],
+			run: Effect.suspend(() =>
+				fail ? Effect.fail("offline") : Effect.succeed([one]),
+			),
+			schema: { success: Schema.Array(Todo), error: Schema.String },
+		});
+		const unmount = use(client.registry, list);
+		await client.fetch(list);
+		fail = true;
+		await client.runPromise(Query.refetch(list));
+		expect(AsyncResult.isFailure(client.registry.get(list))).toBe(true);
+
+		await client.runPromise(
+			Entity.update(Todos, 1, (todo) => ({ ...todo, title: "renamed" })),
+		);
+
+		const result = client.registry.get(list);
+		expect(AsyncResult.isFailure(result)).toBe(true);
+		expect(AsyncResult.value(result)).toEqual(Option.some([one]));
+		unmount();
 	});
 
 	it("leaves a stale query stale, and an invalidated one to its refetch", async () => {

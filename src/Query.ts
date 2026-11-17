@@ -1066,7 +1066,8 @@ export const reset = (
  * - A component already showing it keeps showing `Initial`; one using
  *   `useSuspenseQuery` shows its Suspense fallback.
  * - A query not in use fetches the next time it's used, as after
- *   {@link reset}.
+ *   {@link reset}. So does one no one has read since `QueryClient.hydrate`
+ *   gave it the server's value.
  * - A query whose `run` reads a cleared one through `ctx.result` is cleared
  *   too, since its value came from it. When it's asked for again, it asks
  *   for what it reads.

@@ -1,6 +1,6 @@
 # Examples
 
-Complete programs using effetch-query, to read and copy. Each one is
+Complete programs using Effetch Query, to read and copy. Each one is
 typechecked with the package (`pnpm run typecheck`), so they always match
 the current API. Each folder has its own `tsconfig.json`, because each
 registers its own services (`Register`). `tanstack-start` and
@@ -16,9 +16,9 @@ todos as they were.
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | [`effect-only/`](effect-only)                             | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched.   |
 | [`basic/`](basic)                                         | The smallest React app: a query, and a mutation that shows its change at once.                     |
-| [`tanstack-start/`](tanstack-start)                       | A full TanStack Start app on effetch endpoints.                                                    |
-| [`tanstack-start-httpclient/`](tanstack-start-httpclient) | The same app on Effect's `HttpClient`, with no effetch: the queries and mutations written by hand. |
-| [`react-router/`](react-router)                           | The same app in React Router's framework mode, on effetch endpoints.                               |
+| [`tanstack-start/`](tanstack-start)                       | A full TanStack Start app on Effetch endpoints.                                                    |
+| [`tanstack-start-httpclient/`](tanstack-start-httpclient) | The same app on Effect's `HttpClient`, with no Effetch: the queries and mutations written by hand. |
+| [`react-router/`](react-router)                           | The same app in React Router's framework mode, on Effetch endpoints.                               |
 
 ## `effect-only/`
 
@@ -41,12 +41,12 @@ Ten todos with a checkbox each, in one small React app:
 
 ```text
 basic/
-├── api.ts         the effetch client, its todos query and toggle mutation
+├── api.ts         the Effetch client, its todos query and toggle mutation
 ├── App.tsx        the list
 └── main.tsx       the browser entry: the query client over FetchHttpClient
 ```
 
-- **[`api.ts`](basic/api.ts)** defines the effetch client, registers it
+- **[`api.ts`](basic/api.ts)** defines the Effetch client, registers it
   (`Register["services"]`), and turns two `Fetch.endpoint`s into `todos`
   and `toggleTodo`. The toggle writes its change to the list before the
   request (`optimistic`), and dummyjson's answer after it (`onSuccess`).
@@ -117,7 +117,7 @@ pnpm exec react-router dev examples/react-router
 
 ```text
 tanstack-start/
-├── src/dummyjson.ts    the effetch client, with the session's bearer token
+├── src/dummyjson.ts    the Effetch client, with the session's bearer token
 ├── src/session.ts      the session cookie, read on the server and in the browser
 ├── src/api.ts          the endpoints as queries and mutations, viewer and login
 ├── src/router.tsx      a router and query client per request
@@ -149,7 +149,7 @@ Compare its `src/api.ts` with `tanstack-start`'s to see what effetch's
 
 ```text
 react-router/
-├── app/dummyjson.ts       the effetch client, as in tanstack-start
+├── app/dummyjson.ts       the Effetch client, as in tanstack-start
 ├── app/api.ts             the queries and mutations, as in tanstack-start
 ├── app/query-client.ts    a query client with a token
 ├── app/query-context.ts   the root middleware: a client per request, disposed after it
