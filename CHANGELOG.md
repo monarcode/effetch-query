@@ -157,6 +157,11 @@ and rc.2 additions were.
     (`mutations: { onSuccess: () => Query.invalidate([]) }`).
   - Router loaders use `client.fetch`, and `useRefetch([a, b])` is shown
     failing with `KeyHoldsTargetError`: pass a `Query.group`.
+  - "Sign out and switch accounts" leads with a client per account
+    (`QueryProvider` with `make` and `resetKey`), which follows the account
+    when a session ends or changes away from your sign-out button, such as
+    in another tab. `client.clear()` stays as the simpler option when only
+    your button ends the session.
   - The TanStack mapping covers every addition, and names
     `queryClient.query()`, which TanStack Query 5.102 added, deprecating
     `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
