@@ -5,14 +5,23 @@ import * as React from "react";
 export function AppShell({
 	nav,
 	user,
+	loading = false,
+	saving = false,
 	children,
 }: {
 	readonly nav?: React.ReactNode;
 	readonly user?: React.ReactNode;
+	/** Shows a progress bar along the top, for any fetch in progress. */
+	readonly loading?: boolean | undefined;
+	/** Shows "Saving…" in the top bar, for any change in progress. */
+	readonly saving?: boolean | undefined;
 	readonly children: React.ReactNode;
 }) {
 	return (
 		<div className="shell">
+			{loading ? (
+				<div className="progress" role="progressbar" aria-label="Loading" />
+			) : null}
 			<header className="topbar">
 				<div className="brand">
 					<span className="brand-mark" aria-hidden>
@@ -21,6 +30,10 @@ export function AppShell({
 					Todos
 				</div>
 				<nav className="nav">{nav}</nav>
+				{/* Always there, so screen readers announce its text changing. */}
+				<span className="saving" role="status">
+					{saving ? "Saving…" : ""}
+				</span>
 				{user}
 			</header>
 			<main className="page">{children}</main>

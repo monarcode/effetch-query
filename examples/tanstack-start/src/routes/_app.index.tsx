@@ -12,15 +12,20 @@ import { userTodos, viewer } from "../api.js";
 import { TodoItem } from "../todo-item.js";
 
 export const Route = createFileRoute("/_app/")({
+	head: () => ({ meta: [{ title: "My todos · Todos" }] }),
+	// The user comes from `_app`'s `beforeLoad`. Returns nothing: the page
+	// reads the todos from the cache.
 	loader: async ({ context }) => {
-		const user = await context.queryClient.fetch(viewer);
 		await context.queryClient.fetch(
-			userTodos({ params: { userId: user.id } }),
+			userTodos({ params: { userId: context.user.id } }),
 		);
 	},
 	component: function MyTodos() {
-		const { value: user } = useSuspenseQuery(viewer);
-		const mine = userTodos({ params: { userId: user.id } });
+		// From the query, not the route context, so it follows a refetch.
+		const { value: userId } = useSuspenseQuery(viewer, {
+			select: (user) => user.id,
+		});
+		const mine = userTodos({ params: { userId } });
 		const { value } = useSuspenseQuery(mine);
 		const { refetch, isRefetching } = useRefetch(mine);
 		const open = value.todos.filter((todo) => !todo.completed).length;

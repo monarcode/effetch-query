@@ -19,19 +19,22 @@ export interface FullApp {
 	readonly readBrowserToken: () => string | undefined;
 }
 
-const signedIn = `session=${tokenOf("emilys")}`;
+/** The cookie of `emilys`, signed in. */
+export const signedIn = `session=${tokenOf("emilys")}`;
 
 // Not testing-library's `screen`: loading a page swaps in a new body.
-const screen = () => within(document.body);
+export const screen = () => within(document.body);
 
 const checkbox = (title: string) =>
 	screen().getByRole<HTMLInputElement>("checkbox", { name: title });
 
-const heading = (name: string) => screen().findByRole("heading", { name });
+export const heading = (name: string) =>
+	screen().findByRole("heading", { name });
 
 /**
- * The tests the full examples pass: tanstack-start and react-router are one
- * app, with the same pages and behaviour, as tanstack-start-httpclient is.
+ * The tests every full example passes: tanstack-start and react-router are
+ * one app, with the same pages, as tanstack-start-httpclient is. What only
+ * one of them does yet is tested in its own file.
  */
 export const fullAppSuite = (app: FullApp): void => {
 	afterEach(() => {

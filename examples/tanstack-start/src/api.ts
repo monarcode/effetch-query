@@ -12,6 +12,7 @@ import {
 	DummyJson,
 	SignedIn,
 	Todo,
+	TodoNotFound,
 	TodoPage,
 	User,
 } from "./dummyjson.js";
@@ -19,19 +20,22 @@ import { writeSessionCookie } from "./session.js";
 
 const api = fromClient(DummyJson);
 
+/** A todo, written wherever it's cached: its own query, each user's list and every loaded page. */
+export const Todos = Entity.make(Todo, { id: (item) => item.id });
+
 /**
  * The signed-in user. Signed out, or with an expired token, it dies with a
  * redirect to sign in: a loader that fetches it sends the visitor there.
+ * dummyjson's 401 has a `message`, so it decodes as `Unauthorized`; a 401
+ * without one would stay an `HttpError`.
  */
 export const viewer = Query.make({
 	key: ["auth", "me"],
 	run: DummyJson.use((client) =>
 		client.get("/auth/me", { output: User }),
 	).pipe(
-		Effect.catchTag("HttpError", (error) =>
-			error.status === 401
-				? Effect.die(redirect({ to: "/login" }))
-				: Effect.fail(error),
+		Effect.catchTag("Unauthorized", () =>
+			Effect.die(redirect({ to: "/login" })),
 		),
 	),
 	schema: { success: User },
@@ -45,7 +49,16 @@ export const userTodos = api.query(
 
 // todo({ params: { id: 1 } }) is keyed ["todos", 1]
 export const todo = api.query(
-	Fetch.endpoint("GET /todos/:id", { output: Todo }),
+	Fetch.endpoint("GET /todos/:id", {
+		output: Todo,
+		statusErrors: { 404: TodoNotFound },
+	}),
+	{
+		// A todo opened from a list shows at once, while its own fetch runs.
+		// dummyjson saves nothing, so a todo toggled in a list comes back
+		// untoggled from that fetch; a server that saves sends the change.
+		placeholder: ({ params }) => Entity.get(Todos, Number(params.id)),
+	},
 );
 
 /** Every todo, ten at a time: `skip` is each page's param. */
@@ -64,9 +77,6 @@ export const allTodos = api.infiniteQuery(
 );
 
 export const everyTodo = allTodos({ query: { limit: 10 } });
-
-/** A todo, written wherever it's cached: its own query, each user's list and every loaded page. */
-export const Todos = Entity.make(Todo, { id: (item) => item.id });
 
 // dummyjson saves nothing, so these mutations invalidate nothing: a refetch
 // would bring the old todos back. The cache keeps the server's answer.
@@ -110,6 +120,8 @@ export const login = api.mutation(
 		output: SignedIn,
 	}),
 	{
+		// A second click while signing in does nothing.
+		concurrent: "drop",
 		// The next request sends the token, and the next page has the viewer
 		// without fetching it.
 		onSuccess: ({ accessToken, ...user }) =>

@@ -62,14 +62,16 @@ pnpm exec vite examples/basic
 ## The full apps
 
 `tanstack-start`, `tanstack-start-httpclient` and `react-router` are one app
-three ways, with the same pages, sign-in and look:
+three ways, with the same pages, sign-in and look. `tanstack-start` is the
+reference: it has a few touches the other two don't have yet, listed under
+[`tanstack-start/`](#tanstack-start).
 
 | Page         | What it shows                                                                                                         |
 | ------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `/login`     | Sign in as `emilys` / `emilyspass`. A failed sign-in shows dummyjson's message. Already signed in, it redirects home. |
 | `/`          | The user's todos, loaded on the server. Toggle and delete show at once, and are undone if dummyjson fails them.       |
 | `/todos`     | Every todo, ten at a time, with "Load more": an infinite query paged by `skip`.                                       |
-| `/todos/:id` | One todo, streamed: the loader starts it without waiting. A missing one shows dummyjson's message and "Try again".    |
+| `/todos/:id` | One todo, streamed: the loader starts it without waiting. A failure shows dummyjson's message and "Try again".        |
 
 How they work:
 
@@ -83,8 +85,8 @@ How they work:
   itself; a production app would keep it `httpOnly`, and call its own
   server instead.
 - **Signed out**, `viewer` (`GET /auth/me`) dies with the router's
-  `redirect()` to `/login`, and the loaders that fetch it follow it. Signing
-  out clears the cookie and resets every query.
+  `redirect()` to `/login`, and the router follows it from the route that
+  fetches it. Signing out clears the cookie and resets every query.
 - **Writes keep dummyjson's answer.** As in `basic`, nothing is invalidated
   after a write: the cache keeps what dummyjson answered.
 - **One look.** [`ui/`](ui) is a stylesheet and presentational components
@@ -97,7 +99,8 @@ How they work:
   redirect, a page hydrated without a fetch, signing in and out, the
   toggle and its undo, delete, refresh, a change kept across pages,
   "Load more", the streamed page, a missing todo and "Try again", a page
-  that fails to load, and not found.
+  that fails to load, and not found. `tanstack-start`'s own touches have
+  tests of their own beside it.
 
 To run one against dummyjson.com, then open the address it prints:
 
@@ -129,6 +132,25 @@ tanstack-start/
 `getRouter` makes the query client and connects it to the router
 (`connectQueryClient`). Loaders fetch into it; queries cross to the browser
 with the page, and stream in when they're still loading.
+
+What it does beyond the other two:
+
+- **The guard in `beforeLoad`.** `_app` fetches `viewer` in its
+  `beforeLoad`, before any signed-in page loads, and hands the user to
+  their loaders' context. `/login` redirects a signed-in visitor there too.
+- **Typed errors.** The client turns a 401 into an `Unauthorized`, which
+  `viewer` catches by its tag, and the todo endpoint a 404 into a
+  `TodoNotFound`, whose page offers no "Try again".
+- **A todo shown at once.** Opened from a list, a todo shows the list's
+  copy (`placeholder`, with `Entity.get`) while its own fetch runs, and its
+  button waits for the todo itself.
+- **Route patterns.** `params.parse` makes the todo's id a number, and
+  anything else not found; `pendingComponent` shows while a todo loads;
+  `head` titles each page.
+- **App-wide activity.** A progress bar while anything fetches
+  (`useIsFetching`), and "Saving…" while anything saves (`useIsMutating`).
+- **The client's defaults.** A query that couldn't reach dummyjson is
+  retried twice; sign-in ignores a second click (`concurrent: "drop"`).
 
 ### `tanstack-start-httpclient/`
 

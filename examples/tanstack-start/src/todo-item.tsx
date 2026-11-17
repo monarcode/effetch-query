@@ -27,7 +27,7 @@ export function TodoItem({
 	return (
 		<TodoRow
 			title={
-				<Link to="/todos/$id" params={{ id: String(todo.id) }}>
+				<Link to="/todos/$id" params={{ id: todo.id }}>
 					{todo.todo}
 				</Link>
 			}

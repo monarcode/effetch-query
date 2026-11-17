@@ -3589,6 +3589,14 @@ follows it, on the server too. Load a query that may redirect with
 readers, which show it as a failure instead. A preload's redirect is
 dropped, as the router drops it.
 
+To guard every page under a layout, fetch the query in the layout route's
+`beforeLoad`, which runs before any page below it loads. What it returns
+joins those pages' context, so `beforeLoad: async ({ context }) => ({ user:
+await context.queryClient.fetch(viewer) })` hands each loader
+`context.user`, as the [`tanstack-start` example](./examples/tanstack-start)
+does. The pages' loaders wait for it, so give the query a `staleTime`:
+while it's fresh, `fetch` answers from the cache at once.
+
 **Options.** `connectQueryClient` takes the following options besides
 `router` and `queryClient`:
 
