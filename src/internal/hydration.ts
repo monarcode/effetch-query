@@ -14,6 +14,8 @@ import type * as Query from "../Query.js";
 export interface Codec<A, E> {
 	readonly encode: (result: AsyncResult.AsyncResult<A, E>) => Schema.Json;
 	readonly decode: (json: Schema.Json) => AsyncResult.AsyncResult<A, E>;
+	/** The value's schema, which entities are found in (DESIGN.md §4.13). */
+	readonly success: Schema.Codec<A, unknown>;
 }
 
 /** How a definition's queries cross the wire: its codec, and the kind its keys hash under. */
@@ -40,6 +42,7 @@ export const makeCodec = <A, E>(schema: Query.Schema<A, E>): Codec<A, E> => {
 			built = {
 				encode: Schema.encodeSync(json) as Codec<A, E>["encode"],
 				decode: Schema.decodeSync(json) as Codec<A, E>["decode"],
+				success: schema.success,
 			};
 		}
 		return built;
@@ -47,6 +50,7 @@ export const makeCodec = <A, E>(schema: Query.Schema<A, E>): Codec<A, E> => {
 	return {
 		encode: (result) => codec().encode(result),
 		decode: (json) => codec().decode(json),
+		success: schema.success,
 	};
 };
 

@@ -9,12 +9,22 @@ import * as TanStackRouter from "../src/react/tanstack-router/index.js";
 describe("public entry points", () => {
 	it("@monarcode/effetch-query exports exactly these values", () => {
 		expect(Object.keys(Core).sort()).toEqual([
+			"Entity",
 			"InfiniteQuery",
 			"Mutation",
 			"Query",
 			"QueryClient",
 			"QueryFailure",
 			"Signals",
+		]);
+		expect(Object.keys(Core.Entity).sort()).toEqual([
+			"TypeId",
+			"get",
+			"isEntity",
+			"make",
+			"remove",
+			"set",
+			"update",
 		]);
 		expect(Object.keys(Core.InfiniteQuery).sort()).toEqual([
 			"TypeId",

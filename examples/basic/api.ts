@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { Query } from "@monarcode/effetch-query";
+import { Entity } from "@monarcode/effetch-query";
 import { endpoints } from "@monarcode/effetch-query/effetch";
 
 export const Todo = Schema.Struct({
@@ -11,6 +11,9 @@ export const Todo = Schema.Struct({
 	userId: Schema.Finite,
 });
 export type Todo = typeof Todo.Type;
+
+/** A todo, written in every cached query that holds it. */
+export const Todos = Entity.make(Todo, { id: (todo) => todo.id });
 
 const TodoPage = Schema.Struct({
 	todos: Schema.Array(Todo),
@@ -48,23 +51,15 @@ export const toggleTodo = api.mutation(
 		output: Todo,
 	}),
 	{
-		// Every cached page shows the change at once; it's undone if the
+		// Every cached copy shows the change at once; it's undone if the
 		// request fails.
 		optimistic: ({ params, body }) =>
-			Query.update(todos, (page) => ({
-				...page,
-				todos: page.todos.map((todo) =>
-					todo.id === params.id ? { ...todo, ...body } : todo,
-				),
+			Entity.update(Todos, Number(params.id), (todo) => ({
+				...todo,
+				...body,
 			})),
 		// dummyjson saves nothing, so a refetch would bring the old todo
 		// back: the cache keeps the server's answer instead.
-		onSuccess: (saved) =>
-			Query.update(todos, (page) => ({
-				...page,
-				todos: page.todos.map((todo) =>
-					todo.id === saved.id ? saved : todo,
-				),
-			})),
+		onSuccess: (saved) => Entity.set(Todos, saved),
 	},
 );

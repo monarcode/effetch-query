@@ -157,8 +157,12 @@ export const combine = <A, E>(
 		: result;
 };
 
-export const written = <A, E>(value: A): Written<A, E> => ({
-	value: AsyncResult.success(value),
+/** A written value: now, or at `timestamp` for a write that keeps the age of the value it replaces. */
+export const written = <A, E>(value: A, timestamp?: number): Written<A, E> => ({
+	value:
+		timestamp === undefined
+			? AsyncResult.success(value)
+			: AsyncResult.success(value, { timestamp }),
 	state: "shown",
 });
 

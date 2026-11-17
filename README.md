@@ -51,6 +51,7 @@ it. It works with any Effect too.
 - [Mutations in depth](#mutations-in-depth)
   - [Optimistic updates](#optimistic-updates)
   - [Mutation options](#mutation-options)
+  - [Entities](#entities)
   - [Invalidating after a mutation](#invalidating-after-a-mutation)
 - [Infinite queries](#infinite-queries)
 - [React](#react)
@@ -781,29 +782,22 @@ A detail page can show what the list already has while the detail loads.
 for nothing. On `api.query`, it gets the call's `params` and `query`:
 
 ```ts todo-detail.ts
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
+import { Entity } from "@monarcode/effetch-query";
 
-import { Query } from "@monarcode/effetch-query";
-
-import { api, getTodo, todos } from "./todos.js";
+import { Todos } from "./entities.js";
+import { api, getTodo } from "./todos.js";
 
 export const todo = api.query(getTodo, {
   staleTime: "1 minute",
-  // The list's copy, if it's cached, until the todo's own fetch settles.
-  placeholder: ({ params }) =>
-    Effect.map(Query.get(todos()), (list) =>
-      Option.flatMap(list, (items) =>
-        Option.fromUndefinedOr(
-          items.find((item) => item.id === Number(params.id)),
-        ),
-      ),
-    ),
+  // A list's copy, if one is cached, until the todo's own fetch settles.
+  placeholder: ({ params }) => Entity.get(Todos, Number(params.id)),
 });
 ```
 
-`Query.make` takes `placeholder` as an Effect, and `Query.family` as a
-function of the member's argument.
+`Entity.get` reads the newest cached copy of the todo
+([Entities](#entities)); any Effect that reads the cache works, such as
+`Query.get` of a list. `Query.make` takes `placeholder` as an Effect, and
+`Query.family` as a function of the member's argument.
 
 The placeholder shows as a waiting `Success`, so `useSuspenseQuery`
 doesn't suspend on it. Once the fetch settles, its value or its failure
@@ -963,17 +957,17 @@ this component sees it: another can list the runs in progress with
 To show the change everywhere the data is cached, write the cache in
 `optimistic`: if the request fails, every write it made is undone. This
 `toggleTodo` flips the todo at once, in its own query and in every cached
-list:
+list, through the `Todos` entity ([Entities](#entities)):
 
 ```ts
-import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { Query } from "@monarcode/effetch-query";
+import { Entity } from "@monarcode/effetch-query";
 
 import { Todo } from "./api.js";
-import { api, todo, todos } from "./todos.js";
+import { Todos } from "./entities.js";
+import { api, todos } from "./todos.js";
 
 export const toggleTodo = api.mutation(
   Fetch.endpoint("PATCH /todos/:id", {
@@ -981,25 +975,21 @@ export const toggleTodo = api.mutation(
     output: Todo,
   }),
   {
+    // Every cached copy: its own query, and each list, whatever its filter.
     optimistic: ({ params, body }) =>
-      Effect.andThen(
-        Query.update(todo({ params }), (current) => ({
-          ...current,
-          done: body.done,
-        })),
-        // Every cached list, whatever its filter.
-        Query.update(todos, (list) =>
-          list.map((item) =>
-            item.id === params.id ? { ...item, done: body.done } : item,
-          ),
-        ),
-      ),
+      Entity.update(Todos, Number(params.id), (todo) => ({
+        ...todo,
+        done: body.done,
+      })),
     // The server's version replaces the guess.
-    onSuccess: (saved) => Query.set(todo({ params: { id: saved.id } }), saved),
+    onSuccess: (saved) => Entity.set(Todos, saved),
     invalidates: [todos],
   },
 );
 ```
+
+Without an entity, write each query yourself: `Query.update(todo({ params }), f)`
+for the detail and `Query.update(todos, f)` for every cached list.
 
 A run goes in this order:
 
@@ -1040,6 +1030,71 @@ an Effect.
 - `"drop"`: a run started while the one `result` shows is in progress is
   ignored, such as a second click on a submit button. Its `run` resolves at
   once with an interrupted `Exit`. After `reset`, a new run starts.
+
+### Entities
+
+A todo is often in many queries at once: its own detail, a list per
+filter, each loaded page of an infinite list. An entity writes it in all of
+them. Say once what identifies it, beside its schema:
+
+```ts entities.ts
+import { Entity } from "@monarcode/effetch-query";
+
+import { Todo } from "./api.js";
+
+export const Todos = Entity.make(Todo, { id: (todo) => todo.id });
+```
+
+Then write it, or read it, by id:
+
+- `Entity.update(Todos, id, f)` writes `f` of the todo into every cached
+  query that holds it.
+- `Entity.set(Todos, todo)` writes a whole todo, such as a mutation's
+  result, over every copy with its id. It adds it to no list: invalidate
+  the lists it should join.
+- `Entity.remove(Todos, id)` drops it from lists and records, and empties
+  an optional or `NullOr` field. A required field and a detail query's
+  whole value keep it. Totals don't change, so invalidate the lists too,
+  and count an infinite query's next page from its params, not its length.
+- `Entity.get(Todos, id)` reads the newest cached copy, as an `Option`: a
+  detail query's `placeholder` ([Showing a placeholder](#showing-a-placeholder)).
+
+Writes are recorded like `Query.update`'s, so in `optimistic` they're undone
+if the run fails:
+
+```ts
+import * as Fetch from "@monarcode/effetch";
+import { Entity } from "@monarcode/effetch-query";
+
+import { Todos } from "./entities.js";
+import { api, todos } from "./todos.js";
+
+export const deleteTodo = api.mutation(Fetch.endpoint("DELETE /todos/:id"), {
+  optimistic: ({ params }) => Entity.remove(Todos, Number(params.id)),
+  // The lists' totals come from the server.
+  invalidates: [todos],
+});
+```
+
+Ids are compared with `Equal.equals`, so convert a route param first
+(`Number(params.id)`); a number and a string don't match.
+
+Nothing is normalized: each query keeps its own value, and an entity write
+maps it. A write keeps each query's age, so it doesn't stop a stale query
+from refetching, and a query that's invalidated and not in use is left to
+its refetch. A query is found through its schema: an endpoint's `output`, or
+`schema` on `Query.make`, `Query.family` and infinite queries. So:
+
+- A query without a schema is skipped.
+- The todo is found in arrays, tuples, records, struct fields, optional and
+  `NullOr` fields, unions, nested and recursive schemas, `Schema.Class`
+  instances and infinite queries' pages, on the decoded side of a schema
+  that transforms.
+- It's found by its schema: `Todo`, or `Todo` with annotations or checks
+  added. Another schema with the same fields, such as
+  `Schema.Struct({ ...Todo.fields, extra })`, isn't the entity.
+- It isn't found inside `Option`, `Map` or other such types.
+- A value sent from the server is reached once a query reads it.
 
 ### Invalidating after a mutation
 
@@ -2612,6 +2667,7 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `useInfiniteQuery`, `fetchNextPage`                                 | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                       |
 | `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
 | `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                   |
+| A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                 |
 | `cancelQueries`, devtools                                           | Not in 0.1                                                                                   |
 
 ## Reference
@@ -2620,7 +2676,7 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 | Import                                           | Exports                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                                                                                     |
+| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `Entity`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                                                                           |
 | `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`, `useQueries`, `useQueryState`, `useRefetch`, `useQueryClient`, `QueryBoundary`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
 | `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                                                                                                                           |
 | `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                                                                                                                           |

@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { Query } from "@monarcode/effetch-query";
+import { Entity, Query } from "@monarcode/effetch-query";
 import { endpoints } from "@monarcode/effetch-query/effetch";
 import { redirect } from "@tanstack/react-router";
 
@@ -54,8 +54,10 @@ export const allTodos = api.infiniteQuery(
 	{
 		pageParam: "skip",
 		initialPageParam: 0,
+		// From the page's own params, not its length: a removed todo
+		// (`deleteTodo`) shortens a loaded page.
 		nextPageParam: (last) => {
-			const next = last.skip + last.todos.length;
+			const next = last.skip + last.limit;
 			return next < last.total ? next : undefined;
 		},
 	},
@@ -63,24 +65,8 @@ export const allTodos = api.infiniteQuery(
 
 export const everyTodo = allTodos({ query: { limit: 10 } });
 
-/** Writes `f` of a todo wherever it's cached: its own query and every list. */
-const updateTodo = (id: number, f: (todo: Todo) => Todo) => {
-	const inPage = (page: TodoPage): TodoPage => ({
-		...page,
-		todos: page.todos.map((item) => (item.id === id ? f(item) : item)),
-	});
-	return Effect.all(
-		[
-			Query.update(todo({ params: { id } }), f),
-			Query.update(userTodos, inPage),
-			Query.update(allTodos, (data) => ({
-				...data,
-				pages: data.pages.map(inPage),
-			})),
-		],
-		{ discard: true },
-	);
-};
+/** A todo, written wherever it's cached: its own query, each user's list and every loaded page. */
+export const Todos = Entity.make(Todo, { id: (item) => item.id });
 
 // dummyjson saves nothing, so these mutations invalidate nothing: a refetch
 // would bring the old todos back. The cache keeps the server's answer.
@@ -91,20 +77,26 @@ export const toggleTodo = api.mutation(
 	}),
 	{
 		optimistic: ({ params, body }) =>
-			updateTodo(Number(params.id), (item) => ({ ...item, ...body })),
-		onSuccess: (saved) => updateTodo(saved.id, () => saved),
+			Entity.update(Todos, Number(params.id), (item) => ({
+				...item,
+				...body,
+			})),
+		onSuccess: (saved) => Entity.set(Todos, saved),
 	},
 );
 
 export const deleteTodo = api.mutation(
 	Fetch.endpoint("DELETE /todos/:id", { output: Todo }),
 	{
+		// Removing it leaves the totals, which only the lists know about.
 		optimistic: ({ params }) =>
-			Query.update(userTodos, (page) => ({
-				...page,
-				todos: page.todos.filter((item) => item.id !== params.id),
-				total: page.total - 1,
-			})),
+			Effect.andThen(
+				Entity.remove(Todos, Number(params.id)),
+				Query.update(userTodos, (page) => ({
+					...page,
+					total: page.total - 1,
+				})),
+			),
 	},
 );
 

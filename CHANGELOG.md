@@ -90,6 +90,16 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   shows isn't `waiting`, and a `clear` replaces it with what the cache has.
   When it resumes, the query refetches if it's stale. For screens a
   navigator keeps mounted.
+- `Entity`: one record held by many queries, written everywhere it's
+  cached. `Entity.make(Todo, { id })` says once what identifies a todo;
+  `Entity.update(Todos, id, f)`, `Entity.set(Todos, todo)` and
+  `Entity.remove(Todos, id)` write every cached query whose schema holds
+  it (an endpoint's `output`, or a query's `schema`), recorded like
+  `Query.update`, so a failed mutation undoes them, and keep each query's
+  age, so they make none fresh; `Entity.get(Todos, id)`
+  reads the newest copy, for a `placeholder`. Nothing is normalized, and a
+  query without a schema is skipped. The examples and the README's
+  optimistic example use it.
 - README: "Invalidating after a mutation" puts the three ways side by
   side, per mutation, by route and everything; "Optimistic updates" starts
   with `variables`; "Showing activity" has a progress bar.

@@ -164,7 +164,8 @@ export const hydrateValue = <A, E>(
 	registry.get(query);
 };
 
-const lastSuccess = <A, E>(
+/** A result's success, or a failure's last one. */
+export const lastSuccess = <A, E>(
 	result: AsyncResult.AsyncResult<A, E>,
 ): Option.Option<AsyncResult.Success<A, E>> =>
 	AsyncResult.isSuccess(result)
@@ -204,15 +205,54 @@ export const updateMembers = <Args, A>(
 		);
 		return undo === undefined ? [] : [undo];
 	});
-	if (undos.length === 0) {
+	return undoAll(undos);
+};
+
+/**
+ * Writes a value as {@link setValue} does, with the timestamp of the success
+ * it replaces, so the query stays as fresh, or as stale, as it was: an
+ * entity write (DESIGN.md §4.13) patches what queries hold without making
+ * them look newly fetched. Only a query whose fetch atom is up to date is
+ * written; one that isn't cached, was invalidated or was cleared fetches
+ * when next used, so it's left alone and this returns `undefined`.
+ */
+export const patchValue = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	value: A,
+	timestamp: number,
+): Undo | undefined => {
+	const { local, fetchAtom } = internals(query);
+	const previous = localValue(registry, query);
+	const state = registry
+		.getNodes()
+		.get(fetchAtom(previous.generation))
+		?.currentState();
+	if (previous.idle === true || state !== "valid") {
 		return undefined;
 	}
+	const { clears } = registry.get(StateAtom);
+	const clearsBefore = clears.get(query);
+	registry.set(local, {
+		generation: previous.generation,
+		written: Option.some(written<A, E>(value, timestamp)),
+	});
 	return () => {
-		for (const undo of undos.reverse()) {
-			undo();
+		if (clears.get(query) === clearsBefore) {
+			registry.set(local, previous);
 		}
 	};
 };
+
+/** One undo for several, run newest first; `undefined` for none. */
+export const undoAll = (undos: ReadonlyArray<Undo>): Undo | undefined =>
+	undos.length === 0
+		? undefined
+		: () => {
+				for (let i = undos.length - 1; i >= 0; i--) {
+					undos[i]!();
+				}
+			};
 
 /**
  * Drops the query's value and written value in one write, which moves it to
