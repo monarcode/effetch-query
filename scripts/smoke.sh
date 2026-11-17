@@ -260,7 +260,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { Query, QueryClient } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 class Api extends Context.Service<Api, Fetch.Client<[]>>()("smoke/Api") {}
 
@@ -270,7 +270,7 @@ declare module "@monarcode/effetch-query" {
 	}
 }
 
-const todo = endpoints(Api).query(
+const todo = fromClient(Api).query(
 	Fetch.endpoint("GET /todos/:id", {
 		output: Schema.Struct({ id: Schema.Finite }),
 	}),

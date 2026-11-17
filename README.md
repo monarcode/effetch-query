@@ -64,7 +64,7 @@ it. It works with any Effect too.
   - [Freshness and refetching](#freshness-and-refetching)
   - [Query options](#query-options)
   - [Placeholders](#placeholders)
-  - [Options for `endpoints`](#options-for-endpoints)
+  - [Options for `fromClient`](#options-for-fromclient)
 - [Showing data in React](#showing-data-in-react)
   - [Read a query](#read-a-query)
   - [Read a query as an object](#read-a-query-as-an-object)
@@ -211,7 +211,7 @@ import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { QueryClient } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 import {
   QueryProvider,
   useMutation,
@@ -235,7 +235,7 @@ declare module "@monarcode/effetch-query" {
   }
 }
 
-const api = endpoints(ApiClient);
+const api = fromClient(ApiClient);
 
 // A cached query for each call of the endpoint.
 const todos = api.query(
@@ -395,20 +395,21 @@ client takes is listed in [The client](#the-client).
 
 ### 3. Define your queries
 
-`endpoints` turns Effetch endpoints into queries. Calling the result with
-an endpoint's params gives you one cached query per call:
+`fromClient` takes your Effetch client and turns its endpoints into
+queries. Calling the result with an endpoint's params gives you one
+cached query per call:
 
 ```ts todos.ts
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 import { ApiClient, Todo } from "./api.js";
 
 // Queries and mutations that call your API through ApiClient. Its
 // defaultError types their errors.
-export const api = endpoints(ApiClient);
+export const api = fromClient(ApiClient);
 
 export const listTodos = Fetch.endpoint("GET /todos", {
   output: Schema.Array(Todo),
@@ -696,8 +697,8 @@ its route's path up to the first param, so `todo.key` is `["todos"]`.
 
 **A prefix for each backend.** An endpoint's key has no method, scheme or
 host. For a second backend with the same paths,
-`endpoints(Client, { key: ["billing"] })` puts a prefix before every key
-it makes, as [Options for `endpoints`](#options-for-endpoints)
+`fromClient(Client, { key: ["billing"] })` puts a prefix before every key
+it makes, as [Options for `fromClient`](#options-for-fromclient)
 shows.
 
 #### Targets
@@ -969,10 +970,10 @@ export function TodoTitle({ id }: { readonly id: number }) {
   in the error type.
 - **The client's `statusErrors`** (declared with the client, as in
   `Fetch.Service<ApiClient>()("ApiClient", { statusErrors })`) apply to
-  every endpoint, and are typed from the client's service. `endpoints`
+  every endpoint, and are typed from the client's service. `fromClient`
   reads them from the `Fetch.Service` class, so server rendering sends
   them too. For a client behind a `Context.Service` key, give them to
-  `endpoints` ([A client that isn't a `Fetch.Service` class](#a-client-that-isnt-a-fetchservice-class)).
+  `fromClient` ([A client that isn't a `Fetch.Service` class](#a-client-that-isnt-a-fetchservice-class)).
 - **Server rendering sends them as themselves** with
   `failures: "include"`: a `TodoNotFound` on the server is a
   `TodoNotFound` in the browser, with no refetch.
@@ -1166,11 +1167,11 @@ export function TodoTitleInput({ id }: { readonly id: number }) {
 }
 ```
 
-### Options for `endpoints`
+### Options for `fromClient`
 
-`endpoints` takes your client's service and, optionally, a few options
+`fromClient` takes your client's service and, optionally, a few options
 that apply to every query and mutation it makes. Most apps need none of
-them; `endpoints(ApiClient)` is enough. Each option is for one situation:
+them; `fromClient(ApiClient)` is enough. Each option is for one situation:
 
 | Option                         | Use it when                                                                                                                  | Default                             |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
@@ -1191,12 +1192,12 @@ send the error to the browser, so the browser shows the same error
 instead of fetching again ([Server rendering](#server-rendering)). To
 send an error, it needs the schemas the client decodes errors with: its
 `defaultError` and its `statusErrors`. A `Fetch.Service` class carries
-them, so `endpoints` reads them from it. A client made with `Fetch.make`
+them, so `fromClient` reads them from it. A client made with `Fetch.make`
 and provided through a `Context.Service` key doesn't: its config is only
 there once its layer is built, which is after your queries are defined.
 
 **What to do.** Keep the client's config in one object. Make the client
-from it, and give `endpoints` the same object:
+from it, and give `fromClient` the same object:
 
 ```ts
 import * as Context from "effect/Context";
@@ -1205,7 +1206,7 @@ import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 class SessionExpired extends Schema.TaggedError<SessionExpired>()(
   "SessionExpired",
@@ -1232,7 +1233,7 @@ declare module "@monarcode/effetch-query" {
 }
 
 // Reads defaultError and statusErrors, and ignores the rest.
-export const billing = endpoints(BillingClient, {
+export const billing = fromClient(BillingClient, {
   key: ["billing"],
   ...config,
 });
@@ -1998,7 +1999,7 @@ arrives, as [Optimistic updates](#optimistic-updates) does. A refetch
 reaches only queries in use. The others aren't marked stale, so the next
 time they're used they refetch only if their `staleTime` has passed.
 
-**By route.** Give `endpoints` `invalidates: "route"`, and an endpoint
+**By route.** Give `fromClient` `invalidates: "route"`, and an endpoint
 mutation that succeeds invalidates its route's queries: those under the
 route's literals before its first param. `PATCH /todos/:id` invalidates
 `["todos"]`, so every todo list and every todo refetches:
@@ -2007,11 +2008,11 @@ route's literals before its first param. `PATCH /todos/:id` invalidates
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 import { ApiClient, Todo } from "./api.js";
 
-const api = endpoints(ApiClient, { invalidates: "route" });
+const api = fromClient(ApiClient, { invalidates: "route" });
 
 // Invalidates ["todos"] when it succeeds.
 export const renameTodo = api.mutation(
@@ -2036,7 +2037,8 @@ kinds of route need care:
   invalidates `["todos", "reorder"]`, which no list is keyed under. Give it
   `invalidates: [todos]`.
 - A route that starts with a param, such as `/:tenant/todos`, invalidates
-  every query under the endpoints' `key`, or every query without one.
+  every query under the `key` given to `fromClient`, or every query
+  without one.
 
 **Everything.** To refetch everything after any mutation succeeds, say it
 once, on the client:
@@ -3337,7 +3339,7 @@ its error, encoded with the query's `schema.error`, and a defect as
 - a `NetworkError` goes without its `cause`, and a `DecodeError` without
   its `issue`;
 - errors from `statusErrors` go as their schemas encode them. The
-  client's go only when `endpoints` has them: it reads them from a
+  client's go only when `fromClient` has them: it reads them from a
   `Fetch.Service` class, and a `Context.Service` key needs them given
   ([Errors by status](#errors-by-status));
 - a query that failed with a plugin's error isn't sent.
@@ -4203,7 +4205,7 @@ maps TanStack Query's APIs to effetch-query's:
 | `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                  |
 | `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                            |
 | `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family, a key prefix or a group |
-| `invalidateQueries` in a mutation's `onSuccess`                     | `invalidates` on the mutation; `endpoints(Api, { invalidates: "route" })` for every endpoint   |
+| `invalidateQueries` in a mutation's `onSuccess`                     | `invalidates` on the mutation; `fromClient(Api, { invalidates: "route" })` for every endpoint  |
 | `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                             |
 | `useQueryErrorResetBoundary` with an error boundary and `Suspense`  | `QueryBoundary`; with a router's boundary, `useResetQueryFailure`                              |
 | `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                               |
@@ -4386,8 +4388,9 @@ mutations. It exports the following:
 
 | Export                                                  | What it is                                                                                                                 | Explained in                                      |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `endpoints`, `EndpointsOptions`                         | Turns `Fetch.endpoint` definitions into queries and mutations that call them through your Effetch client, and its options. | [Queries from endpoints](#queries-from-endpoints) |
-| `Endpoints`                                             | Queries and mutations for one Effetch client, made by `endpoints`.                                                         | [Queries from endpoints](#queries-from-endpoints) |
+| `fromClient`, `EndpointsOptions`                        | Turns `Fetch.endpoint` definitions into queries and mutations that call them through your Effetch client, and its options. | [Queries from endpoints](#queries-from-endpoints) |
+| `Endpoints`                                             | Queries and mutations for one Effetch client, made by `fromClient`.                                                        | [Queries from endpoints](#queries-from-endpoints) |
+| `endpoints`                                             | Deprecated: the former name of `fromClient`, which works the same. It goes in 0.2.0.                                       | [Queries from endpoints](#queries-from-endpoints) |
 | `EndpointQuery`, `EndpointQueryOptions`                 | A family of queries with one per call of an endpoint, and its options.                                                     | [Queries from endpoints](#queries-from-endpoints) |
 | `EndpointQueryArgs`                                     | What a query from a route takes: the path's params, and a query object.                                                    | [Queries from endpoints](#queries-from-endpoints) |
 | `RegisteredSchema`                                      | A schema whose decoding and encoding need nothing outside your registered services and the client.                         | [Queries from endpoints](#queries-from-endpoints) |

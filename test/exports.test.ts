@@ -101,7 +101,11 @@ describe("public entry points", () => {
 	});
 
 	it("@monarcode/effetch-query/effetch exports exactly these values", () => {
-		expect(Object.keys(Effetch).sort()).toEqual(["endpoints"]);
+		expect(Object.keys(Effetch).sort()).toEqual(["endpoints", "fromClient"]);
+	});
+
+	it("keeps endpoints as the deprecated name of fromClient", () => {
+		expect(Effetch.endpoints).toBe(Effetch.fromClient);
 	});
 
 	it("@monarcode/effetch-query/react/tanstack-router exports exactly these values", () => {

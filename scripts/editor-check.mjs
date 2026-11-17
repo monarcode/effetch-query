@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { /*Entity*/Entity, /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
-import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
+import { /*endpoints*/endpoints, /*fromClient*/fromClient } from "@monarcode/effetch-query/effetch";
 import { /*useIsFetching*/useIsFetching, /*useMutationState*/useMutationState, /*useQueries*/useQueries, /*useQuery*/useQuery, /*useQueryState*/useQueryState } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
 import { /*connectQueryClient*/connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
@@ -29,7 +29,7 @@ export const update = Entity./*entityUpdate*/update;
 export const rename = (id: number) => update(Todos, id, (todo) => ({ ...todo, title: "renamed" }));
 export const stream = Query./*queryStream*/stream;
 export const /*price*/price = stream({ key: ["price"], run: Stream.fromIterable([1, 2]) });
-export { connectQueryClient, endpoints, reactNativeSignals, useIsFetching, useMutationState, useQueries };
+export { connectQueryClient, endpoints, fromClient, reactNativeSignals, useIsFetching, useMutationState, useQueries };
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -167,10 +167,16 @@ for (const [marker, file, signature, docs] of [
 		"Makes signals for React Native",
 	],
 	[
+		"fromClient",
+		"effetch/index.d.ts",
+		"(alias) const fromClient: <",
+		"Turns `Fetch.endpoint` definitions into queries",
+	],
+	[
 		"endpoints",
 		"effetch/index.d.ts",
 		"(alias) const endpoints: <",
-		"Turns `Fetch.endpoint` definitions into queries",
+		"The former name of",
 	],
 	[
 		"connectQueryClient",

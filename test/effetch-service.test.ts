@@ -11,7 +11,7 @@ import * as Fetch from "@monarcode/effetch";
 import { FetchTest } from "@monarcode/effetch/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { endpoints } from "../src/effetch/index.js";
+import { fromClient } from "../src/effetch/index.js";
 import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
 import { disposeClients, gate, makeClient, record } from "./helpers.js";
 import {
@@ -45,7 +45,7 @@ class TodoApi extends Fetch.Endpoints<TodoApi>()("test/TodoApi", ServiceApi, {
 	}),
 }) {}
 
-const api = endpoints(ServiceApi);
+const api = fromClient(ServiceApi);
 const todo = api.query(getTodo);
 
 /** A client whose `ServiceApi` answers with the given `FetchTest` handlers. */
@@ -83,7 +83,7 @@ const fail = <A, E>(
 	query: Query.Query<A, E>,
 ) => client.runPromise(Effect.flip(Query.fetch(query)));
 
-describe("endpoints with a Fetch.Service class", () => {
+describe("fromClient with a Fetch.Service class", () => {
 	it("calls the endpoint through the class's client", async () => {
 		const client = await serve([
 			FetchTest.respond(getTodo, ({ params }) =>
@@ -128,7 +128,7 @@ describe("endpoints with a Fetch.Service class", () => {
 
 	it("lets the options override the class's config", () => {
 		const SameShape = Schema.Struct({ message: Schema.String });
-		const overridden = endpoints(ServiceApi, { defaultError: SameShape });
+		const overridden = fromClient(ServiceApi, { defaultError: SameShape });
 
 		expect(overridden.query(getTodo).error).toBe(SameShape);
 	});
@@ -181,7 +181,7 @@ describe("endpoints with a Fetch.Service class", () => {
 	});
 });
 
-describe("endpoints with a query schema", () => {
+describe("fromClient with a query schema", () => {
 	const Search = Schema.Struct({
 		due: Schema.Date,
 		perPage: Schema.optional(Schema.Finite),

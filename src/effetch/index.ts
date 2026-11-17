@@ -62,7 +62,7 @@ export interface RegisteredSchema extends Fetch.AnySchema {
  * outside your registered services, as {@link RegisteredSchema}. The adapter
  * accepts only these, on the client and on each endpoint: its queries and
  * mutations decode the errors, and its queries send them to the browser (the
- * client's only when {@link endpoints} has them, see
+ * client's only when {@link fromClient} has them, see
  * {@link EndpointsOptions.statusErrors}).
  *
  * @example
@@ -111,7 +111,7 @@ export type KeyQuerySchema = Fetch.QuerySchema & {
 };
 
 /**
- * Options for {@link endpoints}.
+ * Options for {@link fromClient}.
  *
  * @example
  * ```ts
@@ -553,7 +553,7 @@ export interface EndpointQuery<
 	>;
 	/**
 	 * The schema error bodies are decoded with: the endpoint's, else the
-	 * client's `defaultError` as {@link endpoints} knows it (from its
+	 * client's `defaultError` as {@link fromClient} knows it (from its
 	 * options, or a `Fetch.Service` class's config), else `undefined` (the
 	 * client's applies, but isn't known here).
 	 */
@@ -611,7 +611,7 @@ export interface EndpointInfiniteQuery<
 }
 
 /**
- * Queries and mutations for one Effetch client, made by {@link endpoints}.
+ * Queries and mutations for one Effetch client, made by {@link fromClient}.
  *
  * @example
  * ```ts
@@ -670,7 +670,7 @@ export interface Endpoints<
 	 * with its request URL and response text, so keep secrets out of the
 	 * URLs your server calls; a `NetworkError` without its `cause`; a
 	 * `DecodeError` without its `issue`. Errors from `statusErrors` go as
-	 * their schemas encode them, the client's only when {@link endpoints}
+	 * their schemas encode them, the client's only when {@link fromClient}
 	 * has them: read from a `Fetch.Service` class, or given for a
 	 * `Context.Service` key ({@link EndpointsOptions.statusErrors}). A query
 	 * that failed with a plugin's error isn't sent.
@@ -932,7 +932,7 @@ interface AnyClient {
  * import * as Schema from "effect/Schema";
  *
  * import { Query } from "@monarcode/effetch-query";
- * import { endpoints } from "@monarcode/effetch-query/effetch";
+ * import { fromClient } from "@monarcode/effetch-query/effetch";
  *
  * const ApiError = Schema.Struct({ message: Schema.String });
  *
@@ -954,7 +954,7 @@ interface AnyClient {
  *   output: Todo,
  * });
  *
- * const api = endpoints(Api);
+ * const api = fromClient(Api);
  *
  * // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
  * export const todo = api.query(getTodo, { staleTime: "1 minute" });
@@ -968,7 +968,7 @@ interface AnyClient {
  *
  * @since 0.1.0
  */
-export const endpoints = <
+export const fromClient = <
 	Id extends QueryClient.Requirements,
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
 	EB extends RegisteredSchema,
@@ -1188,3 +1188,37 @@ export const endpoints = <
 		SE
 	>;
 };
+
+/**
+ * The former name of {@link fromClient}, which works the same: it takes the
+ * same client and options, and returns the same {@link Endpoints}. It stays
+ * for the 0.1 releases and goes in 0.2.0.
+ *
+ * @deprecated Use {@link fromClient}: rename the import and the call.
+ *
+ * @example
+ * ```ts
+ * import * as Fetch from "@monarcode/effetch";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ * import { fromClient } from "@monarcode/effetch-query/effetch";
+ *
+ * class Api extends Fetch.Service<Api>()("Api", {
+ *   baseUrl: "https://api.example.com",
+ * }) {}
+ *
+ * declare module "@monarcode/effetch-query" {
+ *   interface Register {
+ *     readonly services: Api;
+ *   }
+ * }
+ *
+ * // Was: endpoints(Api). Everything made from it stays the same.
+ * export const api = fromClient(Api);
+ * export const todos = api.query(Fetch.endpoint("GET /todos"));
+ * export const refreshTodos = Query.refetch(todos);
+ * ```
+ *
+ * @since 0.1.0
+ */
+export const endpoints: typeof fromClient = fromClient;

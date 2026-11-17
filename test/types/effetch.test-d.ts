@@ -13,7 +13,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import {
 	type EndpointQuery,
 	type EndpointQueryOptions,
-	endpoints,
+	fromClient,
 } from "../../src/effetch/index.js";
 import { type InfiniteQuery, Mutation, Query } from "../../src/index.js";
 import { useMutation, useQuery } from "../../src/react/index.js";
@@ -34,7 +34,7 @@ class Unregistered extends Context.Service<
 const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
 type Todo = typeof Todo.Type;
 
-const api = endpoints(TestApi);
+const api = fromClient(TestApi);
 
 /** Every error a call through `TestApi` can fail with, for an error schema `EB`. */
 type CallErrors<EB, Decode = Fetch.DecodeError> =
@@ -293,24 +293,24 @@ describe("Endpoints.mutation", () => {
 	});
 });
 
-describe("endpoints", () => {
+describe("fromClient", () => {
 	it("needs the client's service to be registered", () => {
 		// @effect-diagnostics-next-line missingEffectContext:off
 		// @ts-expect-error: Unregistered isn't in Register["services"]
-		endpoints(Unregistered);
+		fromClient(Unregistered);
 	});
 
 	it("checks defaultError against the client's", () => {
-		endpoints(TestApi, { defaultError: ApiError });
+		fromClient(TestApi, { defaultError: ApiError });
 		// @ts-expect-error: the client decodes errors with ApiError
-		endpoints(TestApi, { defaultError: Schema.Number });
+		fromClient(TestApi, { defaultError: Schema.Number });
 	});
 
 	it('takes invalidates: "route" and nothing else', () => {
-		endpoints(TestApi, { invalidates: "route" });
-		endpoints(TestApi, { invalidates: undefined });
+		fromClient(TestApi, { invalidates: "route" });
+		fromClient(TestApi, { invalidates: undefined });
 		// @ts-expect-error: "route" is the only mode
-		endpoints(TestApi, { invalidates: "all" });
+		fromClient(TestApi, { invalidates: "all" });
 	});
 
 	it("rejects a schema that needs an unregistered service", () => {
@@ -325,8 +325,8 @@ describe("endpoints", () => {
 	});
 });
 
-describe("endpoints with a Fetch.Service class", () => {
-	const fromClass = endpoints(ServiceApi);
+describe("fromClient with a Fetch.Service class", () => {
+	const fromClass = fromClient(ServiceApi);
 	const getTodo = Fetch.endpoint("GET /todos/:id", { output: Todo });
 
 	it("types errors from the class's config, with no options", () => {
@@ -344,9 +344,9 @@ describe("endpoints with a Fetch.Service class", () => {
 	});
 
 	it("checks the options against the class's config", () => {
-		endpoints(ServiceApi, { defaultError: ApiError });
+		fromClient(ServiceApi, { defaultError: ApiError });
 		// @ts-expect-error: the class decodes errors with ApiError
-		endpoints(ServiceApi, { defaultError: Schema.Number });
+		fromClient(ServiceApi, { defaultError: Schema.Number });
 	});
 
 	it("takes a Fetch.Endpoints class's definitions", () => {
@@ -363,7 +363,7 @@ describe("endpoints with a Fetch.Service class", () => {
 
 const MutationRun = Mutation.run;
 
-describe("endpoints with a query schema", () => {
+describe("fromClient with a query schema", () => {
 	const Search = Schema.Struct({
 		due: Schema.Date,
 		page: Schema.optional(Schema.Finite),
@@ -573,9 +573,9 @@ describe("status errors", () => {
 	});
 
 	it("check the client's statusErrors against the client's", () => {
-		endpoints(TestApi, { statusErrors: clientStatusErrors });
+		fromClient(TestApi, { statusErrors: clientStatusErrors });
 		// @ts-expect-error: the client maps 401 to SessionExpired
-		endpoints(TestApi, { statusErrors: { 401: TodoNotFound } });
+		fromClient(TestApi, { statusErrors: { 401: TodoNotFound } });
 	});
 
 	it("reject a status error schema that needs an unregistered service", () => {

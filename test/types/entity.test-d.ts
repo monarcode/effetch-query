@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import * as Fetch from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
-import { endpoints } from "../../src/effetch/index.js";
+import { fromClient } from "../../src/effetch/index.js";
 import { Entity, type QueryClient } from "../../src/index.js";
 import { TestApi } from "../services.js";
 
@@ -78,7 +78,7 @@ describe("writes and reads", () => {
 	});
 
 	it("fit a placeholder, with the route's id converted", () => {
-		const api = endpoints(TestApi);
+		const api = fromClient(TestApi);
 		api.query(Fetch.endpoint("GET /todos/:id", { output: Todo }), {
 			placeholder: ({ params }) => Entity.get(Todos, Number(params.id)),
 		});

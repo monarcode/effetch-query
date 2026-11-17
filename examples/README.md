@@ -142,8 +142,8 @@ The same app, with the same routes, but its data layer is Effect's own:
   query and mutation by hand, with `Query.make`, `Query.family`,
   `InfiniteQuery.make` and `Mutation.make`, its key and its schema.
 
-Compare its `src/api.ts` with `tanstack-start`'s to see what effetch's
-`endpoints` writes for you.
+Compare its `src/api.ts` with `tanstack-start`'s to see what
+`fromClient` writes for you.
 
 ### `react-router/`
 

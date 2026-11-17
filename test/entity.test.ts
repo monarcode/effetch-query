@@ -8,7 +8,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { endpoints } from "../src/effetch/index.js";
+import { fromClient } from "../src/effetch/index.js";
 import {
 	Entity,
 	InfiniteQuery,
@@ -482,7 +482,7 @@ describe("Entity.update", () => {
 				Response.json([{ id: 1, title: "fetched" }]),
 			),
 		});
-		const api = endpoints(TestApi);
+		const api = fromClient(TestApi);
 		const todos = api.query(
 			Fetch.endpoint("GET /todos", { output: Schema.Array(Todo) }),
 			{ staleTime: "1 hour" },

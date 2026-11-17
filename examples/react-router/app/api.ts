@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 import { redirect } from "react-router";
 
 import {
@@ -17,7 +17,7 @@ import {
 } from "./dummyjson.js";
 import { writeSessionCookie } from "./session.js";
 
-const api = endpoints(DummyJson);
+const api = fromClient(DummyJson);
 
 /**
  * The signed-in user. Signed out, or with an expired token, it dies with a

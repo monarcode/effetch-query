@@ -10,6 +10,10 @@ and rc.2 additions were.
 
 ### Added
 
+- `fromClient` in `@monarcode/effetch-query/effetch`: the new name of
+  `endpoints`, which works the same. It says what it takes, your Effetch
+  client, and no longer reads like Effetch's `Fetch.endpoint` and
+  `Fetch.Endpoints`.
 - Live queries, which a server keeps current while they're read:
   - `Query.stream({ key, run })` and `Query.streamFamily`: the value is a
     `Stream`'s latest element, such as a price feed over a WebSocket.
@@ -105,7 +109,7 @@ and rc.2 additions were.
   fetching and the mutation runs in progress, for an app-wide progress
   bar. A server render, and the first render as the page hydrates, count
   none.
-- `endpoints(Api)` reads `defaultError` and `statusErrors` from a
+- `fromClient(Api)` reads `defaultError` and `statusErrors` from a
   `Fetch.Service` class (Effetch `0.1.0-rc.3`), so the client's errors
   reach the browser in server rendering without naming them twice. A client
   behind a `Context.Service` key works as before, with the options, and
@@ -118,7 +122,7 @@ and rc.2 additions were.
   the key goes to the browser as JSON. A query that doesn't match the
   schema, or has a `Redacted` field, throws an `EndpointQueryError`. An
   infinite query's `pageParam` names an optional field of the schema.
-- `endpoints(Api, { invalidates: "route" })`: an endpoint mutation that
+- `fromClient(Api, { invalidates: "route" })`: an endpoint mutation that
   succeeds invalidates its route's queries, the keys under its literals
   before the first param (`PATCH /todos/:id` invalidates `["todos"]`; a
   route with no param, its whole path). A mutation's own `invalidates`
@@ -156,6 +160,11 @@ and rc.2 additions were.
   - The TanStack mapping covers every addition, and names
     `queryClient.query()`, which TanStack Query 5.102 added, deprecating
     `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
+
+### Deprecated
+
+- `endpoints`: use `fromClient`, and rename the import and the call. It
+  works the same through the 0.1 releases, and goes in 0.2.0.
 
 ### Fixed
 

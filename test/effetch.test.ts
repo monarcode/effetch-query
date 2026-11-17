@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema";
 import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { endpoints } from "../src/effetch/index.js";
+import { fromClient } from "../src/effetch/index.js";
 import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
 import { options as mutationOptions } from "../src/internal/mutation.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
@@ -71,7 +71,7 @@ const assignRole = Fetch.endpoint("POST /users/:id/roles", {
 	statusErrors: { 400: [InvalidRole, RoleTaken] },
 });
 
-const api = endpoints(TestApi, { defaultError: ApiError });
+const api = fromClient(TestApi, { defaultError: ApiError });
 const todo = api.query(getTodo);
 const todos = api.query(listTodos);
 const comments = api.query(getComments);
@@ -165,7 +165,7 @@ describe("keys", () => {
 	});
 
 	it("drop a full URL's scheme and host, and take the builder's prefix", () => {
-		const wallet = endpoints(TestApi, { key: ["wallet"] });
+		const wallet = fromClient(TestApi, { key: ["wallet"] });
 		const account = wallet.query(
 			Fetch.endpoint("GET https://wallet.test/v1/accounts/:id"),
 		);
@@ -250,7 +250,7 @@ describe("queries", () => {
 	it("a builder's prefix keeps its endpoints apart from the same paths elsewhere", async () => {
 		const server = todosServer();
 		const client = await serve(server.handle);
-		const mirror = endpoints(TestApi, { key: ["mirror"] }).query(getTodo);
+		const mirror = fromClient(TestApi, { key: ["mirror"] }).query(getTodo);
 		use(client.registry, todo({ params: { id: 1 } }));
 		use(client.registry, mirror({ params: { id: 1 } }));
 		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(2));
@@ -366,7 +366,7 @@ describe("errors", () => {
 
 		expect(todo.error).toBe(ApiError);
 		expect(withOwn.error).toBe(Own);
-		expect(endpoints(TestApi).query(getTodo).error).toBeUndefined();
+		expect(fromClient(TestApi).query(getTodo).error).toBeUndefined();
 	});
 });
 
@@ -520,7 +520,7 @@ describe("mutations", () => {
 });
 
 describe('invalidates: "route"', () => {
-	const routed = endpoints(TestApi, {
+	const routed = fromClient(TestApi, {
 		defaultError: ApiError,
 		invalidates: "route",
 	});
@@ -553,7 +553,7 @@ describe('invalidates: "route"', () => {
 	it("invalidates under the endpoints' key prefix", async () => {
 		const server = todosServer();
 		const client = await serve(server.handle);
-		const wallet = endpoints(TestApi, {
+		const wallet = fromClient(TestApi, {
 			key: ["wallet"],
 			invalidates: "route",
 		});
@@ -612,7 +612,10 @@ describe('invalidates: "route"', () => {
 	});
 
 	it("uses the literals before the first param, or the prefix alone", () => {
-		const keyed = endpoints(TestApi, { key: ["shop"], invalidates: "route" });
+		const keyed = fromClient(TestApi, {
+			key: ["shop"],
+			invalidates: "route",
+		});
 		const invalidates = (
 			endpoint: Fetch.UnboundEndpoint<any, any, any, any, any, any, any>,
 			from = routed,
@@ -635,7 +638,7 @@ describe('invalidates: "route"', () => {
 });
 
 describe("status errors", () => {
-	const shared = endpoints(TestApi, {
+	const shared = fromClient(TestApi, {
 		defaultError: ApiError,
 		statusErrors: clientStatusErrors,
 	});
@@ -687,7 +690,7 @@ describe("status errors", () => {
 		});
 	});
 
-	it("go to the browser as themselves, with the client's given to endpoints", async () => {
+	it("go to the browser as themselves, with the client's given to fromClient", async () => {
 		const server = await serve(({ url }) =>
 			url.pathname === "/todos/1"
 				? Response.json({ message: "signed out" }, { status: 401 })
@@ -721,7 +724,7 @@ describe("status errors", () => {
 		);
 	});
 
-	it("leave out the client's errors when endpoints isn't given them", async () => {
+	it("leave out the client's errors when fromClient isn't given them", async () => {
 		const server = await serve(() =>
 			Response.json({ message: "signed out" }, { status: 401 }),
 		);

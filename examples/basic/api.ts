@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { Entity } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 export const Todo = Schema.Struct({
 	id: Schema.Finite,
@@ -37,7 +37,7 @@ declare module "@monarcode/effetch-query" {
 	}
 }
 
-const api = endpoints(DummyJson);
+const api = fromClient(DummyJson);
 
 // todos({ query: { limit: 10 } }) is the query keyed ["todos", { limit: 10 }]
 export const todos = api.query(
