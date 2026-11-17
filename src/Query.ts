@@ -392,6 +392,27 @@ export interface MakeOptions<A, E> extends Options<E> {
 		  ) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>);
 	/** How the value crosses from server to browser; without one, it fetches in the browser. */
 	readonly schema?: Schema<A, E> | undefined;
+	/**
+	 * A value to show until the query has one, such as an item from a list
+	 * already cached: an Effect that returns `Option.some(value)`, or
+	 * `Option.none()` for nothing. It runs with your services and the client,
+	 * when the query is read with no value, and its value shows as a waiting
+	 * `Success` until the first fetch settles. If that fetch fails, the
+	 * failure shows.
+	 *
+	 * It's never cached: {@link get}, {@link update}, {@link fetch} and
+	 * `QueryClient.dehydrate` don't see it, a query that reads this one
+	 * through `ctx.result` waits for the fetch, a suspense reader shows it
+	 * without suspending, and a server render doesn't show it. Run it
+	 * synchronously, reading the cache with {@link get}: an asynchronous one
+	 * shows once it's done, if the fetch hasn't settled first, though not to
+	 * a suspense reader already suspended, which waits for the fetch. If it
+	 * dies, the defect is logged with `Effect.logError` and nothing shows.
+	 * Default: none.
+	 */
+	readonly placeholder?:
+		| Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>
+		| undefined;
 }
 
 /**
@@ -424,6 +445,15 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
 	) => Effect.Effect<A, E, QueryClient.Requirements | Scope.Scope>;
 	/** How each member's value crosses from server to browser, as {@link MakeOptions.schema}. */
 	readonly schema?: Schema<A, E> | undefined;
+	/**
+	 * A value to show for a member until it has one, from the member's
+	 * argument, as {@link MakeOptions.placeholder}. Default: none.
+	 */
+	readonly placeholder?:
+		| ((
+				args: Args,
+		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
+		| undefined;
 }
 
 /**
@@ -451,6 +481,7 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
 		fetch: internal.runOnce(internal.toRun(options.run)),
 		options,
 		hydration: options.schema && { codec: makeCodec(options.schema) },
+		placeholder: options.placeholder,
 	});
 
 /**
@@ -499,6 +530,7 @@ export const family = <Args, A, E>(
 				options,
 				member: { family: self, args },
 				hydration,
+				placeholder: options.placeholder?.(args),
 			}),
 		),
 		{ key: options.key },

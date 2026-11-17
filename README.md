@@ -46,6 +46,7 @@ it. It works with any Effect too.
   - [Keys](#keys)
   - [Freshness and refetching](#freshness-and-refetching)
   - [Query options](#query-options)
+  - [Showing a placeholder](#showing-a-placeholder)
   - [Using the cache from Effect](#using-the-cache-from-effect)
 - [Mutations in depth](#mutations-in-depth)
   - [Optimistic updates](#optimistic-updates)
@@ -56,6 +57,7 @@ it. It works with any Effect too.
   - [Reading queries](#reading-queries)
   - [Reading a query as an object](#reading-a-query-as-an-object)
   - [Selecting part of a value](#selecting-part-of-a-value)
+  - [Reading many queries](#reading-many-queries)
   - [Suspense and error boundaries](#suspense-and-error-boundaries)
   - [Running mutations](#running-mutations)
   - [Showing activity](#showing-activity)
@@ -772,6 +774,68 @@ for every query, and a query's own options win.
 has a retry plugin, and a query shouldn't retry what the client already
 retried.
 
+### Showing a placeholder
+
+A detail page can show what the list already has while the detail loads.
+`placeholder` returns `Option.some` of a value to show, or `Option.none()`
+for nothing. On `api.query`, it gets the call's `params` and `query`:
+
+```ts todo-detail.ts
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { api, getTodo, todos } from "./todos.js";
+
+export const todo = api.query(getTodo, {
+  staleTime: "1 minute",
+  // The list's copy, if it's cached, until the todo's own fetch settles.
+  placeholder: ({ params }) =>
+    Effect.map(Query.get(todos()), (list) =>
+      Option.flatMap(list, (items) =>
+        Option.fromUndefinedOr(
+          items.find((item) => item.id === Number(params.id)),
+        ),
+      ),
+    ),
+});
+```
+
+`Query.make` takes `placeholder` as an Effect, and `Query.family` as a
+function of the member's argument.
+
+The placeholder shows as a waiting `Success`, so `useSuspenseQuery`
+doesn't suspend on it. Once the fetch settles, its value or its failure
+replaces it. It's never cached: `Query.get`, `Query.update` and
+`Query.fetch` don't see it, `QueryClient.dehydrate` doesn't send it, and a
+query reading this one through `ctx.result` waits for the real value. A
+server render doesn't show it.
+
+To tell a placeholder from the query's own value, read `isPlaceholder`
+from `useQueryState`. It's true for the placeholder, and for the value
+`keepPrevious` keeps from the query shown before, until the query's own
+value or failure replaces it. A `paused` reader fetches nothing, so it
+keeps showing the placeholder, not fetching, until it resumes:
+
+```tsx
+import { useQueryState } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todo-detail.js";
+
+export function TodoTitleInput({ id }: { readonly id: number }) {
+  const state = useQueryState(todo({ params: { id } }));
+
+  if (state.status !== "success") {
+    return null;
+  }
+  // Editing waits for the todo itself, not the list's copy.
+  return (
+    <input defaultValue={state.data.title} disabled={state.isPlaceholder} />
+  );
+}
+```
+
 ### Using the cache from Effect
 
 Everything the cache does is an Effect. Inside queries and mutations the
@@ -1149,7 +1213,8 @@ export function TodoTitle({ id }: { readonly id: number | null }) {
 waiting `Initial`, and a background refetch as a `Success` or `Failure`
 that keeps showing what it had, so `AsyncResult.isInitial(result)` tells
 them apart. Two exceptions: with `keepPrevious`, the next query's first
-load shows the last value as a waiting `Success`; and `useQuery(null)`
+load shows the last value as a waiting `Success`, for which
+`useQueryState`'s `isPlaceholder` is true; and `useQuery(null)`
 returns an `Initial` that isn't waiting. To handle a load and a refetch
 alike, use `AsyncResult.matchWithWaiting` or the builder's
 `onInitialOrWaiting`.
@@ -1195,6 +1260,9 @@ The fields are:
 - `error`: the typed error, or `undefined` for a defect, which `cause`
   holds with the rest of the failure.
 - `isFetching`: true while a fetch runs, the first one or a refetch.
+- `isPlaceholder`: true while `data` is a placeholder, or the value
+  `keepPrevious` keeps, rather than the query's own value
+  ([Showing a placeholder](#showing-a-placeholder)).
 - `refetch`: refetches the query, and resolves when it settles. It never
   rejects.
 - `result`: the `AsyncResult` the fields come from, for
@@ -1233,6 +1301,45 @@ outside the component or with `useCallback`. The cache keeps the whole
 value, so other components reading the query see it unchanged, and the
 query still refetches on mount, focus and polling as without `select`. A
 `select` that throws shows as a failure with the defect.
+
+### Reading many queries
+
+`useQueries` reads a list of queries whose length changes, such as one per
+selected item, and returns their results in the same order. Combine them
+with `AsyncResult.all`:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQueries } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function SelectedTitles({
+  ids,
+}: {
+  readonly ids: ReadonlyArray<number>;
+}) {
+  const all = AsyncResult.all(
+    useQueries(ids.map((id) => todo({ params: { id } }))),
+  );
+
+  return AsyncResult.builder(all)
+    .onSuccess((todos) => (
+      <ul>
+        {todos.map((item) => (
+          <li key={item.id}>{item.title}</li>
+        ))}
+      </ul>
+    ))
+    .onFailure(() => <p>Couldn't load them</p>)
+    .orElse(() => <p>Loading…</p>);
+}
+```
+
+Each query gets the mount policy as it joins the list, and a `null` entry
+reads `Initial`. A tuple of queries gives a tuple of results, each typed by
+its query. The array keeps its identity while every result does.
 
 ### Suspense and error boundaries
 
@@ -1682,6 +1789,33 @@ Focus is the app coming back to the foreground, and online follows
 NetInfo's `isConnected`. The package doesn't depend on `react-native` or
 NetInfo: you pass them in. Everything else, hooks included, works as on
 the web.
+
+A stack navigator keeps the screens under the one in front mounted, so
+their queries stay in use: they refetch on every invalidation and focus,
+and re-render out of sight. Pause them while they're hidden:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+
+// From @react-navigation/native.
+declare function useIsFocused(): boolean;
+
+export function TodoCount() {
+  const isFocused = useIsFocused();
+  const list = useQuery(todos(), { paused: !isFocused });
+
+  return <>{AsyncResult.getOrElse(list, () => []).length} todos</>;
+}
+```
+
+A paused reader keeps showing what it had and doesn't count as a use of
+the query. When the screen comes back, the query refetches if it's stale,
+as on a mount. A query only paused readers use is dropped after `gcTime`,
+like any other query nothing uses.
 
 On a Hermes older than its 2026 releases, `FinalizationRegistry` is
 missing, so a family keeps a small definition (about 2 KB) for every
@@ -2468,6 +2602,9 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `select`                                                            | `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it       |
 | `enabled: false`                                                    | `useQuery(null)`                                                                             |
 | `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                    |
+| `placeholderData` from the cache                                    | `placeholder` on `api.query`, `Query.make` / `Query.family`                                  |
+| `isPlaceholderData`                                                 | `isPlaceholder` on `useQueryState`                                                           |
+| `useQueries`; `subscribed: false`                                   | `useQueries`; `paused: true` on the reading hooks                                            |
 | `retry: 3`                                                          | `retry: Schedule` (default none)                                                             |
 | `onMutate` returning a rollback context                             | `optimistic`, undone automatically                                                           |
 | `dehydrate`, `hydrate`, `HydrationBoundary`                         | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema` |
@@ -2481,13 +2618,13 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
 ### API
 
-| Import                                           | Exports                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                                                                       |
-| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`, `useQueryState`, `useRefetch`, `useQueryClient`, `QueryBoundary`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
-| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                                                                                                             |
-| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                                                                                                             |
-| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                                                                                                                      |
+| Import                                           | Exports                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | `Query`, `InfiniteQuery`, `Mutation`, `QueryClient` and `Signals` (namespaces), `QueryFailure`, `Register`                                                                                                                                                                                                                                     |
+| `@monarcode/effetch-query/react`                 | `QueryProvider`, `useQuery`, `useSuspenseQuery`, `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`, `useQueries`, `useQueryState`, `useRefetch`, `useQueryClient`, `QueryBoundary`, `useResetQueryFailure`, `HydrationBoundary`, `QueryFailure`, `MissingQueryProviderError` |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`                                                                                                                                                                                                                                                                                                                           |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`                                                                                                                                                                                                                                                                                                                           |
+| `@monarcode/effetch-query/effetch`               | `endpoints`                                                                                                                                                                                                                                                                                                                                    |
 
 Every export is documented in its type declarations, with an example: your
 editor's hover and "Go to Definition" show it.

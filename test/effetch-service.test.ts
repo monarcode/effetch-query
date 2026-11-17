@@ -8,11 +8,11 @@ import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { FetchTest } from "@monarcode/effetch/test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { endpoints } from "../src/effetch/index.js";
 import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
-import { disposeClients, makeClient } from "./helpers.js";
+import { disposeClients, gate, makeClient, record } from "./helpers.js";
 import {
 	ApiError,
 	ServiceApi,
@@ -398,5 +398,33 @@ describe("query schemas: the review's regressions", () => {
 			"feed",
 			{ text: "a" },
 		]);
+	});
+});
+
+describe("api.query placeholder", () => {
+	it("shows while the endpoint answers, and isn't cached", async () => {
+		const answer = gate();
+		const client = await serve([
+			FetchTest.respond(getTodo, () =>
+				Effect.as(answer.wait, { id: 1, title: "Fetched" }),
+			),
+		]);
+		const detail = api.query(getTodo, {
+			placeholder: () =>
+				Effect.succeed(Option.some({ id: 1, title: "Placeholder" })),
+		});
+
+		const shown = record(client.registry, detail({ params: { id: 1 } }));
+
+		expect(shown).toEqual([
+			'Success(waiting) {"id":1,"title":"Placeholder"}',
+		]);
+		await expect(
+			client.runPromise(Query.get(detail({ params: { id: 1 } }))),
+		).resolves.toEqual(Option.none());
+		answer.open();
+		await vi.waitFor(() =>
+			expect(shown.at(-1)).toBe('Success {"id":1,"title":"Fetched"}'),
+		);
 	});
 });

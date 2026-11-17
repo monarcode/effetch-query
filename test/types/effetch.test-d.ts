@@ -2,13 +2,18 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import type * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
-import { type EndpointQuery, endpoints } from "../../src/effetch/index.js";
+import {
+	type EndpointQuery,
+	type EndpointQueryOptions,
+	endpoints,
+} from "../../src/effetch/index.js";
 import { type InfiniteQuery, Mutation, Query } from "../../src/index.js";
 import { useMutation, useQuery } from "../../src/react/index.js";
 import {
@@ -140,6 +145,63 @@ describe("Endpoints.query", () => {
 		);
 
 		expectTypeOf(todo).toExtend<Query.Target>();
+	});
+});
+
+describe("Endpoints.query placeholder", () => {
+	it("is typed by the route's params and the endpoint's output", () => {
+		const todos = api.query(
+			Fetch.endpoint("GET /todos", { output: Schema.Array(Todo) }),
+		);
+		api.query(Fetch.endpoint("GET /todos/:id", { output: Todo }), {
+			placeholder: (args) => {
+				expectTypeOf(args.params.id).toEqualTypeOf<string | number>();
+				return Effect.map(Query.get(todos()), (list) =>
+					Option.flatMap(list, (items) =>
+						Option.fromUndefinedOr(
+							items.find((item) => item.id === Number(args.params.id)),
+						),
+					),
+				);
+			},
+		});
+		api.query(Fetch.endpoint("GET /todos/:id", { output: Todo }), {
+			// @ts-expect-error: the value is a Todo
+			placeholder: () => Effect.succeed(Option.some("Todo")),
+		});
+		api.query(Fetch.endpoint("GET /todos/:id", { output: Todo }), {
+			// @ts-expect-error: it can't fail
+			// @effect-diagnostics-next-line missingEffectError:off
+			placeholder: () => Effect.fail("no"),
+		});
+	});
+
+	it("still takes options typed with two parameters, as before", () => {
+		const options = <E, Ps extends ReadonlyArray<Fetch.Plugin.Any>>(
+			value: EndpointQueryOptions<E, Ps>,
+		): EndpointQueryOptions<E, Ps> => value;
+		const todo = api.query(
+			Fetch.endpoint("GET /todos/:id", { output: Todo }),
+			options({ staleTime: "1 minute" }),
+		);
+		expectTypeOf(todo({ params: { id: 1 } })).toExtend<
+			Query.Query<Todo, unknown>
+		>();
+	});
+
+	it("gets the query the schema types", () => {
+		api.query(
+			Fetch.endpoint("GET /todos/due", {
+				output: Schema.Array(Todo),
+				query: Schema.Struct({ before: Schema.Date }),
+			}),
+			{
+				placeholder: (args) => {
+					expectTypeOf(args.query.before).toEqualTypeOf<Date>();
+					return Effect.succeed(Option.none());
+				},
+			},
+		);
 	});
 });
 

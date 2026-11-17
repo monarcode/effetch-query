@@ -74,6 +74,15 @@ export interface ClientState {
 	readonly activity: Activity;
 	/** How many mutation runs have started, which numbers them. */
 	runCount: number;
+	/**
+	 * Results whose value isn't their query's own: what a query showed from
+	 * its `placeholder` (a value, but not one to wait for, derive from or
+	 * keep; see `queryAtom.ts`), and readers' copies of a borrowed value
+	 * (`queryUse.ts`): a selection or a settled copy of a placeholder, and
+	 * the success `keepPrevious` keeps from another query. Only readers make
+	 * those copies, so the core's own checks never see them.
+	 */
+	readonly placeholders: WeakSet<AsyncResult.AsyncResult<any, any>>;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -91,6 +100,7 @@ export const makeClientState = (): ClientState => ({
 	onDispose: new Set(),
 	activity: makeActivity(),
 	runCount: 0,
+	placeholders: new WeakSet(),
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */

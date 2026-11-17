@@ -13,8 +13,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   atom read with `useAtomValue` doesn't.
 - `useQueryState(query, options?)`: reads a query as `useQuery` does and
   returns an object with `status`, `data`, `error`, `cause`, `isPending`,
-  `isSuccess`, `isFailure`, `isFetching`, `refetch` and `result`. Checking
-  `status` narrows `data` and `error`.
+  `isSuccess`, `isFailure`, `isFetching`, `isPlaceholder`, `refetch` and
+  `result`. Checking `status` narrows `data` and `error`.
 - `QueryBoundary`: shows `pending` while the queries inside suspend, and
   `failure({ error, cause, retry })` when one throws a `QueryFailure`,
   until `retry` or until the query succeeds. Other errors go on to the next
@@ -74,6 +74,22 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   before the first param (`PATCH /todos/:id` invalidates `["todos"]`; a
   route with no param, its whole path). A mutation's own `invalidates`
   replaces it, and `invalidates: []` turns it off. Without the option, mutations invalidate only what they say.
+- `placeholder` on `api.query`, `Query.make` and `Query.family`: a value
+  to show, as a waiting `Success`, until the first fetch settles, such as a
+  list's copy of an item. On `api.query`, it gets the call's `params` and
+  `query`. It's never cached, fetched, updated or sent, a query reading
+  this one through `ctx.result` waits for the real value, and a server
+  render doesn't show it. `useQueryState`'s `isPlaceholder` is true while
+  it shows, and while `keepPrevious` shows the previous query's value.
+- `useQueries(queries, options?)` reads a list of queries whose length can
+  change, and returns their results in order: a tuple for a tuple, an
+  array for an array. Combine them with `AsyncResult.all`.
+- `paused` on `useQuery`, `useQueryState`, `useInfiniteQuery` and
+  `useQueries`: the hook keeps showing what it had and doesn't count as a
+  use, so invalidation, focus and polling don't refetch for it. What it
+  shows isn't `waiting`, and a `clear` replaces it with what the cache has.
+  When it resumes, the query refetches if it's stale. For screens a
+  navigator keeps mounted.
 - README: "Invalidating after a mutation" puts the three ways side by
   side, per mutation, by route and everything; "Optimistic updates" starts
   with `variables`; "Showing activity" has a progress bar.
@@ -99,6 +115,11 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   covers, and how to tell a first load from a background refetch; the
   TanStack mapping names `queryClient.query()`, which TanStack Query 5.102
   added, deprecating `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
+
+### Fixed
+
+- A reader that switched to a query another component had fetched earlier
+  didn't refetch it on mount, however stale it was.
 
 ## 0.1.0-rc.2
 

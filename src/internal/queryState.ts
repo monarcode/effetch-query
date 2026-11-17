@@ -1,6 +1,9 @@
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
+import type * as AsyncResult from "effect/reactivity/AsyncResult";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
+
+import { isPlaceholder } from "./queryAtom.js";
 
 /** What `useQueryState` shows of a result, without `refetch` (DESIGN.md §4.2). */
 export type QueryStateFields<A, E> =
@@ -13,6 +16,7 @@ export type QueryStateFields<A, E> =
 			readonly isSuccess: false;
 			readonly isFailure: false;
 			readonly isFetching: boolean;
+			readonly isPlaceholder: false;
 			readonly result: AsyncResult.Initial<A, E>;
 	  }
 	| {
@@ -24,6 +28,7 @@ export type QueryStateFields<A, E> =
 			readonly isSuccess: true;
 			readonly isFailure: false;
 			readonly isFetching: boolean;
+			readonly isPlaceholder: boolean;
 			readonly result: AsyncResult.Success<A, E>;
 	  }
 	| {
@@ -35,15 +40,18 @@ export type QueryStateFields<A, E> =
 			readonly isSuccess: false;
 			readonly isFailure: true;
 			readonly isFetching: boolean;
+			readonly isPlaceholder: false;
 			readonly result: AsyncResult.Failure<A, E>;
 	  };
 
 /**
  * The fields of a result as `useQueryState` shows them: a failure keeps the
  * last success as `data`, and its `error` is the typed failure, `undefined`
- * for a defect or an interrupt.
+ * for a defect or an interrupt, and `isPlaceholder` says whether a
+ * success's value isn't the query's own (`isPlaceholder`).
  */
 export const queryState = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
 	result: AsyncResult.AsyncResult<A, E>,
 ): QueryStateFields<A, E> => {
 	switch (result._tag) {
@@ -57,6 +65,7 @@ export const queryState = <A, E>(
 				isSuccess: false,
 				isFailure: false,
 				isFetching: result.waiting,
+				isPlaceholder: false,
 				result,
 			};
 		case "Success":
@@ -69,6 +78,7 @@ export const queryState = <A, E>(
 				isSuccess: true,
 				isFailure: false,
 				isFetching: result.waiting,
+				isPlaceholder: isPlaceholder(registry, result),
 				result,
 			};
 		case "Failure":
@@ -83,6 +93,7 @@ export const queryState = <A, E>(
 				isSuccess: false,
 				isFailure: true,
 				isFetching: result.waiting,
+				isPlaceholder: false,
 				result,
 			};
 	}

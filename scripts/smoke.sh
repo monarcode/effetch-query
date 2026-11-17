@@ -316,6 +316,7 @@ const expected = [
 	"useIsMutating",
 	"useMutation",
 	"useMutationState",
+	"useQueries",
 	"useQuery",
 	"useQueryClient",
 	"useQueryState",

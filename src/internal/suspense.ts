@@ -7,7 +7,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
 import { QueryFailure } from "../QueryFailure.js";
-import { isIdle } from "./queryAtom.js";
+import { isIdle, isPlaceholder } from "./queryAtom.js";
 import { StateAtom } from "./runtime.js";
 import { refresh } from "./targets.js";
 
@@ -48,8 +48,12 @@ export const whenShowable = (
 	suspensions.set(query, promise);
 	// A `clear` while the reader waits leaves the query idle: the reader
 	// renders again and, being new to it, wakes it.
+	// A placeholder doesn't count: the server's value and a hydrating
+	// render don't show it, so they'd suspend on it again and again.
+	const ready = (result: AsyncResult.AsyncResult<any, any>) =>
+		isShowable(result) && !isPlaceholder(registry, result);
 	const unsubscribe = registry.subscribe(query, (result) => {
-		if (isShowable(result) || isIdle(registry, query)) {
+		if (ready(result) || isIdle(registry, query)) {
 			done();
 		}
 	});
@@ -58,7 +62,7 @@ export const whenShowable = (
 		unsubscribe();
 		settle();
 	};
-	if (isShowable(registry.get(query))) {
+	if (ready(registry.get(query))) {
 		done();
 	}
 	return promise;

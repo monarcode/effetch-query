@@ -2,6 +2,7 @@ import type * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type * as HttpMethod from "effect/http/HttpMethod";
+import type * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Atom from "effect/reactivity/Atom";
 import * as Redacted from "effect/Redacted";
@@ -188,8 +189,11 @@ export interface EndpointsOptions<
 
 /**
  * Options for {@link Endpoints.query}: a query's options
- * ({@link Query.Options}), and the headers and plugin overrides
- * `client.bind` takes (`Fetch.BindOptions`).
+ * ({@link Query.Options}), a `placeholder`, and the headers and plugin
+ * overrides `client.bind` takes (`Fetch.BindOptions`). `A` is the query's
+ * value and `Args` the call's `params` and `query`
+ * ({@link EndpointQueryArgs}), which type the `placeholder`; `api.query`
+ * sets both from the endpoint.
  *
  * @example
  * ```ts
@@ -206,8 +210,25 @@ export interface EndpointsOptions<
 export interface EndpointQueryOptions<
 	E,
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+	A = never,
+	Args = unknown,
 >
-	extends Query.Options<E>, Fetch.BindOptions<Ps> {}
+	extends Query.Options<E>, Fetch.BindOptions<Ps> {
+	/**
+	 * A value to show for a query until it has one, from the call's
+	 * `params` and `query`, as {@link Query.MakeOptions.placeholder}: an Effect
+	 * that returns `Option.some(value)`, or `Option.none()` for nothing.
+	 * It gets the route's `params` and the `query` of the call that made the
+	 * query: calls that send the same request share one, so a later call's
+	 * extra fields, or a query it gives in another form that encodes the
+	 * same, aren't seen. Default: none.
+	 */
+	readonly placeholder?:
+		| ((
+				args: Args,
+		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
+		| undefined;
+}
 
 /**
  * Options for {@link Endpoints.infiniteQuery}: an infinite query's page
@@ -601,7 +622,9 @@ export interface Endpoints<
 		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS>,
 		options?: EndpointQueryOptions<
 			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
-			Ps
+			Ps,
+			Fetch.Success<O>,
+			EndpointQueryArgs<R, Fetch.QueryInput, QS>
 		>,
 	) => EndpointQuery<
 		R,
@@ -945,9 +968,9 @@ export const endpoints = <
 				};
 	const query = (
 		endpoint: AnyEndpoint,
-		queryOptions?: EndpointQueryOptions<unknown, Ps>,
+		queryOptions?: EndpointQueryOptions<unknown, Ps, unknown, RouteArgs>,
 	) => {
-		const { headers, plugins, ...rest } = queryOptions ?? {};
+		const { headers, plugins, placeholder, ...rest } = queryOptions ?? {};
 		const fetch = call(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
 		const hydration = hydrationOf(endpoint, (success, error) => ({
@@ -965,6 +988,7 @@ export const endpoints = <
 					options: rest,
 					member: { family, args },
 					hydration,
+					placeholder: placeholder?.(args),
 				}),
 		);
 	};

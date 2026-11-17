@@ -330,18 +330,18 @@ describe("Query.clear", () => {
 		const two = tracked(["kept", 2], (n) => Effect.as(gate().wait, n));
 		const reader = makeQueryUse(client.registry);
 		reader.mounted(one.query);
-		reader.showed(one.query, client.registry.get(one.query));
+		reader.showed(one.query, client.registry.get(one.query), false);
 
 		await client.clear(["kept"]);
-		expect(show(reader.show(client.registry.get(one.query), true))).toBe(
-			"Initial",
-		);
+		expect(
+			show(reader.show(client.registry.get(one.query), true, false)),
+		).toBe("Initial");
 
 		use(client.registry, two.query);
 		reader.mounted(two.query);
-		expect(show(reader.show(client.registry.get(two.query), true))).toBe(
-			"Initial(waiting)",
-		);
+		expect(
+			show(reader.show(client.registry.get(two.query), true, false)),
+		).toBe("Initial(waiting)");
 	});
 
 	it("fetches for a reader that switches to it", async () => {

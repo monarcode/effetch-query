@@ -193,6 +193,25 @@ export const nodeValue = <A>(
 		| Option.Option<A>
 		| undefined) ?? Option.none();
 
+/**
+ * Whether a result's value isn't its query's own: the value its
+ * `placeholder` gave, or a reader's copy of a borrowed value
+ * ({@link markPlaceholder}).
+ */
+export const isPlaceholder = (
+	registry: AtomRegistry.AtomRegistry,
+	result: AsyncResult.AsyncResult<any, any>,
+): boolean => registry.get(StateAtom).placeholders.has(result);
+
+/** Marks a result whose value isn't its query's own, for {@link isPlaceholder}. */
+export const markPlaceholder = <R extends AsyncResult.AsyncResult<any, any>>(
+	registry: AtomRegistry.AtomRegistry,
+	result: R,
+): R => {
+	registry.get(StateAtom).placeholders.add(result);
+	return result;
+};
+
 /** Whether `clear` left the query idle. */
 export const isIdle = (
 	registry: AtomRegistry.AtomRegistry,
@@ -382,6 +401,9 @@ const fromServer = <A, E, R>(
 		},
 	);
 
+// One object, so a server snapshot read again is the same.
+const notCached = AsyncResult.initial<never, never>(true);
+
 /** Builds a query atom (DESIGN.md §5.2). */
 export const makeQuery = <A, E>(definition: {
 	readonly key: Query.Key;
@@ -391,6 +413,10 @@ export const makeQuery = <A, E>(definition: {
 	/** Atoms that live as long as the query, without refetching it when they change. */
 	readonly mounts?: ReadonlyArray<Atom.Atom<unknown>> | undefined;
 	readonly hydration?: Hydration<A, E> | undefined;
+	/** What to show until the first fetch settles (DESIGN.md §4.11). */
+	readonly placeholder?:
+		| Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>
+		| undefined;
 }): Query.Query<A, E> => {
 	const {
 		key,
@@ -399,7 +425,21 @@ export const makeQuery = <A, E>(definition: {
 		member,
 		mounts = [],
 		hydration: definitionHydration,
+		placeholder,
 	} = definition;
+	// Read only while the query has nothing to show, so it's dropped, and
+	// runs again, as the query gets and loses a value.
+	const placeholderAtom =
+		placeholder === undefined
+			? undefined
+			: runtime.atom(
+					Effect.catchCause(placeholder, (cause) =>
+						Effect.as(
+							Effect.logError("A query's placeholder failed", cause),
+							Option.none(),
+						),
+					),
+				);
 	let hash: string | undefined;
 	const hydration: QueryHydration<A, E> | undefined = definitionHydration && {
 		codec: definitionHydration.codec,
@@ -450,7 +490,11 @@ export const makeQuery = <A, E>(definition: {
 					if (isIdle(registry, dependency)) {
 						wakeForReader(registry, dependency, query, generation);
 					}
-					return get.result(dependency);
+					// A placeholder isn't a value to derive from: wait, as for
+					// `Initial`, until the dependency's fetch replaces it.
+					return isPlaceholder(registry, get(dependency))
+						? Effect.never
+						: get.result(dependency);
 				},
 			};
 			const context: FetchContext<A, E> = {
@@ -531,7 +575,21 @@ export const makeQuery = <A, E>(definition: {
 					}
 					const result = combine(get(fetchAtom(generation)), written);
 					get(watcher).resume();
-					return result;
+					if (placeholderAtom === undefined || result._tag !== "Initial") {
+						return result;
+					}
+					const shown = get(placeholderAtom);
+					if (
+						!AsyncResult.isSuccess(shown) ||
+						Option.isNone(shown.value)
+					) {
+						return result;
+					}
+					const value = AsyncResult.success<A, E>(shown.value.value, {
+						waiting: true,
+					});
+					get.once(StateAtom).placeholders.add(value);
+					return value;
 				},
 				(ctx, value: A) => {
 					ctx.set(local, {
@@ -564,7 +622,7 @@ export const makeQuery = <A, E>(definition: {
 							? preloadedResult(registry, hydration)
 							: Option.none(),
 					),
-					Option.getOrElse(() => AsyncResult.initial<A, E>(true)),
+					Option.getOrElse((): AsyncResult.AsyncResult<A, E> => notCached),
 				);
 			},
 			[InternalsId]: {

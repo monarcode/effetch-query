@@ -72,6 +72,7 @@ describe("public entry points", () => {
 			"useIsMutating",
 			"useMutation",
 			"useMutationState",
+			"useQueries",
 			"useQuery",
 			"useQueryClient",
 			"useQueryState",

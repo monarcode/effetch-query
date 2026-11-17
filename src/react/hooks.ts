@@ -17,6 +17,7 @@ import {
 	pagingAtom,
 } from "../internal/infiniteQuery.js";
 import { makeHandle } from "../internal/mutationHandle.js";
+import { makeQueriesUse } from "../internal/queriesUse.js";
 import { queryState } from "../internal/queryState.js";
 import { makeQueryUse, type QueryUse } from "../internal/queryUse.js";
 import { makeRefetchHandle } from "../internal/refetchHandle.js";
@@ -70,6 +71,24 @@ export interface UseQueryOptions {
 	 * a `null` query still reads `Initial`. Default: `false`.
 	 */
 	readonly keepPrevious?: boolean | undefined;
+	/**
+	 * If true, the hook keeps showing what it last showed and stops counting
+	 * as a use of the query: an invalidation, focus, reconnect or
+	 * `refetchInterval` doesn't refetch it for this component, nor does
+	 * the component re-render. What it shows isn't `waiting`, since nothing
+	 * fetches for it, and a `clear` replaces it with what the cache has. Use
+	 * it for a screen that stays mounted under another, as React Native's
+	 * stack navigators keep them. Paused from its first render, it shows what
+	 * the cache has, without fetching. `useInfiniteQuery`'s page functions
+	 * still fetch pages when called.
+	 *
+	 * A query whose readers are all paused isn't in use, so it's dropped
+	 * after `gcTime` like any other, though the paused readers still show
+	 * what they had. When `paused` turns false, the mount policy runs as on a
+	 * mount: the query refetches if it's stale or failed, unless another
+	 * reader fetched it meanwhile and it's still fresh. Default: `false`.
+	 */
+	readonly paused?: boolean | undefined;
 }
 
 /**
@@ -202,20 +221,165 @@ export const useQuery = <A, E, B = A>(
 ): AsyncResult.AsyncResult<B, E> => {
 	const registry = useRegistry();
 	const use = useHandle(() => makeQueryUse(registry), [registry]);
-	const result = useSelected(use, query, options?.select);
+	const paused = options?.paused === true && query !== null;
+	const source = use.read(query, paused);
+	const live = useSelected(use, source, options?.select);
+	const result =
+		paused && query !== null ? use.paused(query, options?.select) : live;
 	React.useEffect(
 		function revalidateOnMount() {
-			use.mounted(query);
+			use.mounted(source);
 		},
-		[use, query],
+		[use, source],
 	);
 	React.useEffect(
-		function rememberSuccess() {
-			use.showed(query, result);
+		function rememberResult() {
+			use.showed(query, live, paused);
 		},
-		[use, query, result],
+		[use, query, live, paused],
 	);
-	return use.show(result, options?.keepPrevious === true && query !== null);
+	return use.show(
+		result,
+		options?.keepPrevious === true && query !== null,
+		paused,
+	);
+};
+
+/**
+ * What {@link useQueries} returns for one entry of its list: the query's
+ * result, typed by the query, or `AsyncResult<never, never>` for `null`.
+ * An entry that may be one of several queries is a union of their results.
+ *
+ * @example
+ * ```ts
+ * import type * as Effect from "effect/Effect";
+ *
+ * import type { Query } from "@monarcode/effetch-query";
+ * import type { UseQueriesEntry } from "@monarcode/effetch-query/react";
+ *
+ * declare const me: Query.Query<string, Error>;
+ *
+ * // AsyncResult<string, Error>
+ * export type Me = UseQueriesEntry<typeof me>;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseQueriesEntry<Q> = [Exclude<Q, null>] extends [never]
+	? AsyncResult.AsyncResult<never, never>
+	: Exclude<Q, null> extends infer Each
+		? Each extends Query.Query<infer A, infer E>
+			? AsyncResult.AsyncResult<A, E>
+			: never
+		: never;
+
+/**
+ * What {@link useQueries} returns: a result per query, in the same order,
+ * as a tuple for a tuple of queries and an array for an array.
+ *
+ * @example
+ * ```ts
+ * import type { Query } from "@monarcode/effetch-query";
+ * import type { UseQueriesResult } from "@monarcode/effetch-query/react";
+ *
+ * declare const me: Query.Query<string, Error>;
+ * declare const count: Query.Query<number, never>;
+ *
+ * // readonly [AsyncResult<string, Error>, AsyncResult<number, never>]
+ * export type Both = UseQueriesResult<readonly [typeof me, typeof count]>;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseQueriesResult<
+	Queries extends ReadonlyArray<Query.Query<any, any> | null>,
+> = { readonly [K in keyof Queries]: UseQueriesEntry<Queries[K]> };
+
+/**
+ * Options for {@link useQueries}.
+ *
+ * @example
+ * ```ts
+ * import type { UseQueriesOptions } from "@monarcode/effetch-query/react";
+ *
+ * export const options: UseQueriesOptions = { paused: false };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseQueriesOptions {
+	/**
+	 * If true, the hook keeps showing what it last showed and stops counting
+	 * as a use of the queries, as {@link UseQueryOptions.paused} does for one.
+	 * Default: `false`.
+	 */
+	readonly paused?: boolean | undefined;
+}
+
+/**
+ * Reads a list of queries whose length can change between renders, such as
+ * one per selected item, and keeps each up to date as {@link useQuery}
+ * does: it returns their results in the same order, and `Initial` for a
+ * `null` entry. Each query gets the mount policy when it joins the list. A
+ * query listed twice is read once, and shows in both places.
+ *
+ * The component re-renders when one of the results changes. The array keeps
+ * its identity while every result in it does, so it can be a dependency of
+ * `useMemo`. Combine the results with `AsyncResult.all`. In a server render
+ * it reads only the cache and never starts a fetch. Throws a
+ * `MissingQueryProviderError` outside a `QueryProvider`.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ * import * as AsyncResult from "effect/reactivity/AsyncResult";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ * import { useQueries } from "@monarcode/effetch-query/react";
+ *
+ * const todo = Query.family({
+ *   key: ["todos", "detail"],
+ *   run: (id: number) => Effect.succeed({ id, title: `Todo ${id}` }),
+ * });
+ *
+ * export const useSelectedTodos = (ids: ReadonlyArray<number>) =>
+ *   // AsyncResult<Array<{ id: number; title: string }>, never>
+ *   AsyncResult.all(useQueries(ids.map((id) => todo(id))));
+ * ```
+ *
+ * @see {@link useQuery} for one query
+ *
+ * @since 0.1.0
+ */
+export const useQueries = <
+	const Queries extends ReadonlyArray<Query.Query<any, any> | null>,
+>(
+	queries: Queries,
+	options?: UseQueriesOptions | undefined,
+): UseQueriesResult<Queries> => {
+	const registry = useRegistry();
+	const use = useHandle(() => makeQueriesUse(registry), [registry]);
+	const paused = options?.paused === true;
+	const atom = use.read(queries, paused);
+	const live = useAtomValue(atom, use.stable);
+	const listed = paused ? null : atom;
+	React.useEffect(
+		function revalidateOnMount() {
+			use.mounted(listed === null ? null : queries);
+		},
+		// `queries` is a new array on most renders; the atom changes only when
+		// it lists other queries.
+		[use, listed],
+	);
+	React.useEffect(
+		function rememberResults() {
+			if (listed !== null) {
+				use.showed(queries, live);
+			}
+		},
+		[use, listed, live],
+	);
+	return (paused ? use.paused(queries) : live) as UseQueriesResult<Queries>;
 };
 
 /**
@@ -269,6 +433,7 @@ export const useSuspenseQuery = <A, E, B = A>(
 		() => makeQueryUse(registry, suspenseStaleTime),
 		[registry],
 	);
+	use.read(query, false);
 	const result = useSelected(use, query, options?.select);
 	React.useEffect(
 		function revalidateOnMount() {
@@ -313,6 +478,8 @@ export interface UseQueryStatePending<A, E> {
 	 * `waiting`. False for a `null` query, and in a server render.
 	 */
 	readonly isFetching: boolean;
+	/** Always false: see {@link UseQueryStateSuccess.isPlaceholder}. */
+	readonly isPlaceholder: false;
 	/** Refetches the query, as {@link UseQueryStateSuccess.refetch} does. */
 	readonly refetch: () => Promise<void>;
 	/** The result the fields come from, an `Initial`. */
@@ -350,6 +517,17 @@ export interface UseQueryStateSuccess<A, E> {
 	readonly isFailure: false;
 	/** True while the query refetches in the background: the result's `waiting`. */
 	readonly isFetching: boolean;
+	/**
+	 * True when `data` isn't the query's own value yet: its placeholder
+	 * ({@link Query.MakeOptions.placeholder}), or, with `keepPrevious`, the
+	 * value of the query shown before. It stays true until the query's own
+	 * value or failure replaces it, and `isFetching` is true meanwhile,
+	 * except for a `paused` reader, which fetches nothing: it keeps the
+	 * placeholder, not fetching, until it resumes. Use it to dim the data,
+	 * or to turn off what needs the real value, such as editing it or paging
+	 * past it.
+	 */
+	readonly isPlaceholder: boolean;
 	/**
 	 * Refetches the query, and resolves when the refetch settles. Never
 	 * rejects: a failure shows in the fields. It keeps its identity while the
@@ -397,6 +575,8 @@ export interface UseQueryStateFailure<A, E> {
 	readonly isFailure: true;
 	/** True while the query is fetched again: the result's `waiting`. */
 	readonly isFetching: boolean;
+	/** Always false: a failure's `data` is the query's own last success. */
+	readonly isPlaceholder: false;
 	/** Refetches the query, as {@link UseQueryStateSuccess.refetch} does. */
 	readonly refetch: () => Promise<void>;
 	/** The result the fields come from, a `Failure`. */
@@ -433,8 +613,8 @@ export type UseQueryStateResult<A, E> =
 
 /**
  * Reads a query as {@link useQuery} does, and returns its result as an object
- * of fields: `status`, `data`, `error`, `isFetching`, `refetch` and more,
- * TanStack Query's shape. It fetches, refetches and takes options as
+ * of fields: `status`, `data`, `error`, `isFetching`, `isPlaceholder`,
+ * `refetch` and more, TanStack Query's shape. It fetches, refetches and takes options as
  * {@link useQuery} does, `select` and `keepPrevious` included.
  *
  * Check `status` before reading `data`: it narrows the object
@@ -481,8 +661,11 @@ export const useQueryState = <A, E, B = A>(
 		[handle, query],
 	);
 	return React.useMemo(
-		() => ({ ...queryState(result), refetch }),
-		[result, refetch],
+		() => ({
+			...queryState(registry, result),
+			refetch,
+		}),
+		[registry, result, refetch],
 	);
 };
 
@@ -588,9 +771,11 @@ export interface UseSuspenseInfiniteQueryResult<
 const usePageControls = <A, E, P>(
 	query: InfiniteQuery.InfiniteQuery<A, E, P> | null,
 	result: AsyncResult.AsyncResult<InfiniteQuery.InfiniteData<A, P>, E>,
+	paused = false,
 ): InfinitePageControls => {
 	const registry = useRegistry();
-	const paging = useAtomValue(pagingAtom(query));
+	// Paused, the controls follow the result shown, not a page in flight.
+	const paging = useAtomValue(pagingAtom(paused ? null : query));
 	const {
 		hasNextPage,
 		hasPreviousPage,
@@ -685,7 +870,11 @@ export const useInfiniteQuery = <A, E, P>(
 	options?: UseQueryOptions | undefined,
 ): UseInfiniteQueryResult<A, E, P> => {
 	const result = useQuery(query, options);
-	const controls = usePageControls(query, result);
+	const controls = usePageControls(
+		query,
+		result,
+		options?.paused === true && query !== null,
+	);
 	return React.useMemo(() => ({ ...controls, result }), [controls, result]);
 };
 

@@ -14,7 +14,7 @@ import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
 import { options as mutationOptions } from "../src/internal/mutation.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
 import { segments } from "../src/internal/routeKey.js";
-import { disposeClients, makeClient, use } from "./helpers.js";
+import { disposeClients, makeClient, record, use } from "./helpers.js";
 import {
 	ApiError,
 	type ApiRequest,
@@ -296,6 +296,35 @@ describe("queries", () => {
 		await client.runPromise(Query.refetch(query));
 
 		expect(bind).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("placeholder", () => {
+	it("shows a value from the call's params until the endpoint answers", async () => {
+		const client = await serve();
+		const seen: Array<unknown> = [];
+		const detail = api.query(getTodo, {
+			placeholder: (args) =>
+				Effect.map(Query.get(todos()), (list) => {
+					seen.push(args);
+					return Option.flatMap(list, (items) =>
+						Option.fromUndefinedOr(
+							items.find((item) => item.id === Number(args.params.id)),
+						),
+					);
+				}),
+		});
+		await client.fetch(todos());
+
+		const shown = record(client.registry, detail({ params: { id: 1 } }));
+
+		await vi.waitFor(() =>
+			expect(shown).toEqual([
+				'Success(waiting) {"id":1,"title":"Write tests"}',
+				'Success {"id":1,"title":"Write tests"}',
+			]),
+		);
+		expect(seen).toEqual([{ params: { id: 1 } }]);
 	});
 });
 

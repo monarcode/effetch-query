@@ -1,7 +1,7 @@
 import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
-import type * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { describe, expectTypeOf, it } from "vitest";
 
@@ -26,6 +26,8 @@ import {
 	type UseMutationRunOptions,
 	useMutationState,
 	type UseMutationStateRun,
+	useQueries,
+	type UseQueriesResult,
 	useQuery,
 	useQueryClient,
 	useQueryState,
@@ -129,6 +131,16 @@ describe("useQueryState", () => {
 		}
 		if (state.isPending) {
 			expectTypeOf(state.data).toEqualTypeOf<undefined>();
+		}
+	});
+
+	it("has isPlaceholder only on a success", () => {
+		const state = useQueryState(todo(1));
+		expectTypeOf(state.isPlaceholder).toEqualTypeOf<boolean>();
+		if (state.status === "success") {
+			expectTypeOf(state.isPlaceholder).toEqualTypeOf<boolean>();
+		} else {
+			expectTypeOf(state.isPlaceholder).toEqualTypeOf<false>();
 		}
 	});
 
@@ -336,5 +348,79 @@ describe("useIsFetching and useIsMutating", () => {
 	it("takes only a mutation", () => {
 		// @ts-expect-error: a query isn't a mutation
 		useIsMutating(todo(1));
+	});
+});
+
+describe("useQueries", () => {
+	const me = Query.make({ key: ["me"], run: Effect.succeed("Ada") });
+
+	it("types a tuple of queries by position", () => {
+		const results = useQueries([me, todo(1), null]);
+
+		expectTypeOf(results).toEqualTypeOf<
+			readonly [
+				AsyncResult.AsyncResult<string, never>,
+				AsyncResult.AsyncResult<{ id: number }, Missing>,
+				AsyncResult.AsyncResult<never, never>,
+			]
+		>();
+	});
+
+	it("types an array of queries, of any length", () => {
+		const ids: ReadonlyArray<number> = [1, 2];
+		const results = useQueries(ids.map((id) => todo(id)));
+
+		expectTypeOf(results).toEqualTypeOf<
+			ReadonlyArray<AsyncResult.AsyncResult<{ id: number }, Missing>>
+		>();
+		expectTypeOf(AsyncResult.all(results)).toEqualTypeOf<
+			AsyncResult.AsyncResult<Array<{ id: number }>, Missing>
+		>();
+	});
+
+	it("types an entry that may be null by its query", () => {
+		const maybe = Math.random() > 0.5 ? me : null;
+
+		expectTypeOf(useQueries([maybe])).toEqualTypeOf<
+			readonly [AsyncResult.AsyncResult<string, never>]
+		>();
+		expectTypeOf<UseQueriesResult<readonly []>>().toEqualTypeOf<
+			readonly []
+		>();
+	});
+
+	it("types an array of different queries by the union of their results", () => {
+		const count = Query.make({ key: ["count"], run: Effect.succeed(1) });
+		const both: ReadonlyArray<typeof me | typeof count> = [me, count];
+
+		expectTypeOf(useQueries(both)).toEqualTypeOf<
+			ReadonlyArray<
+				| AsyncResult.AsyncResult<string, never>
+				| AsyncResult.AsyncResult<number, never>
+			>
+		>();
+		expectTypeOf(
+			useQueries([Math.random() > 0.5 ? me : count]),
+		).toEqualTypeOf<
+			readonly [
+				| AsyncResult.AsyncResult<string, never>
+				| AsyncResult.AsyncResult<number, never>,
+			]
+		>();
+	});
+
+	it("takes only queries", () => {
+		// @ts-expect-error a key isn't a query
+		useQueries([["todos"]]);
+	});
+});
+
+describe("paused", () => {
+	it("is an option of the reading hooks", () => {
+		expectTypeOf(useQuery(todo(1), { paused: true })).toEqualTypeOf<
+			AsyncResult.AsyncResult<{ id: number }, Missing>
+		>();
+		useQueryState(todo(1), { paused: false });
+		useQueries([todo(1)], { paused: true });
 	});
 });
