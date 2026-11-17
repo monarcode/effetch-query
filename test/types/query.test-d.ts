@@ -1,6 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import type * as Option from "effect/Option";
+import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import * as Schedule from "effect/Schedule";
@@ -58,6 +58,68 @@ describe("Query.make", () => {
 		});
 
 		expectTypeOf(mine).toEqualTypeOf<Query.Query<Array<number>, never>>();
+	});
+});
+
+describe("placeholder", () => {
+	interface Todo {
+		readonly id: number;
+		readonly title: string;
+	}
+	const list = Query.make({
+		key: ["todos"],
+		run: Effect.succeed<ReadonlyArray<Todo>>([]),
+	});
+
+	it("leaves the query's type as run gives it", () => {
+		const todo = Query.family({
+			key: ["todo"],
+			run: (id: number) => Effect.succeed<Todo>({ id, title: "" }),
+			placeholder: (id) =>
+				Effect.map(Query.get(list), (cached) => {
+					expectTypeOf(id).toEqualTypeOf<number>();
+					return Option.flatMap(cached, (items) =>
+						Option.fromUndefinedOr(items.find((item) => item.id === id)),
+					);
+				}),
+		});
+		const me = Query.make({
+			key: ["me"],
+			run: Effect.succeed("Ada"),
+			placeholder: Effect.succeed(Option.some("…")),
+		});
+
+		expectTypeOf(todo(1)).toEqualTypeOf<Query.Query<Todo, never>>();
+		expectTypeOf(me).toEqualTypeOf<Query.Query<string, never>>();
+	});
+
+	it("runs with the registered services", () => {
+		Query.make({
+			key: ["greeting"],
+			run: Effect.succeed("hi"),
+			placeholder: Greeting.useSync(({ text }) => Option.some(text)),
+		});
+		Query.make({
+			key: ["unregistered"],
+			run: Effect.succeed(1),
+			// @ts-expect-error Unregistered isn't one of the client's services
+			placeholder: Unregistered.useSync(({ value }) => Option.some(value)),
+		});
+	});
+
+	it("must give the query's value type, and can't fail", () => {
+		Query.make({
+			key: ["n"],
+			run: Effect.succeed(1),
+			// @ts-expect-error a string isn't the query's number
+			placeholder: Effect.succeed(Option.some("one")),
+		});
+		Query.make({
+			key: ["n"],
+			run: Effect.succeed(1),
+			// @ts-expect-error a placeholder can't fail
+			placeholder: Effect.fail(new NotFound()),
+		});
 	});
 });
 

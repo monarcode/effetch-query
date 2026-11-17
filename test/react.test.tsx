@@ -19,7 +19,10 @@ import {
 	MissingQueryProviderError,
 	QueryFailure,
 	QueryProvider,
+	useIsFetching,
+	useIsMutating,
 	useMutation,
+	useMutationState,
 	useQuery,
 	useQueryClient,
 	useRefetch,
@@ -596,6 +599,199 @@ describe("useMutation", () => {
 	});
 });
 
+describe("useMutation's variables", () => {
+	it("shows the change a run is making until it settles", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const add = Mutation.make({
+			run: (title: string) => Effect.as(slow.wait, title),
+		});
+		let run: ((title: string) => Promise<unknown>) | undefined;
+		const Form = () => {
+			const controls = useMutation(add);
+			run = controls.run;
+			return (
+				<p data-testid="result">
+					{controls.result.waiting ? controls.variables : "idle"}
+				</p>
+			);
+		};
+		render(withClient(client, <Form />));
+
+		let pending: Promise<unknown> | undefined;
+		act(() => {
+			pending = run?.("Buy milk");
+		});
+		expect(text()).toBe("Buy milk");
+		slow.open();
+		await act(async () => {
+			await pending;
+		});
+
+		expect(text()).toBe("idle");
+	});
+});
+
+describe("useMutationState, useIsMutating and useIsFetching", () => {
+	it("list the runs every component started, oldest first", async () => {
+		const client = await makeClient();
+		const gates = { a: gate(), b: gate() };
+		const add = Mutation.make({
+			run: (label: "a" | "b") => Effect.as(gates[label].wait, label),
+		});
+		const Saver = ({ label }: { readonly label: "a" | "b" }) => {
+			const { run } = useMutation(add);
+			return (
+				<button
+					type="button"
+					data-testid={label}
+					onClick={() => run(label)}
+				>
+					{label}
+				</button>
+			);
+		};
+		const Saving = () => {
+			const runs = useMutationState(add);
+			return (
+				<p data-testid="result">
+					{runs.map((run) => run.variables).join(",")}:{useIsMutating(add)}
+				</p>
+			);
+		};
+		render(
+			withClient(
+				client,
+				<>
+					<Saver label="b" />
+					<Saver label="a" />
+					<Saving />
+				</>,
+			),
+		);
+
+		await act(async () => screen.getByTestId("a").click());
+		await act(async () => screen.getByTestId("b").click());
+		expect(text()).toBe("a,b:2");
+		await act(async () => gates.a.open());
+		expect(text()).toBe("b:1");
+		await act(async () => gates.b.open());
+
+		expect(text()).toBe(":0");
+	});
+
+	it("count the queries fetching, by target", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const todos = Query.make({ key: ["todos"], run: slow.wait });
+		const Counts = () => (
+			<p data-testid="result">
+				{useIsFetching()}/{useIsFetching(["todos"])}/
+				{useIsFetching(["profile"])}
+			</p>
+		);
+		render(withClient(client, <Counts />));
+		expect(text()).toBe("0/0/0");
+
+		let fetching: Promise<unknown> | undefined;
+		await act(async () => {
+			fetching = client.runPromise(Query.fetch(todos));
+		});
+		expect(text()).toBe("1/1/0");
+		slow.open();
+		await act(async () => {
+			await fetching;
+		});
+
+		expect(text()).toBe("0/0/0");
+	});
+
+	it("count a fetch that a component starts while rendering, in StrictMode", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const todos = Query.make({ key: ["todos"], run: slow.wait });
+		const errors = vi.spyOn(console, "error");
+		const Page = () => (
+			<>
+				<p data-testid="count">{useIsFetching()}</p>
+				<Shows query={todos} />
+			</>
+		);
+		render(
+			<React.StrictMode>{withClient(client, <Page />)}</React.StrictMode>,
+		);
+
+		await act(async () => {});
+		expect(text("count")).toBe("1");
+		await act(async () => slow.open());
+
+		expect(text("count")).toBe("0");
+		expect(errors).not.toHaveBeenCalled();
+		errors.mockRestore();
+	});
+
+	it("count a run in progress that started before they mounted", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const waiting = Mutation.make({ run: () => slow.wait });
+		const run = client.runPromise(Mutation.run(waiting));
+		await act(async () => {});
+		const Count = () => <p data-testid="result">{useIsMutating()}</p>;
+
+		render(withClient(client, <Count />));
+
+		expect(text()).toBe("1");
+		slow.open();
+		await act(async () => {
+			await run;
+		});
+		expect(text()).toBe("0");
+	});
+
+	it("show nothing in progress in a server render", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const waiting = Mutation.make({
+			run: (n: number) => Effect.as(slow.wait, n),
+		});
+		const query = Query.make({ key: ["slow"], run: slow.wait });
+		const runs = [
+			client.runPromise(Mutation.run(waiting, 1)),
+			client.runPromise(Query.fetch(query)),
+		];
+		await act(async () => {});
+		const Activity = () => (
+			<p>
+				{useMutationState(waiting).length}/{useIsMutating()}/
+				{useIsFetching()}
+			</p>
+		);
+
+		const html = renderToString(withClient(client, <Activity />));
+
+		expect(html.replaceAll("<!-- -->", "")).toContain("0/0/0");
+		slow.open();
+		await Promise.all(runs);
+	});
+
+	it("drop the runs a disposed client interrupted", async () => {
+		const client = await makeClient();
+		const waiting = Mutation.make({ run: () => Effect.never });
+		const Count = () => <p data-testid="result">{useIsMutating()}</p>;
+		render(withClient(client, <Count />));
+
+		await act(async () => {
+			void client.runPromiseExit(Mutation.run(waiting));
+		});
+		expect(text()).toBe("1");
+		await act(async () => {
+			await dispose(client);
+		});
+
+		expect(text()).toBe("0");
+	});
+});
+
 describe("useRefetch", () => {
 	it("is refetching only for its own refetch, not a focus revalidation (G8)", async () => {
 		const { focus, signals } = manualSignals();
@@ -858,5 +1054,125 @@ describe("useInfiniteQuery and useSuspenseInfiniteQuery", () => {
 		expect(screen.queryByText("failed")).toBeNull();
 		await act(() => more());
 		expect(text()).toBe("0,1,2,3 +more");
+	});
+});
+
+describe("clear", () => {
+	const Name = ({ query }: { readonly query: Query.Query<string, never> }) => (
+		<p data-testid="result">{useSuspenseQuery(query).value}</p>
+	);
+
+	it("leaves a mounted useQuery showing Initial, and a newly mounted one fetches", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(
+			["account"],
+			(n) => Effect.succeed(n),
+			{
+				staleTime: "1 hour",
+			},
+		);
+		const { rerender } = render(withClient(client, <Shows query={query} />));
+		await act(async () => {});
+		expect(text()).toBe("Success 1");
+
+		await act(() => client.clear());
+		expect(text()).toBe("Initial");
+		expect(fetches.count).toBe(1);
+
+		rerender(
+			withClient(
+				client,
+				<>
+					<Shows query={query} />
+					<Shows query={query} label="second" />
+				</>,
+			),
+		);
+		await act(async () => {});
+		expect(fetches.count).toBe(2);
+		expect(text("second")).toBe("Success 2");
+		expect(text()).toBe("Success 2");
+	});
+
+	it("shows a mounted useSuspenseQuery's fallback without fetching", async () => {
+		const client = await makeClient();
+		const { fetches, query } = tracked(["me"], () => Effect.succeed("Ada"), {
+			staleTime: "1 hour",
+		});
+		render(
+			withClient(
+				client,
+				<React.Suspense fallback={<p>loading</p>}>
+					<Name query={query} />
+				</React.Suspense>,
+			),
+		);
+		expect(await screen.findByText("Ada")).toBeDefined();
+
+		await act(() => client.clear());
+
+		expect(await screen.findByText("loading")).toBeDefined();
+		await act(async () => {});
+		expect(fetches.count).toBe(1);
+
+		await act(() => client.invalidate(query));
+		expect(await screen.findByText("Ada")).toBeDefined();
+		expect(fetches.count).toBe(2);
+	});
+
+	it("wakes a query for a new Suspense reader without updating another during render", async () => {
+		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+		const client = await makeClient();
+		const { fetches, query } = tracked(["shared"], (n) => Effect.succeed(n), {
+			staleTime: "1 hour",
+		});
+		const Reads = ({
+			query,
+		}: {
+			readonly query: Query.Query<number, never>;
+		}) => <p data-testid="suspended">{useSuspenseQuery(query).value}</p>;
+		const tree = (both: boolean) =>
+			withClient(
+				client,
+				<React.StrictMode>
+					<Shows query={query} />
+					{both ? (
+						<React.Suspense fallback={<p>loading</p>}>
+							<Reads query={query} />
+						</React.Suspense>
+					) : null}
+				</React.StrictMode>,
+			);
+		const { rerender } = render(tree(false));
+		await act(async () => {});
+		await act(() => client.clear());
+
+		rerender(tree(true));
+		await act(async () => {});
+
+		expect(text("suspended")).toBe("2");
+		expect(text()).toBe("Success 2");
+		expect(fetches.count).toBe(2);
+		expect(errors).not.toHaveBeenCalled();
+		errors.mockRestore();
+	});
+
+	it("doesn't keep showing a cleared value with keepPrevious", async () => {
+		const client = await makeClient();
+		const { query } = tracked(["previous"], (n) => Effect.succeed(n), {
+			staleTime: "1 hour",
+		});
+		const Keeps = () => (
+			<p data-testid="result">
+				{show(useQuery(query, { keepPrevious: true }))}
+			</p>
+		);
+		render(withClient(client, <Keeps />));
+		await act(async () => {});
+		expect(text()).toBe("Success 1");
+
+		await act(() => client.clear());
+
+		expect(text()).toBe("Initial");
 	});
 });

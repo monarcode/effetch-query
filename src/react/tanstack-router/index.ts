@@ -8,7 +8,7 @@ import { QueryProvider } from "../QueryProvider.js";
 
 /**
  * Which queries {@link connectQueryClient} sends from the server, as
- * `QueryClient.DehydrateOptions` chooses them. Queries still loading are
+ * {@link QueryClient.DehydrateOptions} chooses them. Queries still loading are
  * always sent, as promises the browser waits for: the router's serializer
  * carries them.
  *
@@ -25,7 +25,10 @@ import { QueryProvider } from "../QueryProvider.js";
  * @since 0.1.0
  */
 export interface ConnectDehydrateOptions {
-	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
+	/**
+	 * A target: only the queries it matches are sent, as
+	 * {@link Query.invalidate} matches them. Default: every query.
+	 */
 	readonly queries?: Query.Target | undefined;
 	/**
 	 * A failed query: `"include"` sends it with its error, encoded with the
@@ -64,17 +67,21 @@ export interface ConnectQueryClientOptions {
 	 * request ends.
 	 */
 	readonly queryClient: QueryClient.QueryClient;
-	/** Which queries the server sends. */
+	/**
+	 * The queries the server sends. Default: every query that can be sent
+	 * (one with a `schema`, or an Effetch endpoint's with an `output`),
+	 * failures left out.
+	 */
 	readonly dehydrate?: ConnectDehydrateOptions | undefined;
 	/**
-	 * Whether a query or mutation that fails or dies with a `redirect()`
+	 * If true, a query or mutation that fails or dies with a `redirect()`
 	 * navigates there, in the browser, unless an Effect awaits the fetch
-	 * (a loader's `Query.fetch`). Default: `true`.
+	 * (a loader's `client.fetch`). Default: `true`.
 	 */
 	readonly handleRedirects?: boolean | undefined;
 	/**
-	 * Whether to wrap the router's `Wrap` in a `QueryProvider` for the client.
-	 * Default: `true`.
+	 * If true, wraps the router's `Wrap` in a `QueryProvider` for the client;
+	 * if false, render your own. Default: `true`.
 	 */
 	readonly wrapQueryClient?: boolean | undefined;
 }
@@ -99,13 +106,13 @@ export interface ConnectQueryClientOptions {
  *   `Effect.die(redirect({ to: "/login" }))`, to keep it out of the error
  *   type, inside the Effect so each run makes its own: the router resolves
  *   a redirect in place. A fetch an Effect awaits (`Query.fetch` or
- *   `Query.prefetch`) is left to it: in a loader, `runPromise` rejects with
+ *   `Query.prefetch`) is left to it: in a loader, `client.fetch` rejects with
  *   the redirect and the router follows it, and a preload's is dropped, as
  *   the router drops it. So load a query that may redirect with
- *   `Query.fetch`: one only prefetched fails in its readers instead.
+ *   `client.fetch`: one only prefetched fails in its readers instead.
  *
- * Load data in loaders with `context.queryClient.runPromise(Query.fetch(…))`,
- * which returns a fresh value without fetching, and set the router's
+ * Load data in loaders with `context.queryClient.fetch(query)`, which
+ * returns a fresh value without fetching, and set the router's
  * `defaultPreloadStaleTime` to `0`, so the queries' `staleTime` decides
  * what's refetched rather than the router's own loader cache. Only queries
  * with a `schema` cross to the browser.

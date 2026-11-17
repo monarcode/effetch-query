@@ -3,7 +3,10 @@
 	"compilerOptions": {
 		"module": "ESNext",
 		"moduleResolution": "Bundler",
-		"types": ["vite/client"]
+		"types": ["vite/client"],
+		// Each route's `./+types/<route>` lives in the types `react-router
+		// typegen` writes, which this lines up with `app/`.
+		"rootDirs": [".", "./.react-router/types"]
 	},
-	"include": ["."]
+	"include": [".", ".react-router/types/**/*"]
 }

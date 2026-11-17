@@ -2,6 +2,200 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-rc.3
+
+Released alongside `@monarcode/effetch` 0.1.0-rc.3, which it needs: upgrade
+both together. Additions agreed as exceptions to the API freeze, as the rc.1
+and rc.2 additions were.
+
+### Added
+
+- `fromClient` in `@monarcode/effetch-query/effetch`: the new name of
+  `endpoints`, which works the same. It says what it takes, your Effetch
+  client, and no longer reads like Effetch's `Fetch.endpoint` and
+  `Fetch.Endpoints`.
+- Live queries, which a server keeps current while they're read:
+  - `Query.stream({ key, run })` and `Query.streamFamily`: the value is a
+    `Stream`'s latest element, such as a price feed over a WebSocket.
+    `Query.fetch` returns the first element; `retry` resubscribes after a
+    failure; `refetch`, `invalidate` and `reset` subscribe again.
+  - `live` on `Query.make`, `Query.family` and `api.query`: a `Stream` of
+    updates, each applied to the fetched value as it arrives. A push keeps
+    the value's age, and is applied again to a fetch that was running and
+    after an optimistic write is undone, so make updates idempotent.
+  - `api.query` takes Effetch stream endpoints (`stream: "sse"` or
+    `"ndjson"`) as stream queries keyed by route, holding each
+    `Fetch.SseEvent` or NDJSON value; `EndpointStreamOptions` types their
+    options.
+
+  The stream runs only while the query is read, and stops about a second
+  after the last reader leaves; the value stays cached for `gcTime`.
+
+- `Entity`: one record held by many queries, written everywhere it's
+  cached. `Entity.make(Todo, { id })` says once what identifies a todo;
+  `Entity.update(Todos, id, f)`, `Entity.set(Todos, todo)` and
+  `Entity.remove(Todos, id)` write every cached query whose schema holds
+  it (an endpoint's `output`, or a query's `schema`), recorded like
+  `Query.update`, so a failed mutation undoes them, and keep each query's
+  age, so they make none fresh; a query showing a failure is left to its
+  refetch. A `Schema.Class` entity keeps its class when the updater returns
+  a plain copy. `Entity.get(Todos, id)` reads the newest
+  copy, for a `placeholder`. Nothing is normalized, and a query without a
+  schema is skipped.
+- `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`: derive
+  what a component shows from a query's value, such as a count or one
+  field. The component doesn't re-render for changes the selection doesn't
+  show, and the query still refetches on mount and focus, which a derived
+  atom read with `useAtomValue` doesn't.
+- `useQueryState(query, options?)`: reads a query as `useQuery` does and
+  returns an object with `status`, `data`, `error`, `cause`, `isPending`,
+  `isSuccess`, `isFailure`, `isFetching`, `isPlaceholder`, `refetch` and
+  `result`. Checking `status` narrows `data` and `error`.
+- `QueryBoundary`: shows `pending` while the queries inside suspend, and
+  `failure({ error, cause, retry })` when one throws a `QueryFailure`,
+  until `retry` or until the query succeeds. Other errors go on to the next
+  error boundary.
+- `placeholder` on `api.query`, `Query.make` and `Query.family`: a value
+  to show, as a waiting `Success`, until the first fetch settles, such as a
+  list's copy of an item. On `api.query`, it gets the call's `params` and
+  `query`. It's never cached, fetched, updated or sent, a query reading
+  this one through `ctx.result` waits for the real value, and a server
+  render doesn't show it. `useQueryState`'s `isPlaceholder` is true while
+  it shows, and while `keepPrevious` shows the previous query's value.
+- `useQueries(queries, options?)` reads a list of queries whose length can
+  change, and returns their results in order: a tuple for a tuple, an
+  array for an array. Combine them with `AsyncResult.all`.
+- `paused` on `useQuery`, `useQueryState`, `useInfiniteQuery` and
+  `useQueries`: the hook keeps showing what it had and doesn't count as a
+  use, so invalidation, focus and polling don't refetch for it. What it
+  shows isn't `waiting`, and a `clear` replaces it with what the cache has.
+  When it resumes, the query refetches if it's stale. For screens a
+  navigator keeps mounted.
+- `Query.clear(target)` and `client.clear()` drop values without
+  fetching, for signing out: the screens still mounted don't refetch with
+  no session, and values `hydrate` left for queries not yet read are
+  dropped too. Queries in use show `Initial` until something asks for them
+  (a component that starts using one, `fetch`, `invalidate` or
+  `refetch`). A query that reads a cleared one through `ctx.result` is
+  cleared too. A `fetch` waiting on a cleared query is interrupted and a
+  `refetch` resolves, and a mutation's optimistic write made before the
+  clear isn't rolled back over it, and `useResetQueryFailure` fetches a
+  cleared query again. `Query.reset` still fetches again at once.
+- The client has the cache functions as methods, for code outside Effect
+  such as router loaders and event handlers. Each does what its `Query`
+  function does:
+  - `client.fetch(query)` returns `Promise<A>`, rejected as the query
+    fails, so a router's redirect still gets through. It replaces
+    `client.runPromise(Query.fetch(query))`.
+  - `client.prefetch(query)` never rejects: `void client.prefetch(query)`
+    replaces `void client.runPromiseExit(Query.prefetch(query))`.
+  - `client.invalidate`, `refetch`, `reset` and `clear` take a target, or
+    none for every query.
+- `QueryClient.make()` and `QueryClient.layer()` take no options when
+  `Register` declares no services (`QueryClient.OptionalOptions`).
+- `useMutation` returns `variables`: the variables of the run `result`
+  shows, `undefined` before the first run and after `reset`. Render the
+  change a run is making from them, without touching the cache.
+- `useMutationState(mutation)` lists a mutation's runs in progress on the
+  client, oldest first, with their variables, whichever component or
+  `Mutation.run` started them.
+- `concurrent` takes `"queue"` and `"drop"` as well as `true` and `false`.
+  With `"queue"`, one `useMutation`'s runs go one at a time, in order; a
+  queued run counts as in progress, and its `optimistic` runs when it
+  starts. With `"drop"`, a run started while the one `useMutation` shows is
+  in progress is ignored, and its `run` resolves at once with an
+  interrupted `Exit`.
+- `useIsFetching(target?)` and `useIsMutating(mutation?)` count the queries
+  fetching and the mutation runs in progress, for an app-wide progress
+  bar. A server render, and the first render as the page hydrates, count
+  none.
+- `fromClient(Api)` reads `defaultError` and `statusErrors` from a
+  `Fetch.Service` class (Effetch `0.1.0-rc.3`), so the client's errors
+  reach the browser in server rendering without naming them twice. A client
+  behind a `Context.Service` key works as before, with the options, and
+  options still replace the class's. `Fetch.Endpoints` definitions work with
+  `api.query` and `api.mutation`.
+- `api.query`, `api.infiniteQuery` and `api.mutation` take endpoints with
+  a `query` schema (Effetch `0.1.0-rc.3`), with `query` typed by the
+  schema. A query is keyed by its query as sent, each value encoded to a
+  string (a `Date` as its ISO string), so equal requests share a query and
+  the key goes to the browser as JSON. A query that doesn't match the
+  schema, or has a `Redacted` field, throws an `EndpointQueryError`. An
+  infinite query's `pageParam` names an optional field of the schema.
+- `fromClient(Api, { invalidates: "route" })`: an endpoint mutation that
+  succeeds invalidates its route's queries, the keys under its literals
+  before the first param (`PATCH /todos/:id` invalidates `["todos"]`; a
+  route with no param, its whole path). A mutation's own `invalidates`
+  replaces it, and `invalidates: []` turns it off. Without the option,
+  mutations invalidate only what they say.
+
+### Changed
+
+- `@monarcode/effetch` peer range: `>=0.1.0-rc.3 <0.2.0`. Upgrade Effetch
+  with Effetch Query.
+- A key that holds a query, a family or a group, such as
+  `Query.invalidate([wallet, transactions])`, fails with a
+  `KeyHoldsTargetError` defect instead of silently matching nothing.
+  Combine targets with `Query.group`. In a mutation's `invalidates` list,
+  the run fails that way before it starts; from an `invalidates` function,
+  which runs after the change is saved, the target is logged and skipped.
+- The API reference (JSDoc) was audited across every entry point: each
+  function says what it returns and how it fails, each option its default,
+  and related exports link to each other. Documentation only: no type or
+  behaviour changed.
+- The README is rewritten as the full guide, in the order you learn the
+  library: how it works, getting started, then queries, reading them in
+  React, mutations, the cache, infinite and live queries, platforms,
+  server rendering and frameworks. It covers every API, new and old, with
+  an API reference that lists every export of every entry point, and badges
+  for the frameworks it supports. Along the way:
+  - The setup uses `Fetch.Service`, with a section for a client made with
+    `Fetch.make`; a `Fetch.optional` recipe covers a detail that may not
+    exist; the testing section uses Effetch's `FetchTest`.
+  - "Invalidate after a mutation" puts the three ways side by side: per
+    mutation, by route, and everything after any mutation
+    (`mutations: { onSuccess: () => Query.invalidate([]) }`).
+  - Router loaders use `client.fetch`, and `useRefetch([a, b])` is shown
+    failing with `KeyHoldsTargetError`: pass a `Query.group`.
+  - "Sign out and switch accounts" leads with a client per account
+    (`QueryProvider` with `make` and `resetKey`), which follows the account
+    when a session ends or changes away from your sign-out button, such as
+    in another tab. `client.clear()` stays as the simpler option when only
+    your button ends the session. The TanStack guide's redirect example
+    says to catch the typed error when `statusErrors` maps the 401.
+  - The TanStack mapping covers every addition, and names
+    `queryClient.query()`, which TanStack Query 5.102 added, deprecating
+    `ensureQueryData`, `fetchQuery` and `prefetchQuery`.
+
+- The full examples (`tanstack-start`, `tanstack-start-httpclient` and
+  `react-router`) follow their router's patterns and use more of the
+  library: typed `Unauthorized` and `TodoNotFound` errors, one guard for
+  the signed-in pages (`beforeLoad` in TanStack Router, `middleware` in
+  React Router), React Router's generated route types, `params.parse` and
+  `pendingComponent` in TanStack Router, page titles, a todo opened from a
+  list shown at once (`placeholder` with `Entity.get`), app-wide
+  `useIsFetching` and `useIsMutating` indicators, `select`, sign-in with
+  `concurrent: "drop"`, and a `retry` for network failures. The shared
+  `AppShell` takes `loading` and `saving`, and the shared suite tests all
+  of it on all three built apps. In `tanstack-start-httpclient`, "Load
+  more" after a delete no longer repeats a todo, and All todos' count
+  drops with a delete in every app.
+
+- `effect-only` shows a live query (`Query.stream` on a store that pushes
+  its count), `Query.refetch` of a `Query.group` next to
+  `Query.invalidate`, and a client `queries.onFailure` hook.
+  `test/examples/effect-only` runs it.
+
+### Deprecated
+
+- `endpoints`: use `fromClient`, and rename the import and the call. It
+  works the same through the 0.1 releases, and goes in 0.2.0.
+
+### Fixed
+
+- A reader that switched to a query another component had fetched earlier
+  didn't refetch it on mount, however stale it was.
+
 ## 0.1.0-rc.2
 
 Released alongside `@monarcode/effetch` 0.1.0-rc.2. Additions agreed as
@@ -132,10 +326,10 @@ fixes only.
   included, for a `HydrationBoundary`.
 - New examples, all on dummyjson.com's todos and auth APIs: `basic`, a
   list with an optimistic toggle in one small React app; and three full
-  apps with the same pages, sign-in and look: `tanstack-start` (effetch
+  apps with the same pages, sign-in and look: `tanstack-start` (Effetch
   endpoints), `tanstack-start-httpclient` (Effect's `HttpClient`, with
   `Query.family` and `Mutation.make`) and `react-router` (framework mode,
-  effetch endpoints). The examples are plain code now, typechecked with the
+  Effetch endpoints). The examples are plain code now, typechecked with the
   package; `test/examples` builds `tanstack-start` and `react-router`,
   serves them against an in-memory dummyjson, and hydrates their pages in
   happy-dom.
@@ -160,9 +354,9 @@ fixes only.
   process-wide `ManagedRuntime`, so the app's layer is built once.
 - The `todos` and `ssr` examples are replaced by the new ones, and no
   example carries its own tests any more.
-- The README is rewritten: why effetch-query exists and how it relates to
-  TanStack Query, a step-by-step start, and every example built on effetch,
-  with a "Without effetch" section for queries over any Effect.
+- The README is rewritten: why Effetch Query exists and how it relates to
+  TanStack Query, a step-by-step start, and every example built on Effetch,
+  with a "Without Effetch" section for queries over any Effect.
 
 ### Fixed
 

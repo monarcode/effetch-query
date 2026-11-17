@@ -12,7 +12,8 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type { Query } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import type { Signals } from "../Signals.js";
-import type { CacheEvent } from "./events.js";
+import { type Activity, type CacheEvent, makeActivity } from "./events.js";
+import type { PushLog } from "./live.js";
 
 /** What `QueryClient.make` stores for queries and mutations to read at run time. */
 export interface Config {
@@ -65,6 +66,26 @@ export interface ClientState {
 	>;
 	/** Run by `dispose()`: settles the promises `dehydrate` handed out. */
 	readonly onDispose: Set<() => void>;
+	/**
+	 * How many times `clear` has dropped each query: an optimistic write's
+	 * undo made before a clear does nothing (see `cache.ts`).
+	 */
+	readonly clears: WeakMap<Query<any, any>, number>;
+	/** Fetches and mutation runs in progress (see `events.ts`). */
+	readonly activity: Activity;
+	/** How many mutation runs have started, which numbers them. */
+	runCount: number;
+	/**
+	 * Results whose value isn't their query's own: what a query showed from
+	 * its `placeholder` (a value, but not one to wait for, derive from or
+	 * keep; see `queryAtom.ts`), and readers' copies of a borrowed value
+	 * (`queryUse.ts`): a selection or a settled copy of a placeholder, and
+	 * the success `keepPrevious` keeps from another query. Only readers make
+	 * those copies, so the core's own checks never see them.
+	 */
+	readonly placeholders: WeakSet<AsyncResult.AsyncResult<any, any>>;
+	/** Each live query's pushes, while a fetch or an undo may need them (see `live.ts`). */
+	readonly pushes: WeakMap<Query<any, any>, PushLog>;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -72,6 +93,7 @@ export const makeClientState = (): ClientState => ({
 	listeners: new Set(),
 	fibers: new Set(),
 	disposed: false,
+	clears: new WeakMap(),
 	suspensions: new Map(),
 	fetchCount: 0,
 	fetchedAt: new WeakMap(),
@@ -79,6 +101,10 @@ export const makeClientState = (): ClientState => ({
 	streamed: new Map(),
 	preloads: new WeakMap(),
 	onDispose: new Set(),
+	activity: makeActivity(),
+	runCount: 0,
+	placeholders: new WeakSet(),
+	pushes: new WeakMap(),
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */
@@ -142,7 +168,7 @@ export const initialValues = (input: {
 	readonly context: Effect.Effect<Context.Context<QueryClient.Requirements>>;
 	readonly memoMap: Layer.MemoMap;
 	readonly state: ClientState;
-	readonly options: QueryClient.Options;
+	readonly options: QueryClient.CommonOptions;
 }): ReadonlyArray<readonly [Atom.Atom<unknown>, unknown]> => [
 	initialValue(ContextAtom, input.context),
 	initialValue(MemoMapAtom, input.memoMap),

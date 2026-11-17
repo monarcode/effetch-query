@@ -1,4 +1,11 @@
 /**
+ * Entities: one record held by many queries, written everywhere it's
+ * cached through the queries' schemas.
+ *
+ * @since 0.1.0
+ */
+export * as Entity from "./Entity.js";
+/**
  * Infinite queries: pages loaded one at a time, for "load more" lists and
  * infinite scroll.
  *
@@ -25,7 +32,7 @@ export * as Query from "./Query.js";
  */
 export * as QueryClient from "./QueryClient.js";
 /**
- * Focus and reconnect signals that make queries in use refetch.
+ * Focus and reconnect signals that make stale queries in use refetch.
  *
  * @since 0.1.0
  */

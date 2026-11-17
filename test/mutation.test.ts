@@ -8,6 +8,7 @@ import * as Schedule from "effect/Schedule";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Mutation, Query, QueryClient } from "../src/index.js";
+import { makeActivityHandle, noRuns } from "../src/internal/activity.js";
 import { type CacheEvent, subscribe } from "../src/internal/events.js";
 import { makeHandle } from "../src/internal/mutationHandle.js";
 import { internals } from "../src/internal/queryAtom.js";
@@ -154,6 +155,40 @@ describe("Mutation.run", () => {
 		unmount.forEach((f) => f());
 
 		expect(queries.map(({ fetches }) => fetches.count)).toEqual([1, 2, 2, 1]);
+	});
+
+	it("fails before its run when invalidates holds a key that holds a query", async () => {
+		const client = await makeClient();
+		const { query } = tracked(["todos"], () => Effect.succeed(1));
+		let runs = 0;
+		const save = Mutation.make({
+			run: () => Effect.sync(() => runs++),
+			invalidates: [[query]],
+		});
+
+		const exit = await client.runPromiseExit(Mutation.run(save, undefined));
+
+		expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
+			_tag: "KeyHoldsTargetError",
+		});
+		expect(runs).toBe(0);
+	});
+
+	it("succeeds, and skips the target, when invalidates returns a key that holds a query", async () => {
+		const client = await makeClient();
+		const { query } = tracked(["todos"], () => Effect.succeed(1));
+		const settled: Array<string> = [];
+		const save = Mutation.make({
+			run: () => Effect.succeed("saved"),
+			invalidates: () => [[query], ["other"]],
+			onSuccess: () => Effect.sync(() => settled.push("success")),
+			onFailure: () => Effect.sync(() => settled.push("failure")),
+		});
+
+		const exit = await client.runPromiseExit(Mutation.run(save, undefined));
+
+		expect(exit).toEqual(Exit.succeed("saved"));
+		expect(settled).toEqual(["success"]);
 	});
 
 	it("calls its options and the client's hooks in order on failure", async () => {
@@ -873,5 +908,427 @@ describe("a run's callbacks", () => {
 		await handle.run(2, logged(log));
 
 		expect(log).toEqual(["success 2 2", "settled Success"]);
+	});
+});
+
+const isInterrupted = (exit: Exit.Exit<unknown, unknown>) =>
+	Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause);
+
+describe('concurrent: "queue"', () => {
+	it("runs one at a time, in order", async () => {
+		const client = await makeClient();
+		const log: Array<string> = [];
+		const gates = [gate(), gate(), gate()];
+		const save = Mutation.make({
+			run: (n: number) =>
+				Effect.sync(() => log.push(`start ${n}`)).pipe(
+					Effect.andThen(gates[n]!.wait),
+					Effect.tap(() => Effect.sync(() => log.push(`end ${n}`))),
+					Effect.as(n),
+				),
+			concurrent: "queue",
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const runs = [handle.run(0), handle.run(1), handle.run(2)];
+		await flush();
+		expect(log).toEqual(["start 0"]);
+		gates[2]!.open();
+		gates[1]!.open();
+		await flush();
+		expect(log).toEqual(["start 0"]);
+		gates[0]!.open();
+
+		expect(await Promise.all(runs)).toEqual([0, 1, 2].map(Exit.succeed));
+		expect(log).toEqual([
+			"start 0",
+			"end 0",
+			"start 1",
+			"end 1",
+			"start 2",
+			"end 2",
+		]);
+	});
+
+	it("writes a run's optimistic update when it starts, and rolls back only its own", async () => {
+		const client = await makeClient();
+		const { query, current } = await cached(client, "n", 0);
+		const shown = record(client.registry, query);
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) =>
+				n === 1
+					? Effect.andThen(slow.wait, Effect.fail(new Rejected()))
+					: Effect.succeed(n),
+			optimistic: (n) => Query.set(query, n),
+			concurrent: "queue",
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const first = handle.run(1);
+		const second = handle.run(2);
+		await flush();
+		expect(current()).toBe(1);
+		slow.open();
+		await Promise.all([first, second]);
+
+		expect(shown).toEqual([
+			"Success 0",
+			"Success 1",
+			"Success 0",
+			"Success 2",
+		]);
+	});
+
+	it("calls only the latest run's callbacks, and resolves every run", async () => {
+		const client = await makeClient();
+		const called: Array<number> = [];
+		const save = Mutation.make({
+			run: (n: number) => Effect.succeed(n),
+			concurrent: "queue",
+		});
+		const handle = makeHandle(client.registry, save);
+		const onSuccess = (n: number) => {
+			called.push(n);
+		};
+
+		const exits = await Promise.all([
+			handle.run(1, { onSuccess }),
+			handle.run(2, { onSuccess }),
+		]);
+
+		expect(exits).toEqual([Exit.succeed(1), Exit.succeed(2)]);
+		expect(called).toEqual([2]);
+	});
+
+	it("counts a queued run as in progress", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) => Effect.as(slow.wait, n),
+			concurrent: "queue",
+		});
+		const handle = makeHandle(client.registry, save);
+		const activity = makeActivityHandle(client.registry);
+
+		const runs = [handle.run(1), handle.run(2)];
+		await flush();
+
+		expect(activity.mutating(save)).toBe(2);
+		expect(activity.runs(save).map((run) => run.variables)).toEqual([1, 2]);
+		slow.open();
+		await Promise.all(runs);
+		expect(activity.mutating(save)).toBe(0);
+	});
+
+	it("interrupts queued runs on dispose", async () => {
+		const client = await makeClient();
+		const started: Array<number> = [];
+		const save = Mutation.make({
+			run: (n: number) =>
+				Effect.andThen(
+					Effect.sync(() => started.push(n)),
+					Effect.never,
+				),
+			concurrent: "queue",
+		});
+		const handle = makeHandle(client.registry, save);
+		const activity = makeActivityHandle(client.registry);
+
+		const runs = [handle.run(1), handle.run(2)];
+		await flush();
+		await dispose(client);
+		const exits = await Promise.all(runs);
+
+		expect(exits.every(isInterrupted)).toBe(true);
+		expect(started).toEqual([1]);
+		expect(activity.mutating()).toBe(0);
+		expect(activity.runs(save)).toEqual([]);
+	});
+});
+
+describe('concurrent: "drop"', () => {
+	it("ignores a run while one is in progress", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const started: Array<number> = [];
+		const { query, current } = await cached(client, "n", 0);
+		const save = Mutation.make({
+			run: (n: number) =>
+				Effect.andThen(
+					Effect.sync(() => started.push(n)),
+					Effect.as(slow.wait, n),
+				),
+			optimistic: (n) => Query.set(query, n),
+			concurrent: "drop",
+		});
+		const handle = makeHandle(client.registry, save);
+		const shown = record(client.registry, handle.result);
+		const called: Array<number> = [];
+		const onSuccess = (n: number) => {
+			called.push(n);
+		};
+		const activity = makeActivityHandle(client.registry);
+
+		const first = handle.run(1, { onSuccess });
+		await flush();
+		const dropped = await handle.run(2, { onSuccess });
+
+		expect(isInterrupted(dropped)).toBe(true);
+		expect(current()).toBe(1);
+		expect(client.registry.get(handle.variables)).toBe(1);
+		expect(activity.mutating(save)).toBe(1);
+		slow.open();
+		expect(await first).toEqual(Exit.succeed(1));
+		expect(started).toEqual([1]);
+		expect(called).toEqual([1]);
+		expect(shown).toEqual(["Initial", "Initial(waiting)", "Success 1"]);
+	});
+
+	it("starts a run after reset, while the run it stopped showing carries on", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const started: Array<number> = [];
+		const save = Mutation.make({
+			run: (n: number) =>
+				Effect.andThen(
+					Effect.sync(() => started.push(n)),
+					n === 1 ? Effect.as(slow.wait, n) : Effect.succeed(n),
+				),
+			concurrent: "drop",
+		});
+		const handle = makeHandle(client.registry, save);
+
+		const first = handle.run(1);
+		await flush();
+		handle.reset();
+		const second = await handle.run(2);
+
+		expect(second).toEqual(Exit.succeed(2));
+		expect(started).toEqual([1, 2]);
+		slow.open();
+		expect(await first).toEqual(Exit.succeed(1));
+	});
+
+	it("starts a run once the one before has settled", async () => {
+		const client = await makeClient({
+			mutations: { defaults: { concurrent: "drop" } },
+		});
+		const save = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+		const handle = makeHandle(client.registry, save);
+
+		await handle.run(1);
+
+		expect(await handle.run(2)).toEqual(Exit.succeed(2));
+	});
+});
+
+describe("a handle's variables", () => {
+	it("are the shown run's, and undefined before a run and after reset", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) => Effect.as(slow.wait, n),
+		});
+		const handle = makeHandle(client.registry, save);
+		const seen: Array<number | undefined> = [];
+		client.registry.subscribe(
+			handle.variables,
+			(variables) => seen.push(variables),
+			{ immediate: true },
+		);
+
+		const first = handle.run(1);
+		const second = handle.run(2);
+		handle.reset();
+		slow.open();
+		await Promise.all([first, second]);
+
+		expect(seen).toEqual([undefined, 1, 2, undefined]);
+	});
+});
+
+describe("activity", () => {
+	it("counts the queries fetching, by target", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const activity = makeActivityHandle(client.registry);
+		const todos = Query.make({ key: ["todos", 1], run: slow.wait });
+		const notified = vi.fn();
+		activity.subscribe(notified);
+
+		const fetching = client.runPromise(Query.fetch(todos));
+		await flush();
+
+		expect(activity.fetching()).toBe(1);
+		expect(activity.fetching(["todos"])).toBe(1);
+		expect(activity.fetching(todos)).toBe(1);
+		expect(activity.fetching(["profile"])).toBe(0);
+		slow.open();
+		await fetching;
+		await flush();
+		expect(activity.fetching()).toBe(0);
+		expect(notified).toHaveBeenCalledTimes(2);
+	});
+
+	it("tells listeners in a microtask, once for changes made together", async () => {
+		const client = await makeClient();
+		const activity = makeActivityHandle(client.registry);
+		const notified = vi.fn();
+		activity.subscribe(notified);
+		const save = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+
+		// Started and settled in one synchronous run.
+		const exit = Effect.runSyncExit(
+			Effect.provideService(
+				Mutation.run(save, 1),
+				QueryClient.QueryClient,
+				client,
+			) as Effect.Effect<number>,
+		);
+
+		expect(exit).toEqual(Exit.succeed(1));
+		expect(notified).not.toHaveBeenCalled();
+		await Promise.resolve();
+		expect(notified).toHaveBeenCalledTimes(1);
+		expect(activity.mutating()).toBe(0);
+	});
+
+	it("gives one empty list for every mutation with no runs", async () => {
+		const client = await makeClient();
+		const activity = makeActivityHandle(client.registry);
+		const save = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+
+		await client.runPromise(Mutation.run(save, 1));
+
+		expect(activity.runs(save)).toBe(noRuns);
+	});
+
+	it("counts a run that replaces another once that one has rolled back", async () => {
+		const client = await makeClient();
+		const cleanup = gate();
+		const save = Mutation.make({
+			run: (n: number) =>
+				n === 1
+					? Effect.never.pipe(Effect.onInterrupt(() => cleanup.wait))
+					: Effect.succeed(n),
+			concurrent: false,
+		});
+		const handle = makeHandle(client.registry, save);
+		const activity = makeActivityHandle(client.registry);
+
+		const first = handle.run(1);
+		await flush();
+		const second = handle.run(2);
+		const third = handle.run(3);
+		await flush();
+
+		expect(activity.runs(save).map((run) => run.variables)).toEqual([1]);
+		cleanup.open();
+		expect(await third).toEqual(Exit.succeed(3));
+		expect(isInterrupted(await first)).toBe(true);
+		expect(isInterrupted(await second)).toBe(true);
+		expect(activity.mutating()).toBe(0);
+	});
+
+	it("lists every run of a mutation in progress, oldest first", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) => Effect.as(slow.wait, n),
+		});
+		const other = Mutation.make({ run: () => slow.wait });
+		const activity = makeActivityHandle(client.registry);
+		const first = makeHandle(client.registry, save);
+		const second = makeHandle(client.registry, save);
+
+		const runs = [
+			first.run(1),
+			second.run(2),
+			client.runPromise(Mutation.run(save, 3)),
+			client.runPromise(Mutation.run(other)),
+		];
+		await flush();
+		const list = activity.runs(save);
+
+		expect(list.map((run) => run.variables)).toEqual([1, 2, 3]);
+		expect(list.every((run) => run.result._tag === "Initial")).toBe(true);
+		expect(list.every((run) => run.result.waiting)).toBe(true);
+		expect(activity.mutating(save)).toBe(3);
+		expect(activity.mutating()).toBe(4);
+		slow.open();
+		await Promise.all(runs);
+		expect(activity.runs(save)).toEqual([]);
+	});
+
+	it("keeps a mutation's list while its runs stay the same", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const save = Mutation.make({
+			run: (n: number) => Effect.as(slow.wait, n),
+		});
+		const other = Mutation.make({ run: () => Effect.void });
+		const activity = makeActivityHandle(client.registry);
+
+		const run = client.runPromise(Mutation.run(save, 1));
+		await flush();
+		const before = activity.runs(save);
+		await client.runPromise(Mutation.run(other));
+
+		expect(activity.runs(save)).toBe(before);
+		slow.open();
+		await run;
+	});
+
+	it("drops a run that ends by interruption", async () => {
+		const client = await makeClient();
+		const save = Mutation.make({
+			run: (n: number) => (n === 1 ? Effect.never : Effect.succeed(n)),
+			concurrent: false,
+		});
+		const handle = makeHandle(client.registry, save);
+		const activity = makeActivityHandle(client.registry);
+
+		const first = handle.run(1);
+		await flush();
+		expect(activity.mutating(save)).toBe(1);
+		await handle.run(2);
+
+		expect(isInterrupted(await first)).toBe(true);
+		expect(activity.mutating(save)).toBe(0);
+	});
+
+	it("counts a run started inside another run's callback apart", async () => {
+		const client = await makeClient();
+		const slow = gate();
+		const activity = makeActivityHandle(client.registry);
+		const inner = Mutation.make({ run: () => slow.wait });
+		const outer = Mutation.make({
+			run: () => Effect.void,
+			onSuccess: () => Mutation.run(inner),
+		});
+
+		const run = client.runPromise(Mutation.run(outer));
+		await flush();
+
+		expect(activity.mutating()).toBe(2);
+		slow.open();
+		await run;
+		expect(activity.mutating()).toBe(0);
+	});
+
+	it("is empty once the client is disposed", async () => {
+		const client = await makeClient();
+		const activity = makeActivityHandle(client.registry);
+		const waiting = Mutation.make({ run: () => Effect.never });
+		const query = Query.make({ key: ["slow"], run: Effect.never });
+
+		void client.runPromiseExit(Mutation.run(waiting));
+		void client.runPromiseExit(Query.fetch(query));
+		await flush();
+		expect([activity.mutating(), activity.fetching()]).toEqual([1, 1]);
+		await dispose(client);
+
+		expect([activity.mutating(), activity.fetching()]).toEqual([0, 0]);
 	});
 });

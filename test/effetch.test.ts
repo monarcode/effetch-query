@@ -9,11 +9,12 @@ import * as Schema from "effect/Schema";
 import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { endpoints } from "../src/effetch/index.js";
+import { fromClient } from "../src/effetch/index.js";
 import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
+import { options as mutationOptions } from "../src/internal/mutation.js";
 import { internals, type QueryHydration } from "../src/internal/queryAtom.js";
 import { segments } from "../src/internal/routeKey.js";
-import { disposeClients, makeClient, use } from "./helpers.js";
+import { disposeClients, makeClient, record, use } from "./helpers.js";
 import {
 	ApiError,
 	type ApiRequest,
@@ -40,6 +41,10 @@ const createTodo = Fetch.endpoint("POST /todos", {
 	output: Todo,
 });
 const removeTodo = Fetch.endpoint("DELETE /todos/:id");
+const renameTodo = Fetch.endpoint("PATCH /todos/:id", {
+	input: Schema.Struct({ title: Schema.String }),
+	output: Todo,
+});
 const signOut = Fetch.endpoint("POST /auth/logout");
 
 class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
@@ -66,7 +71,7 @@ const assignRole = Fetch.endpoint("POST /users/:id/roles", {
 	statusErrors: { 400: [InvalidRole, RoleTaken] },
 });
 
-const api = endpoints(TestApi, { defaultError: ApiError });
+const api = fromClient(TestApi, { defaultError: ApiError });
 const todo = api.query(getTodo);
 const todos = api.query(listTodos);
 const comments = api.query(getComments);
@@ -88,6 +93,11 @@ const todosServer = () => {
 		}
 		if (method === "GET" && items.has(id)) {
 			return Response.json(items.get(id));
+		}
+		if (method === "PATCH" && items.has(id)) {
+			const renamed = { id, ...(body as { readonly title: string }) };
+			items.set(id, renamed);
+			return Response.json(renamed);
 		}
 		if (method === "POST" && url.pathname === "/auth/logout") {
 			return new Response(null, { status: 204 });
@@ -155,7 +165,7 @@ describe("keys", () => {
 	});
 
 	it("drop a full URL's scheme and host, and take the builder's prefix", () => {
-		const wallet = endpoints(TestApi, { key: ["wallet"] });
+		const wallet = fromClient(TestApi, { key: ["wallet"] });
 		const account = wallet.query(
 			Fetch.endpoint("GET https://wallet.test/v1/accounts/:id"),
 		);
@@ -240,7 +250,7 @@ describe("queries", () => {
 	it("a builder's prefix keeps its endpoints apart from the same paths elsewhere", async () => {
 		const server = todosServer();
 		const client = await serve(server.handle);
-		const mirror = endpoints(TestApi, { key: ["mirror"] }).query(getTodo);
+		const mirror = fromClient(TestApi, { key: ["mirror"] }).query(getTodo);
 		use(client.registry, todo({ params: { id: 1 } }));
 		use(client.registry, mirror({ params: { id: 1 } }));
 		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(2));
@@ -289,6 +299,35 @@ describe("queries", () => {
 	});
 });
 
+describe("placeholder", () => {
+	it("shows a value from the call's params until the endpoint answers", async () => {
+		const client = await serve();
+		const seen: Array<unknown> = [];
+		const detail = api.query(getTodo, {
+			placeholder: (args) =>
+				Effect.map(Query.get(todos()), (list) => {
+					seen.push(args);
+					return Option.flatMap(list, (items) =>
+						Option.fromUndefinedOr(
+							items.find((item) => item.id === Number(args.params.id)),
+						),
+					);
+				}),
+		});
+		await client.fetch(todos());
+
+		const shown = record(client.registry, detail({ params: { id: 1 } }));
+
+		await vi.waitFor(() =>
+			expect(shown).toEqual([
+				'Success(waiting) {"id":1,"title":"Write tests"}',
+				'Success {"id":1,"title":"Write tests"}',
+			]),
+		);
+		expect(seen).toEqual([{ params: { id: 1 } }]);
+	});
+});
+
 describe("errors", () => {
 	it("an error status is an HttpError with the decoded error body", async () => {
 		const client = await serve();
@@ -327,7 +366,7 @@ describe("errors", () => {
 
 		expect(todo.error).toBe(ApiError);
 		expect(withOwn.error).toBe(Own);
-		expect(endpoints(TestApi).query(getTodo).error).toBeUndefined();
+		expect(fromClient(TestApi).query(getTodo).error).toBeUndefined();
 	});
 });
 
@@ -480,8 +519,126 @@ describe("mutations", () => {
 	});
 });
 
+describe('invalidates: "route"', () => {
+	const routed = fromClient(TestApi, {
+		defaultError: ApiError,
+		invalidates: "route",
+	});
+	const rename = { params: { id: 1 }, body: { title: "Renamed" } } as const;
+
+	it("invalidates the route's queries when a mutation succeeds", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		let profiles = 0;
+		const profile = Query.make({
+			key: ["profile"],
+			run: Effect.sync(() => ++profiles),
+		});
+		use(client.registry, todos());
+		use(client.registry, todo({ params: { id: 1 } }));
+		use(client.registry, profile);
+		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(1));
+
+		await client.runPromise(
+			Mutation.run(routed.mutation(renameTodo), rename),
+		);
+
+		await vi.waitFor(() => {
+			expect(server.hits("GET /todos")).toBe(2);
+			expect(server.hits("GET /todos/1")).toBe(2);
+		});
+		expect(profiles).toBe(1);
+	});
+
+	it("invalidates under the endpoints' key prefix", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		const wallet = fromClient(TestApi, {
+			key: ["wallet"],
+			invalidates: "route",
+		});
+		use(client.registry, wallet.query(listTodos)());
+		use(client.registry, todos());
+		await vi.waitFor(() => expect(server.hits("GET /todos")).toBe(2));
+
+		await client.runPromise(
+			Mutation.run(wallet.mutation(renameTodo), rename),
+		);
+
+		await vi.waitFor(() => expect(server.hits("GET /todos")).toBe(3));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(server.hits("GET /todos")).toBe(3);
+		expect(mutationOptions(wallet.mutation(renameTodo)).invalidates).toEqual([
+			["wallet", "todos"],
+		]);
+	});
+
+	it("gives way to a mutation's own invalidates, and [] turns it off", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		use(client.registry, todos());
+		use(client.registry, todo({ params: { id: 1 } }));
+		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(1));
+
+		await client.runPromise(
+			Mutation.run(
+				routed.mutation(renameTodo, {
+					invalidates: [todo({ params: { id: 1 } })],
+				}),
+				rename,
+			),
+		);
+		await vi.waitFor(() => expect(server.hits("GET /todos/1")).toBe(2));
+		await client.runPromise(
+			Mutation.run(routed.mutation(renameTodo, { invalidates: [] }), rename),
+		);
+
+		expect(server.hits("GET /todos")).toBe(1);
+		expect(server.hits("GET /todos/1")).toBe(2);
+	});
+
+	it("invalidates nothing when the mutation fails", async () => {
+		const server = todosServer();
+		const client = await serve(server.handle);
+		use(client.registry, todos());
+		await vi.waitFor(() => expect(server.hits("GET /todos")).toBe(1));
+
+		const exit = await client.runPromiseExit(
+			Mutation.run(routed.mutation(removeTodo), { params: { id: 9 } }),
+		);
+
+		expect(Exit.isFailure(exit)).toBe(true);
+		expect(server.hits("GET /todos")).toBe(1);
+	});
+
+	it("uses the literals before the first param, or the prefix alone", () => {
+		const keyed = fromClient(TestApi, {
+			key: ["shop"],
+			invalidates: "route",
+		});
+		const invalidates = (
+			endpoint: Fetch.UnboundEndpoint<any, any, any, any, any, any, any>,
+			from = routed,
+		) => mutationOptions(from.mutation(endpoint)).invalidates;
+
+		expect(
+			invalidates(Fetch.endpoint("DELETE /todos/:id/comments/:cid")),
+		).toEqual([["todos"]]);
+		expect(invalidates(Fetch.endpoint("POST /auth/logout"))).toEqual([
+			["auth", "logout"],
+		]);
+		expect(invalidates(Fetch.endpoint("POST /:tenant/todos"))).toEqual([[]]);
+		expect(invalidates(Fetch.endpoint("POST /:tenant/todos"), keyed)).toEqual(
+			[["shop"]],
+		);
+		expect(
+			mutationOptions(api.mutation(renameTodo)).invalidates,
+		).toBeUndefined();
+	});
+});
+
 describe("status errors", () => {
-	const shared = endpoints(TestApi, {
+	const shared = fromClient(TestApi, {
 		defaultError: ApiError,
 		statusErrors: clientStatusErrors,
 	});
@@ -533,7 +690,7 @@ describe("status errors", () => {
 		});
 	});
 
-	it("go to the browser as themselves, with the client's given to endpoints", async () => {
+	it("go to the browser as themselves, with the client's given to fromClient", async () => {
 		const server = await serve(({ url }) =>
 			url.pathname === "/todos/1"
 				? Response.json({ message: "signed out" }, { status: 401 })
@@ -567,7 +724,7 @@ describe("status errors", () => {
 		);
 	});
 
-	it("leave out the client's errors when endpoints isn't given them", async () => {
+	it("leave out the client's errors when fromClient isn't given them", async () => {
 		const server = await serve(() =>
 			Response.json({ message: "signed out" }, { status: 401 }),
 		);

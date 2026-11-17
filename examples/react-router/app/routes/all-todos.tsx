@@ -1,13 +1,8 @@
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
 	HydrationBoundary,
 	useSuspenseInfiniteQuery,
 } from "@monarcode/effetch-query/react";
-import {
-	type ClientLoaderFunctionArgs,
-	type LoaderFunctionArgs,
-	useLoaderData,
-} from "react-router";
 
 import {
 	Card,
@@ -18,22 +13,24 @@ import {
 import { everyTodo } from "../api.js";
 import { getQueryClient } from "../query-context.js";
 import { TodoItem } from "../todo-item.js";
+import type { Route } from "./+types/all-todos";
 
-export async function loader({ context }: LoaderFunctionArgs) {
+export const meta: Route.MetaFunction = () => [{ title: "All todos · Todos" }];
+
+export async function loader({ context }: Route.LoaderArgs) {
 	const client = getQueryClient(context);
-	await client.runPromise(Query.fetch(everyTodo));
+	await client.fetch(everyTodo);
 	return { state: QueryClient.dehydrate(client) };
 }
 
-export async function clientLoader({ context }: ClientLoaderFunctionArgs) {
-	await getQueryClient(context).runPromise(Query.fetch(everyTodo));
+export async function clientLoader({ context }: Route.ClientLoaderArgs) {
+	await getQueryClient(context).fetch(everyTodo);
 	return { state: undefined };
 }
 
-export default function AllTodosRoute() {
-	const { state } = useLoaderData<typeof loader | typeof clientLoader>();
+export default function AllTodosRoute({ loaderData }: Route.ComponentProps) {
 	return (
-		<HydrationBoundary state={state}>
+		<HydrationBoundary state={loaderData.state}>
 			<AllTodos />
 		</HydrationBoundary>
 	);

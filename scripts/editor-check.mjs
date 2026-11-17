@@ -6,10 +6,12 @@ import ts from "typescript";
 const dir = process.cwd();
 const probe = path.join(dir, "editor.ts");
 const source = `import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
-import { /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
-import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
-import { /*useQuery*/useQuery } from "@monarcode/effetch-query/react";
+import { /*Entity*/Entity, /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
+import { /*endpoints*/endpoints, /*fromClient*/fromClient } from "@monarcode/effetch-query/effetch";
+import { /*useIsFetching*/useIsFetching, /*useMutationState*/useMutationState, /*useQueries*/useQueries, /*useQuery*/useQuery, /*useQueryState*/useQueryState } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
 import { /*connectQueryClient*/connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 
@@ -18,9 +20,16 @@ export const make = QueryClient./*make*/make;
 const greeting = Query.make({ key: ["greeting"], run: Effect.succeed("hello") });
 export const read = () => {
 	const /*result*/result = useQuery(greeting);
-	return result;
+	const /*state*/state = useQueryState(greeting, { select: (text) => text.length });
+	return [result, state] as const;
 };
-export { connectQueryClient, endpoints, reactNativeSignals };
+const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+export const /*Todos*/Todos = Entity.make(Todo, { id: (todo) => todo.id });
+export const update = Entity./*entityUpdate*/update;
+export const rename = (id: number) => update(Todos, id, (todo) => ({ ...todo, title: "renamed" }));
+export const stream = Query./*queryStream*/stream;
+export const /*price*/price = stream({ key: ["price"], run: Stream.fromIterable([1, 2]) });
+export { connectQueryClient, endpoints, fromClient, reactNativeSignals, useIsFetching, useMutationState, useQueries };
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -80,6 +89,7 @@ const dist = path.join(
 // TypeScript doesn't show the JSDoc of `export * as Query` in hovers, so a
 // namespace is only checked for where go-to-definition lands.
 for (const [marker, file] of [
+	["Entity", "Entity.d.ts"],
 	["Query", "Query.d.ts"],
 	["QueryClient", "QueryClient.d.ts"],
 ]) {
@@ -105,26 +115,68 @@ for (const [marker, file, signature, docs] of [
 	[
 		"make",
 		"QueryClient.d.ts",
-		"const make: (options: QueryClient.Options) => QueryClient.QueryClient",
+		"const make: (options?: QueryClient.CommonOptions | QueryClient.Options | undefined) => QueryClient.QueryClient",
 		"Nothing is built until",
+	],
+	[
+		"entityUpdate",
+		"Entity.d.ts",
+		"const update: <A, Id>(entity: Entity.Entity<A, Id>, id: NoInfer<Id>, f: (value: A) => A)",
+		"Writes a value computed from the entity",
+	],
+	[
+		"queryStream",
+		"Query.d.ts",
+		"const stream: <A, E>(options: Query.MakeStreamOptions<A, E>) => Query.Query<A, E>",
+		"Defines a query whose value is the latest element",
 	],
 	[
 		"useQuery",
 		"react/hooks.d.ts",
-		"(alias) const useQuery: <A, E>(",
+		"(alias) const useQuery: <A, E, B = A>(",
 		"Reads a query and keeps it up to date",
+	],
+	[
+		"useQueryState",
+		"react/hooks.d.ts",
+		"(alias) const useQueryState: <A, E, B = A>(",
+		"returns its result as an object",
+	],
+	[
+		"useMutationState",
+		"react/hooks.d.ts",
+		"(alias) const useMutationState: <Variables, A, E>(",
+		"Lists the runs of a mutation in progress",
+	],
+	[
+		"useQueries",
+		"react/hooks.d.ts",
+		"(alias) const useQueries: <const Queries extends ReadonlyArray<",
+		"Reads a list of queries whose length can change",
+	],
+	[
+		"useIsFetching",
+		"react/hooks.d.ts",
+		"(alias) const useIsFetching: (",
+		"Counts the queries with a fetch in progress",
 	],
 	[
 		"reactNativeSignals",
 		"react-native/index.d.ts",
 		"(alias) const reactNativeSignals: (",
-		"Signals for React Native",
+		"Makes signals for React Native",
+	],
+	[
+		"fromClient",
+		"effetch/index.d.ts",
+		"(alias) const fromClient: <",
+		"Turns `Fetch.endpoint` definitions into queries",
 	],
 	[
 		"endpoints",
 		"effetch/index.d.ts",
 		"(alias) const endpoints: <",
-		"Turns `Fetch.endpoint` definitions into queries",
+		"The former name of",
 	],
 	[
 		"connectQueryClient",
@@ -166,6 +218,34 @@ const result = ts.displayPartsToString(
 expect(
 	result === "const result: AsyncResult<string, never>",
 	`Hover on useQuery's result shows ${JSON.stringify(result)}`,
+);
+
+// The object hook's type names its union, so a hover shows what to narrow.
+const state = ts.displayPartsToString(
+	service.getQuickInfoAtPosition(probe, at("state"))?.displayParts,
+);
+expect(
+	state === "const state: UseQueryStateResult<number, never>",
+	`Hover on useQueryState's result shows ${JSON.stringify(state)}`,
+);
+
+// An entity's hover names its value and id types.
+const todos = ts.displayPartsToString(
+	service.getQuickInfoAtPosition(probe, at("Todos"))?.displayParts,
+);
+expect(
+	todos ===
+		"const Todos: Entity.Entity<{\n    readonly id: number;\n    readonly title: string;\n}, number>",
+	`Hover on an entity shows ${JSON.stringify(todos)}`,
+);
+
+// A stream query is a query of its elements.
+const price = ts.displayPartsToString(
+	service.getQuickInfoAtPosition(probe, at("price"))?.displayParts,
+);
+expect(
+	price === "const price: Query.Query<number, never>",
+	`Hover on a stream query shows ${JSON.stringify(price)}`,
 );
 
 if (failures.length > 0) {

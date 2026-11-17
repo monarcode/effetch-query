@@ -1,11 +1,8 @@
-import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Fetch from "@monarcode/effetch";
-import { Query } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { Entity } from "@monarcode/effetch-query";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 export const Todo = Schema.Struct({
 	id: Schema.Finite,
@@ -14,6 +11,9 @@ export const Todo = Schema.Struct({
 	userId: Schema.Finite,
 });
 export type Todo = typeof Todo.Type;
+
+/** A todo, written in every cached query that holds it. */
+export const Todos = Entity.make(Todo, { id: (todo) => todo.id });
 
 const TodoPage = Schema.Struct({
 	todos: Schema.Array(Todo),
@@ -25,15 +25,11 @@ const TodoPage = Schema.Struct({
 // What dummyjson sends back when a request fails.
 const ApiError = Schema.Struct({ message: Schema.String });
 
-const makeDummyJson = Fetch.make({
+/** The client; its `layer` needs the `HttpClient` the app provides. */
+export class DummyJson extends Fetch.Service<DummyJson>()("DummyJson", {
 	baseUrl: import.meta.env.VITE_DUMMYJSON_URL ?? "https://dummyjson.com",
 	defaultError: ApiError,
-});
-
-export class DummyJson extends Context.Service<
-	DummyJson,
-	Effect.Success<typeof makeDummyJson>
->()("DummyJson") {}
+}) {}
 
 declare module "@monarcode/effetch-query" {
 	interface Register {
@@ -41,10 +37,7 @@ declare module "@monarcode/effetch-query" {
 	}
 }
 
-/** The client, over whichever `HttpClient` the app provides. */
-export const DummyJsonLive = Layer.effect(DummyJson)(makeDummyJson);
-
-const api = endpoints(DummyJson, { defaultError: ApiError });
+const api = fromClient(DummyJson);
 
 // todos({ query: { limit: 10 } }) is the query keyed ["todos", { limit: 10 }]
 export const todos = api.query(
@@ -58,23 +51,15 @@ export const toggleTodo = api.mutation(
 		output: Todo,
 	}),
 	{
-		// Every cached page shows the change at once; it's undone if the
+		// Every cached copy shows the change at once; it's undone if the
 		// request fails.
 		optimistic: ({ params, body }) =>
-			Query.update(todos, (page) => ({
-				...page,
-				todos: page.todos.map((todo) =>
-					todo.id === params.id ? { ...todo, ...body } : todo,
-				),
+			Entity.update(Todos, Number(params.id), (todo) => ({
+				...todo,
+				...body,
 			})),
 		// dummyjson saves nothing, so a refetch would bring the old todo
 		// back: the cache keeps the server's answer instead.
-		onSuccess: (saved) =>
-			Query.update(todos, (page) => ({
-				...page,
-				todos: page.todos.map((todo) =>
-					todo.id === saved.id ? saved : todo,
-				),
-			})),
+		onSuccess: (saved) => Entity.set(Todos, saved),
 	},
 );

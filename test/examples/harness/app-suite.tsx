@@ -30,8 +30,9 @@ const checkbox = (title: string) =>
 const heading = (name: string) => screen().findByRole("heading", { name });
 
 /**
- * The tests the full examples pass: tanstack-start and react-router are one
- * app, with the same pages and behaviour, as tanstack-start-httpclient is.
+ * The tests every full example passes: tanstack-start and react-router are
+ * one app, with the same pages and behaviour, as tanstack-start-httpclient
+ * is.
  */
 export const fullAppSuite = (app: FullApp): void => {
 	afterEach(() => {
@@ -128,6 +129,33 @@ export const fullAppSuite = (app: FullApp): void => {
 		await waitFor(() =>
 			expect(screen().queryByText("Read a chapter of a book")).toBeNull(),
 		);
+	});
+
+	it("counts and pages All todos right after a delete", async () => {
+		await app.open("/todos", signedIn);
+		await heading("All todos");
+		fireEvent.click(screen().getByRole("link", { name: "My todos" }));
+		await heading("My todos");
+		const row = checkbox("Read a chapter of a book").closest("li");
+		fireEvent.click(
+			within(row as HTMLElement).getByRole("button", { name: "Delete" }),
+		);
+		await waitFor(() =>
+			expect(screen().queryByText("Read a chapter of a book")).toBeNull(),
+		);
+
+		fireEvent.click(screen().getByRole("link", { name: "All todos" }));
+		await heading("All todos");
+		expect(screen().getByText("9 of 24")).toBeDefined();
+		fireEvent.click(screen().getByRole("button", { name: "Load more" }));
+
+		await waitFor(() =>
+			expect(screen().getAllByRole("checkbox")).toHaveLength(19),
+		);
+		const titles = screen()
+			.getAllByRole("checkbox")
+			.map((box) => box.closest("li")?.textContent);
+		expect(new Set(titles).size).toBe(titles.length);
 	});
 
 	it("refetches the user's todos on refresh", async () => {
@@ -237,6 +265,94 @@ export const fullAppSuite = (app: FullApp): void => {
 
 			expect(status).toBe(404);
 			expect(html).toContain("Page not found");
+		}
+	});
+
+	it("shows a todo from a list at once, while its own fetch is in progress", async () => {
+		const browser = await app.open("/todos", signedIn);
+		await heading("All todos");
+		const release = browser.hold();
+		try {
+			fireEvent.click(
+				screen().getByRole("link", { name: "Read a chapter of a book" }),
+			);
+
+			expect(await heading("Read a chapter of a book")).toBeDefined();
+			expect(
+				screen().getByRole<HTMLButtonElement>("button", {
+					name: "Mark as done",
+				}).disabled,
+			).toBe(true);
+		} finally {
+			release();
+		}
+		await waitFor(() =>
+			expect(
+				screen().getByRole<HTMLButtonElement>("button", {
+					name: "Mark as done",
+				}).disabled,
+			).toBe(false),
+		);
+	});
+
+	it("offers no Try again for a todo that doesn't exist", async () => {
+		await app.open("/todos/999", signedIn);
+
+		expect(await heading("Couldn't load this todo")).toBeDefined();
+		expect(screen().queryByRole("button", { name: "Try again" })).toBeNull();
+	});
+
+	it("shows Saving… while a change is in progress", async () => {
+		const browser = await app.open("/", signedIn);
+		await heading("My todos");
+		expect(screen().getByRole("status").textContent).toBe("");
+		const release = browser.hold();
+		try {
+			fireEvent.click(
+				screen().getByRole("checkbox", { name: "Plan the team offsite" }),
+			);
+
+			await waitFor(() =>
+				expect(screen().getByRole("status").textContent).toBe("Saving…"),
+			);
+		} finally {
+			release();
+		}
+		await waitFor(() =>
+			expect(screen().getByRole("status").textContent).toBe(""),
+		);
+	});
+
+	it("shows a progress bar while a fetch is in progress", async () => {
+		const browser = await app.open("/", signedIn);
+		await heading("My todos");
+		expect(screen().queryByRole("progressbar")).toBeNull();
+		const release = browser.hold();
+		try {
+			fireEvent.click(screen().getByRole("button", { name: "Refresh" }));
+
+			expect(await screen().findByRole("progressbar")).toBeDefined();
+		} finally {
+			release();
+		}
+		await waitFor(() =>
+			expect(screen().queryByRole("progressbar")).toBeNull(),
+		);
+	});
+
+	it("titles each page", async () => {
+		for (const [url, title, cookie] of [
+			["/", "My todos · Todos", signedIn],
+			["/todos", "All todos · Todos", signedIn],
+			["/todos/3", "Todo #3 · Todos", signedIn],
+			["/login", "Sign in · Todos", undefined],
+			// The root's title: not a todo's.
+			["/todos/not-a-number", "Todos", signedIn],
+			["/nothing-here", "Todos", signedIn],
+		] as const) {
+			const { html } = await app.get(url, cookie);
+
+			expect(html).toContain(`<title>${title}</title>`);
 		}
 	});
 };

@@ -1,14 +1,9 @@
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { QueryClient } from "@monarcode/effetch-query";
 import {
 	HydrationBoundary,
 	useRefetch,
 	useSuspenseQuery,
 } from "@monarcode/effetch-query/react";
-import {
-	type ClientLoaderFunctionArgs,
-	type LoaderFunctionArgs,
-	useLoaderData,
-} from "react-router";
 
 import {
 	Card,
@@ -20,37 +15,41 @@ import {
 import { userTodos, viewer } from "../api.js";
 import { getQueryClient } from "../query-context.js";
 import { TodoItem } from "../todo-item.js";
+import { userContext } from "../user-context.js";
+import type { Route } from "./+types/my-todos";
 
-const load = async (client: QueryClient.QueryClient) => {
-	const user = await client.runPromise(Query.fetch(viewer));
-	await client.runPromise(
-		Query.fetch(userTodos({ params: { userId: user.id } })),
+export const meta: Route.MetaFunction = () => [{ title: "My todos · Todos" }];
+
+// The user comes from the signed-in layout's middleware.
+const load = (context: Route.LoaderArgs["context"]) =>
+	getQueryClient(context).fetch(
+		userTodos({ params: { userId: context.get(userContext).id } }),
 	);
-};
 
-export async function loader({ context }: LoaderFunctionArgs) {
-	const client = getQueryClient(context);
-	await load(client);
-	return { state: QueryClient.dehydrate(client) };
+export async function loader({ context }: Route.LoaderArgs) {
+	await load(context);
+	return { state: QueryClient.dehydrate(getQueryClient(context)) };
 }
 
-export async function clientLoader({ context }: ClientLoaderFunctionArgs) {
-	await load(getQueryClient(context));
+export async function clientLoader({ context }: Route.ClientLoaderArgs) {
+	await load(context);
 	return { state: undefined };
 }
 
-export default function MyTodosRoute() {
-	const { state } = useLoaderData<typeof loader | typeof clientLoader>();
+export default function MyTodosRoute({ loaderData }: Route.ComponentProps) {
 	return (
-		<HydrationBoundary state={state}>
+		<HydrationBoundary state={loaderData.state}>
 			<MyTodos />
 		</HydrationBoundary>
 	);
 }
 
 function MyTodos() {
-	const { value: user } = useSuspenseQuery(viewer);
-	const mine = userTodos({ params: { userId: user.id } });
+	// From the query, not the router's context, so it follows a refetch.
+	const { value: userId } = useSuspenseQuery(viewer, {
+		select: (user) => user.id,
+	});
+	const mine = userTodos({ params: { userId } });
 	const { value } = useSuspenseQuery(mine);
 	const { refetch, isRefetching } = useRefetch(mine);
 	const open = value.todos.filter((todo) => !todo.completed).length;

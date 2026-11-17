@@ -23,7 +23,7 @@ import {
 	useFakeTimers,
 	valueOf,
 } from "./helpers.js";
-import { Greeting, testApiLayer } from "./services.js";
+import { apiLayers, Greeting } from "./services.js";
 
 afterEach(disposeClients);
 
@@ -637,13 +637,16 @@ describe("Query.group", () => {
 		expect(other.fetches.count).toBe(1);
 	});
 
-	it("isn't an array of targets: that's a key, which matches nothing", async () => {
+	it("isn't an array of targets: that key fails with a defect, and nothing refetches", async () => {
 		const { client, wallet, transactions, fetches } = await setup();
 
-		await client.runPromise(
+		const exit = await client.runPromiseExit(
 			Query.invalidate([wallet.query, transactions.family]),
 		);
 
+		expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
+			_tag: "KeyHoldsTargetError",
+		});
 		expect(fetches()).toEqual([1, 1, 1, 1, 1]);
 	});
 
@@ -851,7 +854,7 @@ describe("disposing a client", () => {
 						Effect.sync(() => log.push("layer released")),
 					),
 				),
-				testApiLayer(),
+				apiLayers(),
 			),
 		});
 		let resolve!: () => void;

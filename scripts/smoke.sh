@@ -123,8 +123,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
-import { InfiniteQuery, Query, QueryClient } from "@monarcode/effetch-query";
+import { Entity, InfiniteQuery, Query, QueryClient } from "@monarcode/effetch-query";
 import * as ReactNative from "@monarcode/effetch-query/react-native";
 
 class Greeter extends Context.Service<
@@ -184,6 +185,21 @@ const count = Query.make({
 	staleTime: "1 minute",
 });
 await client.runPromise(Query.prefetch(count));
+const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+const Todos = Entity.make(Todo, { id: (todo) => todo.id });
+const list = Query.make({
+	key: ["list"],
+	run: Effect.succeed([{ id: 1, title: "one" }]),
+	schema: { success: Schema.Array(Todo) },
+	staleTime: "1 minute",
+});
+await client.runPromise(Query.prefetch(list));
+await client.runPromise(
+	Entity.update(Todos, 1, (todo) => ({ ...todo, title: "renamed" })),
+);
+const renamed = await client.runPromise(Query.fetch(list));
+const ticks = Query.stream({ key: ["ticks"], run: Stream.make(1, 2) });
+const tick = await client.runPromise(Query.fetch(ticks));
 const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(client)));
 await client.dispose();
 
@@ -195,6 +211,12 @@ QueryClient.hydrate(browser, sent);
 const hydrated = await browser.runPromise(Query.fetch(count));
 await browser.dispose();
 
+if (tick !== 1) {
+	throw new Error(`Query.stream's first element: ${tick}`);
+}
+if (renamed[0]?.title !== "renamed") {
+	throw new Error(`Entity.update didn't reach the list: ${JSON.stringify(renamed)}`);
+}
 if (key.length !== 3) {
 	throw new Error(`Unexpected query key: ${JSON.stringify(key)}`);
 }
@@ -238,7 +260,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { Query, QueryClient } from "@monarcode/effetch-query";
-import { endpoints } from "@monarcode/effetch-query/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
 
 class Api extends Context.Service<Api, Fetch.Client<[]>>()("smoke/Api") {}
 
@@ -248,7 +270,7 @@ declare module "@monarcode/effetch-query" {
 	}
 }
 
-const todo = endpoints(Api).query(
+const todo = fromClient(Api).query(
 	Fetch.endpoint("GET /todos/:id", {
 		output: Schema.Struct({ id: Schema.Finite }),
 	}),
@@ -308,12 +330,18 @@ import * as React from "@monarcode/effetch-query/react";
 const expected = [
 	"HydrationBoundary",
 	"MissingQueryProviderError",
+	"QueryBoundary",
 	"QueryFailure",
 	"QueryProvider",
 	"useInfiniteQuery",
+	"useIsFetching",
+	"useIsMutating",
 	"useMutation",
+	"useMutationState",
+	"useQueries",
 	"useQuery",
 	"useQueryClient",
+	"useQueryState",
 	"useRefetch",
 	"useResetQueryFailure",
 	"useSuspenseInfiniteQuery",

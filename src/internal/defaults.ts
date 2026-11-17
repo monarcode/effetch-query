@@ -17,9 +17,14 @@ export const queryDefaults = {
 	refetchOnReconnect: true,
 } as const;
 
-export const mutationDefaults = {
+export const mutationDefaults: { readonly concurrent: Concurrent } = {
 	concurrent: true,
-} as const;
+};
+
+/** How one use's runs of a mutation overlap. */
+export type Concurrent = NonNullable<
+	QueryClient.MutationDefaults["concurrent"]
+>;
 
 /** A query's settings: its own, else the client's defaults, else the built-in ones. */
 export interface QuerySettings<E> {
@@ -68,7 +73,7 @@ export const resolveQueryOptions = <E>(
 /** A mutation's settings: its own, else the client's defaults, else the built-in ones. */
 export interface MutationSettings<E> {
 	readonly retry: Schedule.Schedule<unknown, E> | undefined;
-	readonly concurrent: boolean;
+	readonly concurrent: Concurrent;
 }
 
 export const resolveMutationOptions = <E>(

@@ -1,4 +1,3 @@
-import { Query } from "@monarcode/effetch-query";
 import { useSuspenseInfiniteQuery } from "@monarcode/effetch-query/react";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -12,8 +11,11 @@ import { allTodos } from "../api.js";
 import { TodoItem } from "../todo-item.js";
 
 export const Route = createFileRoute("/_app/todos/")({
-	loader: ({ context }) =>
-		context.queryClient.runPromise(Query.fetch(allTodos)),
+	head: () => ({ meta: [{ title: "All todos · Todos" }] }),
+	// Returns nothing: the page reads the todos from the cache.
+	loader: async ({ context }) => {
+		await context.queryClient.fetch(allTodos);
+	},
 	component: function AllTodos() {
 		const { result, fetchNextPage, hasNextPage, isFetchingNextPage } =
 			useSuspenseInfiniteQuery(allTodos);

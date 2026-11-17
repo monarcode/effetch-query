@@ -1,6 +1,6 @@
 {
 	"extends": "../../../examples/react-router/tsconfig.json",
 	"compilerOptions": { "types": ["node", "vite/client"] },
-	"include": ["."],
+	"include": [".", "../../../examples/react-router/.react-router/types/**/*"],
 	"exclude": []
 }

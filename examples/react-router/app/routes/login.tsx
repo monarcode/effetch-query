@@ -4,15 +4,18 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { Query } from "@monarcode/effetch-query";
 import { useMutation } from "@monarcode/effetch-query/react";
-import { type LoaderFunctionArgs, redirect, useNavigate } from "react-router";
+import { redirect, useNavigate } from "react-router";
 
 import { AppShell, LoginCard } from "../../../ui/components.js";
 import { describeError, login, viewer } from "../api.js";
 import { getQueryClient } from "../query-context.js";
 import { readToken } from "../session.js";
+import type { Route } from "./+types/login";
+
+export const meta: Route.MetaFunction = () => [{ title: "Sign in · Todos" }];
 
 // Already signed in: there's nothing to do here.
-export async function loader({ request, context }: LoaderFunctionArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
 	if (readToken(request.headers.get("Cookie")) === undefined) {
 		return null;
 	}

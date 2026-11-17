@@ -83,12 +83,15 @@ export interface OwnedQueryProviderProps {
 	 */
 	readonly make: () => QueryClient.QueryClient;
 	/**
+	 * The key the client belongs to, such as the signed-in account's ID.
 	 * Changing it replaces the client with a new one from `make`, and
 	 * disposes the old one: its cache goes, and its fetches and mutation runs
 	 * are interrupted. The tree below never renders with the old client
-	 * again. A `HydrationBoundary` below loads into the new client only
-	 * what the server dehydrated after the change (by its clock), so state
-	 * the previous account's page sent doesn't reach the new account.
+	 * again. A `HydrationBoundary` below loads into the new client only what
+	 * the server dehydrated after the change (the server's dehydration time
+	 * against the browser's clock), so state the previous account's page
+	 * sent doesn't reach the new account. Without it, the provider keeps one
+	 * client until it unmounts.
 	 */
 	readonly resetKey?: string | undefined;
 	/** Only with a client you own: {@link QueryProviderProps.client}. */
@@ -101,7 +104,8 @@ export interface OwnedQueryProviderProps {
  * Makes a {@link QueryClient.QueryClient} available to the hooks below it. It
  * also provides the client's registry as `@effect/atom-react`'s
  * `RegistryContext`, so atom-react's own hooks (`useAtomValue` and the rest)
- * share the cache. The hooks of `@monarcode/effetch-query/react` throw a
+ * share the cache. Read the client with {@link useQueryClient}. The hooks of
+ * `@monarcode/effetch-query/react`, and `HydrationBoundary`, throw a
  * {@link MissingQueryProviderError} outside one.
  *
  * Give it a `client` you own ({@link QueryProviderProps}), or a `make` it
@@ -140,7 +144,7 @@ export interface OwnedQueryProviderProps {
  * import { QueryProvider } from "@monarcode/effetch-query/react";
  *
  * declare const AppLayer: Layer.Layer<QueryClient.Services>;
- * declare function useAccountId(): string; // e.g. the signed-in user's ID
+ * declare function useAccountId(): string; // The signed-in account's ID.
  *
  * // A client per account: a new one, and the old one disposed, when the
  * // account changes.
@@ -262,8 +266,9 @@ const useOwnedClient = (
 };
 
 /**
- * Thrown by {@link useQueryClient} and the other hooks of
- * `@monarcode/effetch-query/react` outside a {@link QueryProvider}.
+ * Thrown by {@link useQueryClient}, the other hooks of
+ * `@monarcode/effetch-query/react` and `HydrationBoundary` outside a
+ * {@link QueryProvider}.
  *
  * @example
  * ```ts
@@ -277,7 +282,10 @@ const useOwnedClient = (
  */
 export class MissingQueryProviderError extends Data.TaggedError(
 	"MissingQueryProviderError",
-)<{ readonly message: string }> {}
+)<{
+	/** Says that a hook ran outside a `QueryProvider`. */
+	readonly message: string;
+}> {}
 
 /**
  * Returns the {@link QueryClient.QueryClient} of the nearest
@@ -286,12 +294,12 @@ export class MissingQueryProviderError extends Data.TaggedError(
  *
  * @example
  * ```ts
- * import { Query } from "@monarcode/effetch-query";
  * import { useQueryClient } from "@monarcode/effetch-query/react";
  *
+ * // Drops the cache without refetching, which would fail once signed out.
  * export const useSignOut = () => {
  *   const client = useQueryClient();
- *   return () => client.runPromise(Query.reset(["session"]));
+ *   return () => client.clear();
  * };
  * ```
  *

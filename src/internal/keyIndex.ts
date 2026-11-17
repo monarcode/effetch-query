@@ -1,3 +1,4 @@
+import * as Data from "effect/Data";
 import * as Equal from "effect/Equal";
 import * as Predicate from "effect/Predicate";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
@@ -37,8 +38,36 @@ export const makeGroup = (targets: ReadonlyArray<QueryTarget>): Group => {
 };
 
 /**
+ * Thrown when a key holds a query, a family or a group: targets passed as an
+ * array, which as a key would match nothing.
+ */
+export class KeyHoldsTargetError extends Data.TaggedError(
+	"KeyHoldsTargetError",
+)<{
+	readonly key: QueryKey;
+	readonly message: string;
+}> {}
+
+const isTargetValue = (segment: unknown): boolean =>
+	isQuery(segment) ||
+	// A family: a function with a key.
+	(Predicate.isFunction(segment) && Predicate.hasProperty(segment, "key")) ||
+	(Predicate.isObject(segment) && GroupTypeId in segment);
+
+const checkKey = (key: QueryKey): QueryKey => {
+	if (key.some(isTargetValue)) {
+		throw new KeyHoldsTargetError({
+			key,
+			message:
+				"A key holds a query, a family or a group, so it matches nothing: pass the targets one by one, or combine them with Query.group(...)",
+		});
+	}
+	return key;
+};
+
+/**
  * Marks a family that says itself which queries are its members, such as an
- * effetch endpoint's: its keys (`["todos", 1]` for `GET /todos/:id`) don't
+ * Effetch endpoint's: its keys (`["todos", 1]` for `GET /todos/:id`) don't
  * tell its members from another route's under the same path.
  */
 export const KeyMatcherId = "~@monarcode/effetch-query/KeyMatcher";
@@ -55,23 +84,25 @@ const hasKeyMatcher = (
  * Which queries a target matches: a key or a family matches the queries with
  * its own key or a longer one, a query those with its exact key, a family
  * with a {@link KeyMatcher} its own members, and a group those any of its
- * targets matches.
+ * targets matches. `byKey` matches a family by its key alone, for a key
+ * with no query to ask.
  */
 export const matcher = (
 	target: QueryTarget,
+	byKey = false,
 ): ((query: Query<any, any>) => boolean) => {
 	if (isGroup(target)) {
-		const members = target.targets.map(matcher);
+		const members = target.targets.map((member) => matcher(member, byKey));
 		return (query) => members.some((matches) => matches(query));
 	}
 	if (isQuery(target)) {
 		const own = target.key;
 		return ({ key }) => key.length === own.length && startsWith(key, own);
 	}
-	if (hasKeyMatcher(target)) {
+	if (hasKeyMatcher(target) && !byKey) {
 		return target[KeyMatcherId];
 	}
-	const prefix = isQueryKey(target) ? target : target.key;
+	const prefix = isQueryKey(target) ? checkKey(target) : target.key;
 	return ({ key }) => startsWith(key, prefix);
 };
 

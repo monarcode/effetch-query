@@ -3,13 +3,13 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
-import * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Scope from "effect/Scope";
 
 import type * as InfiniteQuery from "../InfiniteQuery.js";
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
-import { fetchValue } from "./cache.js";
+import { fetchValue, settled } from "./cache.js";
 import type { Hydration } from "./hydration.js";
 import { type Member, makeQuery, nodeValue, peek } from "./queryAtom.js";
 import { forkWithClient } from "./runtime.js";
@@ -285,9 +285,7 @@ export const fetchPage = <A, E, P>(
 			return fetchValue(registry, query);
 		}
 		const { paging, pages } = pagingOf(query);
-		const settle = AtomRegistry.getResult(registry, query, {
-			suspendOnWaiting: true,
-		});
+		const settle = settled(registry, query, Effect.interrupt);
 		const data = AsyncResult.value(current.value);
 		if (current.value.waiting) {
 			const request = Option.getOrElse(

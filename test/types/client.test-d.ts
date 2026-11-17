@@ -11,8 +11,9 @@ import { Query, QueryClient } from "../../src/index.js";
 import {
 	Greeting,
 	servicesLayer,
+	type ServiceApi,
 	type TestApi,
-	testApiLayer,
+	apiLayers,
 } from "../services.js";
 
 class Unregistered extends Context.Service<
@@ -24,12 +25,14 @@ const client = QueryClient.make({ layer: servicesLayer("hello") });
 
 describe("Register", () => {
 	it("sets the services queries run with", () => {
-		expectTypeOf<QueryClient.Services>().toEqualTypeOf<Greeting | TestApi>();
+		expectTypeOf<QueryClient.Services>().toEqualTypeOf<
+			Greeting | TestApi | ServiceApi
+		>();
 	});
 
 	it("makes queries and hooks require the services and the client", () => {
 		expectTypeOf<QueryClient.Requirements>().toEqualTypeOf<
-			Greeting | TestApi | QueryClient.QueryClient
+			Greeting | TestApi | ServiceApi | QueryClient.QueryClient
 		>();
 		expectTypeOf<
 			ReturnType<QueryClient.Hook<QueryClient.QuerySucceeded>>
@@ -43,7 +46,7 @@ describe("QueryClient.make", () => {
 		QueryClient.make({
 			layer: Layer.merge(
 				Layer.effect(Greeting, Effect.fail("no config" as const)),
-				testApiLayer(),
+				apiLayers(),
 			),
 		});
 		QueryClient.make({
@@ -57,6 +60,18 @@ describe("QueryClient.make", () => {
 	it("rejects a layer that doesn't provide them", () => {
 		// @ts-expect-error Layer.empty doesn't provide Greeting
 		QueryClient.make({ layer: Layer.empty });
+	});
+
+	it("requires options while Register declares services", () => {
+		expectTypeOf<QueryClient.OptionalOptions>().toEqualTypeOf<
+			[options: QueryClient.Options]
+		>();
+		// @ts-expect-error the services must be given
+		QueryClient.make();
+		// @ts-expect-error the services must be given
+		QueryClient.make({ queries: { defaults: { staleTime: "1 minute" } } });
+		// @ts-expect-error the services must be given
+		QueryClient.layer();
 	});
 
 	it("rejects a layer that needs services of its own", () => {
@@ -140,5 +155,32 @@ describe("QueryClient.layer", () => {
 		expectTypeOf(
 			QueryClient.layer({ layer: servicesLayer("hello") }),
 		).toEqualTypeOf<Layer.Layer<QueryClient.QueryClient>>();
+	});
+});
+
+describe("the client's promise methods", () => {
+	const todos = Query.make({
+		key: ["todos"],
+		run: Effect.succeed<ReadonlyArray<string>>([]),
+	});
+
+	it("type fetch with the query's value, and the rest as void", () => {
+		expectTypeOf(client.fetch(todos)).toEqualTypeOf<
+			Promise<ReadonlyArray<string>>
+		>();
+		expectTypeOf(client.prefetch(todos)).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.invalidate()).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.refetch(todos)).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.reset(["todos"])).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(client.clear()).toEqualTypeOf<Promise<void>>();
+		expectTypeOf(Query.clear(["todos"])).toEqualTypeOf<
+			Effect.Effect<void, never, QueryClient.QueryClient>
+		>();
+	});
+
+	it("take any target, or none", () => {
+		client.invalidate(Query.group(todos, ["other"]));
+		client.refetch();
+		client.reset(todos);
 	});
 });

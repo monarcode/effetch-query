@@ -31,9 +31,10 @@ export interface HydrationBoundaryProps {
 
 /**
  * Loads a cache `QueryClient.dehydrate` sent from the server into the
- * client of the nearest {@link QueryProvider}, as TanStack's
- * `HydrationBoundary`, so the tree below shows the server's data without
- * fetching it again.
+ * client of the nearest `QueryProvider`, as TanStack's
+ * `HydrationBoundary` does, so the tree below shows the server's data
+ * without fetching it again. Throws a `MissingQueryProviderError` outside a
+ * provider.
  *
  * Values for queries that aren't cached load during render, so its children
  * read them in the same pass, the first render after server rendering
@@ -43,10 +44,11 @@ export interface HydrationBoundaryProps {
  * does: a cached query takes only newer data, and a query the server was
  * still loading waits for its result.
  *
- * Under a {@link QueryProvider} that owns its client, once `resetKey`
+ * Under a `QueryProvider` that owns its client, once `resetKey`
  * replaces the client, it loads into the new one only what the server
- * dehydrated after the change, by the server's clock: earlier state belongs
- * to the previous account, so the new client fetches it itself.
+ * dehydrated after the change, comparing the server's dehydration time with
+ * the browser's clock: earlier state belongs to the previous account, so the
+ * new client fetches it itself.
  *
  * @example
  * ```tsx

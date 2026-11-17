@@ -1,9 +1,10 @@
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import { constVoid } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
@@ -14,11 +15,12 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 
-import { observeNodes } from "./internal/cache.js";
+import { fetchValue, observeNodes } from "./internal/cache.js";
 import * as hydration from "./internal/dehydrate.js";
 import * as disposal from "./internal/disposeAfter.js";
 import { peek } from "./internal/queryAtom.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
+import * as targets from "./internal/targets.js";
 import type { Mutation } from "./Mutation.js";
 import type * as Query from "./Query.js";
 import type { Signals } from "./Signals.js";
@@ -184,8 +186,69 @@ export interface QueryClient {
 		options?: Effect.RunOptions | undefined,
 	) => Promise<Exit.Exit<A, E>>;
 	/**
+	 * Returns a query's value, as {@link Query.fetch} does: the cached one if
+	 * it's fresh, otherwise the result of a new fetch, joining one in
+	 * progress. Rejects as {@link QueryClient.runPromise} does if the query
+	 * fails, so a router's `redirect()` thrown by a query still reaches the
+	 * router. Pass `{ signal }` to stop waiting when the signal aborts.
+	 *
+	 * @see {@link QueryClient.prefetch} to fetch without rejecting
+	 */
+	readonly fetch: <A, E>(
+		query: Query.Query<A, E>,
+		options?: Effect.RunOptions | undefined,
+	) => Promise<A>;
+	/**
+	 * Fetches a query unless its value is fresh, as {@link Query.prefetch}
+	 * does, and resolves when the fetch settles. Never rejects: a failure
+	 * shows in the query's result. Call it without `await` to start a fetch
+	 * a component reads later, such as in a router loader that streams.
+	 */
+	readonly prefetch: <A, E>(
+		query: Query.Query<A, E>,
+		options?: Effect.RunOptions | undefined,
+	) => Promise<void>;
+	/**
+	 * Marks the target's queries stale, as {@link Query.invalidate} does:
+	 * those in use refetch at once, the rest the next time they're used.
+	 * Without a target, every query. Resolves at once, without waiting for
+	 * the refetches, and does nothing on a disposed client. Rejects with a
+	 * `KeyHoldsTargetError` for a key that holds queries ({@link Query.Target}).
+	 *
+	 * @see {@link QueryClient.refetch} to wait for them
+	 */
+	readonly invalidate: (target?: Query.Target | undefined) => Promise<void>;
+	/**
+	 * Refetches the target's queries that are in use, as {@link Query.refetch}
+	 * does, and resolves when they've all settled. Without a target, every
+	 * query in use. A query that fails doesn't reject it: each shows its own
+	 * failure. It rejects only with a defect, such as a
+	 * `KeyHoldsTargetError` for a key that holds queries
+	 * ({@link Query.Target}). On a disposed client, it resolves at once.
+	 */
+	readonly refetch: (target?: Query.Target | undefined) => Promise<void>;
+	/**
+	 * Puts the target's queries back to `Initial`, as {@link Query.reset}
+	 * does, dropping their values: those in use fetch again at once, the rest
+	 * the next time they're used. Without a target, every query. Resolves at
+	 * once, without waiting for the fetches, and does nothing on a disposed
+	 * client. Rejects as {@link QueryClient.invalidate} does.
+	 */
+	readonly reset: (target?: Query.Target | undefined) => Promise<void>;
+	/**
+	 * Drops the target's values without fetching, as {@link Query.clear}
+	 * does, and those of the queries that read them: queries in use show
+	 * `Initial` until something asks for them, such as a component that
+	 * starts using one. Without a target, every query: use it on signing
+	 * out, when refetching would fail. Resolves at once, and does nothing on
+	 * a disposed client. Rejects as {@link QueryClient.invalidate} does.
+	 *
+	 * @see {@link QueryClient.reset} to fetch again at once
+	 */
+	readonly clear: (target?: Query.Target | undefined) => Promise<void>;
+	/**
 	 * Releases everything the client owns. It disposes the cache and clears
-	 * its timers, then interrupts what's in flight: fetches, mutation runs,
+	 * its timers, then interrupts what's in progress: fetches, mutation runs,
 	 * and the Effects started by {@link QueryClient.runPromise}. Last, it
 	 * closes the layer's scope. An interrupted mutation run doesn't roll back
 	 * its optimistic writes, since the cache is already gone. A layer build in
@@ -245,6 +308,29 @@ export const QueryClient: Context.Service<QueryClient, QueryClient> =
  * @since 0.1.0
  */
 export type Options = LayerOptions | RuntimeOptions;
+
+/**
+ * The parameters of {@link make} and {@link layer}. With no services
+ * declared in {@link Register}, the options can be left out, or given
+ * without a layer or a runtime. With services declared, it's
+ * `[options: Options]`, so a client must be given them.
+ *
+ * @example
+ * ```ts
+ * import { QueryClient } from "@monarcode/effetch-query";
+ *
+ * // With no services declared in Register.
+ * export const queryClient = QueryClient.make();
+ * export const configured = QueryClient.make({
+ *   queries: { defaults: { staleTime: "1 minute" } },
+ * });
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type OptionalOptions = [Services] extends [never]
+	? [options?: Options | CommonOptions | undefined]
+	: [options: Options];
 
 /**
  * {@link Options} that give the client a layer, which it builds itself.
@@ -356,7 +442,7 @@ export interface RuntimeOptions extends CommonOptions {
  * @since 0.1.0
  */
 export interface CommonOptions {
-	/** Where focus and reconnect come from. Default: the browser's. */
+	/** The source of focus and reconnect. Default: `Signals.browser`. */
 	readonly signals?: Signals | undefined;
 	/** Defaults and app-wide hooks for every query. */
 	readonly queries?: QueriesOptions | undefined;
@@ -388,7 +474,7 @@ export interface CommonOptions {
 export interface QueriesOptions {
 	/** Options for every query. A query's own options override them. */
 	readonly defaults?: QueryDefaults | undefined;
-	/** Runs once per successful fetch, not for `Query.set`. */
+	/** Runs once per successful fetch, not for {@link Query.set}. */
 	readonly onSuccess?: Hook<QuerySucceeded> | undefined;
 	/** Runs once per failed fetch, after `retry`. */
 	readonly onFailure?: Hook<QueryFailed> | undefined;
@@ -402,8 +488,8 @@ export interface QueriesOptions {
 
 /**
  * Options every query takes, set for all of them in
- * {@link QueriesOptions.defaults}. A query's own options (`Query.Options`)
- * extend these, with `E` its error type.
+ * {@link QueriesOptions.defaults}. A query's own options
+ * ({@link Query.Options}) extend these, with `E` its error type.
  *
  * @example
  * ```ts
@@ -425,17 +511,34 @@ export interface QueryDefaults<E = unknown> {
 	 * Defects aren't retried. Default: no retries.
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
-	/** Refetch a stale query when a component starts using it. Default: `true`. */
+	/**
+	 * If true, refetches a stale query when a component starts using it.
+	 * Default: `true`.
+	 */
 	readonly refetchOnMount?: boolean | undefined;
-	/** Refetch a failed query when a component starts using it. Default: `true`. */
+	/**
+	 * If true, refetches a failed query when a component starts using it,
+	 * however recent the failure. A suspense reader (React's
+	 * `useSuspenseQuery`) of a failure with no earlier value throws it to an
+	 * error boundary instead, so it never starts using the query to retry it
+	 * (see `useResetQueryFailure`). Default: `true`.
+	 */
 	readonly retryOnMount?: boolean | undefined;
-	/** Refetch a stale query in use when the app regains focus. Default: `true`. */
+	/**
+	 * If true, refetches a stale query in use when the app regains focus
+	 * ({@link CommonOptions.signals}). Default: `true`.
+	 */
 	readonly refetchOnFocus?: boolean | undefined;
-	/** Refetch a stale query in use when the device reconnects. Default: `true`. */
+	/**
+	 * If true, refetches a stale query in use when the device reconnects
+	 * ({@link CommonOptions.signals}). Default: `true`.
+	 */
 	readonly refetchOnReconnect?: boolean | undefined;
 	/**
-	 * Refetch a query in use this often. Polling pauses while nothing uses
-	 * the query and resumes when something starts using it. Default: never.
+	 * The interval at which a query in use refetches. A tick that finds a
+	 * fetch in progress doesn't start another. Polling pauses while nothing
+	 * uses the query and resumes when something starts using it. Default: no
+	 * polling.
 	 */
 	readonly refetchInterval?: Duration.Input | undefined;
 }
@@ -573,12 +676,25 @@ export interface MutationDefaults<E = unknown> {
 	 */
 	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
 	/**
-	 * Whether one use's runs can overlap, such as one component's
-	 * `useMutation`. With `false`, a new run interrupts the one in progress,
-	 * whose optimistic writes are rolled back first. Separate uses, and
-	 * `Mutation.run` calls, never interrupt each other. Default: `true`.
+	 * The policy for how one use's runs (one component's `useMutation`, say)
+	 * overlap. Separate uses, and `Mutation.run` calls, never affect each
+	 * other.
+	 * Default: `true`.
+	 *
+	 * - `true`: runs overlap.
+	 * - `false`: a new run interrupts the one in progress, whose optimistic
+	 *   writes are rolled back first.
+	 * - `"queue"`: a new run waits until the ones before it have settled, so
+	 *   runs go one at a time, in order. A queued run counts as in progress
+	 *   (`useIsMutating`, `useMutationState`), but its `optimistic` runs when
+	 *   it starts, so a run that fails rolls back only its own writes.
+	 * - `"drop"`: a new run is ignored while the one the use shows is in
+	 *   progress, such as a second click on a submit button. It never starts
+	 *   or calls anything, and its `run` resolves at once with an
+	 *   interrupted `Exit`. After `reset`, which stops showing a run, a new
+	 *   run starts.
 	 */
-	readonly concurrent?: boolean | undefined;
+	readonly concurrent?: boolean | "queue" | "drop" | undefined;
 }
 
 /**
@@ -677,11 +793,22 @@ export interface MutationSettled {
 	readonly exit: Exit.Exit<unknown, unknown>;
 }
 
+/** Every option a client can be given, to read them without narrowing. */
+interface AnyOptions extends CommonOptions {
+	readonly layer?: Layer.Layer<Services, unknown> | undefined;
+	readonly memoMap?: Layer.MemoMap | undefined;
+	readonly runtime?:
+		| ManagedRuntime.ManagedRuntime<Services, unknown>
+		| undefined;
+}
+
 /**
  * Creates a {@link QueryClient}. Nothing is built until the client is first
  * used: then it builds `layer` once and keeps it until
  * {@link QueryClient.dispose}. Given a `runtime` instead, it uses the
  * runtime's services and builds none of its own ({@link RuntimeOptions}).
+ * With no services declared in {@link Register}, the options can be left
+ * out ({@link OptionalOptions}).
  *
  * @example
  * ```ts
@@ -706,14 +833,18 @@ export interface MutationSettled {
  *
  * @since 0.1.0
  */
-export const make = (options: Options): QueryClient => {
+export const make = (...[given]: OptionalOptions): QueryClient => {
+	const options: AnyOptions = given ?? {};
 	const appRuntime = options.runtime;
+	const appLayer = options.layer;
 	const memoMap =
 		appRuntime?.memoMap ?? options.memoMap ?? Layer.makeMemoMapUnsafe();
 	// Read when it's needed: disposing a runtime replaces its `contextEffect`.
 	const app =
 		appRuntime === undefined
-			? options.layer
+			? // With no layer, the types allow it only when Register declares no
+				// services, so the empty layer provides all of them.
+				(appLayer ?? (Layer.empty as Layer.Layer<Services>))
 			: Layer.effectContext(Effect.suspend(() => appRuntime.contextEffect));
 	// `Reactivity.layer` is last so it wins over one in the app's services:
 	// the runtime's atoms build the same layer with the same memo map, so
@@ -752,12 +883,52 @@ export const make = (options: Options): QueryClient => {
 			track(state, fiber);
 			return effect;
 		});
+	// The cache functions that only touch the registry run at once, and do
+	// nothing once the client is disposed.
+	const onRegistry = (write: () => void): Promise<void> => {
+		try {
+			if (!state.disposed) {
+				write();
+			}
+			return Promise.resolve();
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	};
 	const client: QueryClient = {
 		registry,
 		runPromise: (effect, runOptions) =>
 			runtime.runPromise(tracked(effect), runOptions),
 		runPromiseExit: (effect, runOptions) =>
 			runtime.runPromiseExit(tracked(effect), runOptions),
+		fetch: (query, runOptions) =>
+			Effect.runPromise(tracked(fetchValue(registry, query)), runOptions),
+		prefetch: (query, runOptions) =>
+			Effect.runPromiseExit(
+				tracked(fetchValue(registry, query)),
+				runOptions,
+			).then(constVoid, constVoid),
+		invalidate: (target) =>
+			onRegistry(() => targets.invalidate(registry, target ?? [])),
+		// Settles when `dispose()` interrupts it, but rejects with a defect,
+		// such as a key that holds queries.
+		refetch: (target) =>
+			state.disposed
+				? Promise.resolve()
+				: Effect.runPromiseExit(
+						tracked(targets.refetch(registry, target ?? [])),
+					).then((exit) => {
+						if (
+							exit._tag === "Failure" &&
+							!Cause.hasInterruptsOnly(exit.cause)
+						) {
+							throw Cause.squash(exit.cause);
+						}
+					}),
+		reset: (target) =>
+			onRegistry(() => targets.reset(registry, target ?? [])),
+		clear: (target) =>
+			onRegistry(() => targets.clear(registry, target ?? [])),
 		// Disposing the registry interrupts fetches without waiting for them,
 		// so they're awaited before the layer they use is released.
 		// `registry.dispose()` rethrows a finalizer's error: the rest still
@@ -792,7 +963,8 @@ export const make = (options: Options): QueryClient => {
  * Unless `options.memoMap` is set, the client builds `options.layer` with
  * the memo map of the layer graph it's built in, so services that graph also
  * builds are built once. A client given `options.runtime` uses the runtime's
- * services instead.
+ * services instead. With no services declared in {@link Register}, the
+ * options can be left out ({@link OptionalOptions}).
  *
  * @example
  * ```ts
@@ -817,13 +989,14 @@ export const make = (options: Options): QueryClient => {
  *
  * @since 0.1.0
  */
-export const layer = (options: Options): Layer.Layer<QueryClient> =>
+export const layer = (...[given]: OptionalOptions): Layer.Layer<QueryClient> =>
 	Layer.fromBuildMemo((memoMap, scope) =>
 		Effect.suspend(() => {
+			const options: AnyOptions = given ?? {};
 			const client = make(
-				options.runtime === undefined
+				(options.runtime === undefined
 					? { ...options, memoMap: options.memoMap ?? memoMap }
-					: options,
+					: options) as Options,
 			);
 			return Effect.as(
 				Scope.addFinalizer(
@@ -838,9 +1011,9 @@ export const layer = (options: Options): Layer.Layer<QueryClient> =>
 /**
  * A client's cache as `dehydrate` sends it: Effect's `Hydration` format, so
  * a framework's serializer carries it as it carries any atom state. Its
- * values are JSON; a query still fetching carries a promise of its result,
- * which only streaming serializers (React's, TanStack Start's, React
- * Router's) can send.
+ * values are JSON. With `pending: "promise"` ({@link DehydrateOptions}), a
+ * query still loading carries a promise of its result, which only streaming
+ * serializers (React's, TanStack Start's, React Router's) can send.
  *
  * @example
  * ```ts
@@ -874,10 +1047,13 @@ export type DehydratedState = ReadonlyArray<Hydration.DehydratedAtom>;
  * @since 0.1.0
  */
 export interface DehydrateOptions {
-	/** Only the queries this matches, as `Query.invalidate` matches them. Default: every query. */
+	/**
+	 * A target: only the queries it matches are sent, as
+	 * {@link Query.invalidate} matches them. Default: every query.
+	 */
 	readonly queries?: Query.Target | undefined;
 	/**
-	 * A query still fetching, with nothing to show yet: `"promise"` sends a
+	 * A query still loading, with nothing to show yet: `"promise"` sends a
 	 * promise of its result, for streaming server rendering, and the browser
 	 * waits for it instead of fetching; `"omit"` leaves it out, and the
 	 * browser fetches it. Default: `"omit"`.
@@ -894,18 +1070,18 @@ export interface DehydrateOptions {
 
 /**
  * Reads a client's cache to send to the browser, for server rendering, as
- * TanStack's `dehydrate`. Load what the page needs first (`Query.prefetch`
- * through {@link QueryClient.runPromise}), then send the result with the
- * page and load it with {@link hydrate} (or `HydrationBoundary` from
- * `@monarcode/effetch-query/react`).
+ * TanStack's `dehydrate`. Load what the page needs first
+ * ({@link Query.prefetch} through {@link QueryClient.runPromise}), then send
+ * the result with the page and load it with {@link hydrate} (or
+ * `HydrationBoundary` from `@monarcode/effetch-query/react`).
  *
  * Only queries with a `schema` are sent, encoded with it, timestamp
  * included, so a query stays fresh in the browser as long as it would on
  * the server. It reads without fetching: a stale query is sent as it is.
  * Values a schema can't encode are left out.
  *
- * Throws {@link NonJsonKeyError} for a key that isn't JSON, and
- * {@link DuplicateQueryKeyError} when two queries it sends have one key.
+ * Throws a `NonJsonKeyError` for a key that isn't JSON, and a
+ * `DuplicateQueryKeyError` when two queries it sends have one key.
  *
  * @example
  * ```ts
@@ -968,9 +1144,9 @@ export const hydrate = (
 
 /**
  * Returns a query's cached value in `client`, if it has one, outside Effect:
- * TanStack's `queryClient.getQueryData`. It reads as `Query.get` does,
+ * TanStack's `queryClient.getQueryData`. It reads as {@link Query.get} does,
  * without fetching, for code that can't wait for a promise, such as a form
- * listener. Inside Effect, use `Query.get`.
+ * listener. Inside Effect, use {@link Query.get}.
  *
  * @example
  * ```ts
@@ -1010,9 +1186,9 @@ export const get = <A, E>(
  * client is never disposed. Only the status, status text and headers are
  * kept, not a runtime's own options (Cloudflare's `encodeBody`, say), and
  * the body goes out as a stream, so a fixed body loses the length the
- * runtime would have sent. A body already read or locked throws, after the
- * client is disposed. A failed {@link QueryClient.dispose} is logged with
- * `console.error`, not thrown.
+ * runtime would have sent. A body already read or locked throws, and the
+ * client is disposed all the same. A failed {@link QueryClient.dispose} is
+ * logged with `console.error`, not thrown.
  *
  * The core uses `ReadableStream` and `Response` only when this is called,
  * so it still loads where they don't exist, such as React Native.

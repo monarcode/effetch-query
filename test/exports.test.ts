@@ -9,12 +9,22 @@ import * as TanStackRouter from "../src/react/tanstack-router/index.js";
 describe("public entry points", () => {
 	it("@monarcode/effetch-query exports exactly these values", () => {
 		expect(Object.keys(Core).sort()).toEqual([
+			"Entity",
 			"InfiniteQuery",
 			"Mutation",
 			"Query",
 			"QueryClient",
 			"QueryFailure",
 			"Signals",
+		]);
+		expect(Object.keys(Core.Entity).sort()).toEqual([
+			"TypeId",
+			"get",
+			"isEntity",
+			"make",
+			"remove",
+			"set",
+			"update",
 		]);
 		expect(Object.keys(Core.InfiniteQuery).sort()).toEqual([
 			"TypeId",
@@ -32,6 +42,7 @@ describe("public entry points", () => {
 		]);
 		expect(Object.keys(Core.Query).sort()).toEqual([
 			"TypeId",
+			"clear",
 			"family",
 			"fetch",
 			"get",
@@ -43,6 +54,8 @@ describe("public entry points", () => {
 			"refetch",
 			"reset",
 			"set",
+			"stream",
+			"streamFamily",
 			"update",
 		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([
@@ -63,12 +76,18 @@ describe("public entry points", () => {
 		expect(Object.keys(React).sort()).toEqual([
 			"HydrationBoundary",
 			"MissingQueryProviderError",
+			"QueryBoundary",
 			"QueryFailure",
 			"QueryProvider",
 			"useInfiniteQuery",
+			"useIsFetching",
+			"useIsMutating",
 			"useMutation",
+			"useMutationState",
+			"useQueries",
 			"useQuery",
 			"useQueryClient",
+			"useQueryState",
 			"useRefetch",
 			"useResetQueryFailure",
 			"useSuspenseInfiniteQuery",
@@ -82,7 +101,11 @@ describe("public entry points", () => {
 	});
 
 	it("@monarcode/effetch-query/effetch exports exactly these values", () => {
-		expect(Object.keys(Effetch).sort()).toEqual(["endpoints"]);
+		expect(Object.keys(Effetch).sort()).toEqual(["endpoints", "fromClient"]);
+	});
+
+	it("keeps endpoints as the deprecated name of fromClient", () => {
+		expect(Effetch.endpoints).toBe(Effetch.fromClient);
 	});
 
 	it("@monarcode/effetch-query/react/tanstack-router exports exactly these values", () => {

@@ -11,7 +11,7 @@ import * as SchemaGetter from "effect/SchemaGetter";
 import * as Fetch from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { endpoints } from "../src/effetch/index.js";
+import { fromClient } from "../src/effetch/index.js";
 import { InfiniteQuery, Query, QueryClient } from "../src/index.js";
 import { dehydrate } from "../src/internal/dehydrate.js";
 import { hashKey } from "../src/internal/hashKey.js";
@@ -225,7 +225,7 @@ describe("effetch schema", () => {
 		items: Schema.Array(Todo),
 		skip: Schema.Finite,
 	});
-	const api = endpoints(TestApi);
+	const api = fromClient(TestApi);
 
 	it("takes the endpoint's output, keyed apart by method", () => {
 		const getTodo = api.query(

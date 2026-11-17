@@ -43,9 +43,9 @@ export type TypeId = internal.MutationTypeId;
 export const TypeId: TypeId = internal.MutationTypeId;
 
 /**
- * Whether a value is a {@link Mutation}. A mutation's variables can't be
- * known from the value, so it narrows to `Mutation<never, unknown, unknown>`,
- * which every mutation is.
+ * Checks whether a value is a {@link Mutation}. A mutation's variables can't
+ * be known from the value, so it narrows to
+ * `Mutation<never, unknown, unknown>`, which every mutation is.
  *
  * @example
  * ```ts
@@ -72,7 +72,7 @@ export const isMutation = (
  * {@link run} or `useMutation`.
  *
  * A definition holds no state. Each use (each component's `useMutation`)
- * keeps its own, so components never share a pending or failed state.
+ * keeps its own, so components never share a waiting or failed state.
  *
  * @example
  * ```ts
@@ -112,7 +112,8 @@ export interface Mutation<Variables, A, E> {
  * that a run whose `optimistic` dies still has its writes rolled back.
  *
  * An interrupted run (with `concurrent: false`, replaced by a newer one; or
- * its client disposed) calls nothing after the interruption. If `run` hadn't
+ * its client disposed, which also interrupts runs `concurrent: "queue"`
+ * holds back) calls nothing after the interruption. If `run` hadn't
  * succeeded yet, its optimistic writes are rolled back, unless the client
  * is being disposed: then there's no cache left to put back.
  *
@@ -141,16 +142,15 @@ export interface MakeOptions<
 	) => Effect.Effect<A, E, QueryClient.Requirements>;
 	/**
 	 * Updates the cache before `run`, so the change shows at once. Its
-	 * `Query.set` and `Query.update` calls are recorded, and if the run
-	 * fails, the queries they wrote are put back, newest write first. A query
-	 * written again in the meantime, even by a fetch, is put back all the
-	 * same. Only writes made while it runs count: not those of a fiber it
+	 * {@link Query.set} and {@link Query.update} calls are recorded, and if
+	 * the run fails, the queries they wrote are put back, newest write first.
+	 * A query written again in the meantime, even by a fetch, is put back all
+	 * the same. Only writes made while it runs count: not those of a fiber it
 	 * forks that write after it's done, nor those of a mutation it runs.
 	 *
-	 * A fetch of the same query already in flight still settles over the
-	 * optimistic value, as it does over any `Query.set`, and there's no way
-	 * to cancel it in this version: the query then shows what that fetch
-	 * returned.
+	 * A fetch of the same query already in progress still settles over the
+	 * optimistic value, as it does over any {@link Query.set}, and there's no
+	 * way to cancel it: the query then shows what that fetch returned.
 	 */
 	readonly optimistic?:
 		| ((
@@ -179,9 +179,14 @@ export interface MakeOptions<
 		  ) => Effect.Effect<void, never, QueryClient.Requirements>)
 		| undefined;
 	/**
-	 * Queries to invalidate after `onSuccess`, as `Query.invalidate` does:
-	 * a list, or a function of the run's value and variables that returns
-	 * one.
+	 * Queries to invalidate after `onSuccess`, as {@link Query.invalidate}
+	 * does: a list of targets, or a function of the run's value and variables
+	 * that returns one. Default: none. A failed run invalidates nothing.
+	 *
+	 * A key that holds a query, a family or a group matches nothing: in a
+	 * list, the run dies with a `KeyHoldsTargetError` before it starts; from
+	 * the function, the change is already saved, so the target is logged and
+	 * skipped. Combine targets with {@link Query.group}.
 	 */
 	readonly invalidates?:
 		| ReadonlyArray<Query.Target>

@@ -1,4 +1,3 @@
-import { Query } from "@monarcode/effetch-query";
 import { useRefetch, useSuspenseQuery } from "@monarcode/effetch-query/react";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -13,13 +12,18 @@ import { userTodos, viewer } from "../api.js";
 import { TodoItem } from "../todo-item.js";
 
 export const Route = createFileRoute("/_app/")({
+	head: () => ({ meta: [{ title: "My todos · Todos" }] }),
+	// The user comes from `_app`'s `beforeLoad`. Returns nothing: the page
+	// reads the todos from the cache.
 	loader: async ({ context }) => {
-		const user = await context.queryClient.runPromise(Query.fetch(viewer));
-		await context.queryClient.runPromise(Query.fetch(userTodos(user.id)));
+		await context.queryClient.fetch(userTodos(context.user.id));
 	},
 	component: function MyTodos() {
-		const { value: user } = useSuspenseQuery(viewer);
-		const mine = userTodos(user.id);
+		// From the query, not the route context, so it follows a refetch.
+		const { value: userId } = useSuspenseQuery(viewer, {
+			select: (user) => user.id,
+		});
+		const mine = userTodos(userId);
 		const { value } = useSuspenseQuery(mine);
 		const { refetch, isRefetching } = useRefetch(mine);
 		const open = value.todos.filter((todo) => !todo.completed).length;
