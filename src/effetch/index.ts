@@ -7,6 +7,7 @@ import * as Predicate from "effect/Predicate";
 import * as Atom from "effect/reactivity/Atom";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as Fetch from "@monarcode/effetch";
 
@@ -189,11 +190,11 @@ export interface EndpointsOptions<
 
 /**
  * Options for {@link Endpoints.query}: a query's options
- * ({@link Query.Options}), a `placeholder`, and the headers and plugin
- * overrides `client.bind` takes (`Fetch.BindOptions`). `A` is the query's
- * value and `Args` the call's `params` and `query`
- * ({@link EndpointQueryArgs}), which type the `placeholder`; `api.query`
- * sets both from the endpoint.
+ * ({@link Query.Options}), a `placeholder`, `live` updates, and the headers
+ * and plugin overrides `client.bind` takes (`Fetch.BindOptions`). `A` is
+ * the query's value and `Args` the call's `params` and `query`
+ * ({@link EndpointQueryArgs}), which type `placeholder` and `live`;
+ * `api.query` sets both from the endpoint.
  *
  * @example
  * ```ts
@@ -210,7 +211,7 @@ export interface EndpointsOptions<
 export interface EndpointQueryOptions<
 	E,
 	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
-	A = never,
+	A = any,
 	Args = unknown,
 >
 	extends Query.Options<E>, Fetch.BindOptions<Ps> {
@@ -222,6 +223,59 @@ export interface EndpointQueryOptions<
 	 * query: calls that send the same request share one, so a later call's
 	 * extra fields, or a query it gives in another form that encodes the
 	 * same, aren't seen. Default: none.
+	 */
+	readonly placeholder?:
+		| ((
+				args: Args,
+		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
+		| undefined;
+	/**
+	 * Server pushes that keep a query's value up to date, from the call's
+	 * `params` and `query`, as {@link Query.MakeOptions.live}: a `Stream` of
+	 * functions, each applied to the value. Default: none.
+	 */
+	readonly live?:
+		| ((
+				args: Args,
+		  ) => Stream.Stream<
+				(value: NoInfer<A>) => NoInfer<A>,
+				unknown,
+				QueryClient.Requirements
+		  >)
+		| undefined;
+}
+
+/**
+ * Options for {@link Endpoints.query} with a stream endpoint (`stream:
+ * "sse"` or `"ndjson"`): a stream query's options
+ * ({@link Query.StreamOptions}), a `placeholder`, and the headers and plugin
+ * overrides `client.bind` takes (`Fetch.BindOptions`). `A` is the value,
+ * one element of the stream, and `Args` the call's arguments.
+ *
+ * @example
+ * ```ts
+ * import * as Schedule from "effect/Schedule";
+ *
+ * import type { EndpointStreamOptions } from "@monarcode/effetch-query/effetch";
+ *
+ * export const options: EndpointStreamOptions<unknown, []> = {
+ *   retry: Schedule.spaced("1 second"),
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface EndpointStreamOptions<
+	E,
+	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+	A = never,
+	Args = unknown,
+>
+	extends Query.StreamOptions<E>, Fetch.BindOptions<Ps> {
+	/**
+	 * A value to show for a query until its first element, from the call's
+	 * `params` and `query`, as {@link EndpointQueryOptions.placeholder}.
+	 * Default: none.
 	 */
 	readonly placeholder?:
 		| ((
@@ -597,8 +651,15 @@ export interface Endpoints<
 	 * is a {@link Endpoints.mutation}, or a {@link Query.family} of your own.
 	 * An endpoint with a `query` schema is keyed by the query as it's sent
 	 * ({@link EndpointQuery}); its schema can't need services
-	 * ({@link KeyQuerySchema}). Not stream endpoints, nor ones with
-	 * `responseMode`: their calls don't give a value to cache.
+	 * ({@link KeyQuerySchema}). Not endpoints with `responseMode`: their
+	 * calls don't give a value to cache.
+	 *
+	 * A stream endpoint (`stream: "sse"` or `"ndjson"`) makes stream queries
+	 * ({@link Query.stream}): the value is the latest element as Effetch
+	 * gives it, a `Fetch.SseEvent` of the `output` for SSE (read its `data`
+	 * with `useQuery`'s `select`) or the `output` for NDJSON, and the request
+	 * runs while the query is read. Its options are
+	 * {@link EndpointStreamOptions}.
 	 *
 	 * With an `output`, its queries cross from server to browser with no
 	 * `schema` to write (`QueryClient.dehydrate`); without one, they aren't
@@ -618,18 +679,38 @@ export interface Endpoints<
 		I extends RegisteredSchema | undefined,
 		OwnSE extends RegisteredStatusErrors | undefined = undefined,
 		QS extends KeyQuerySchema | undefined = undefined,
+		St extends Fetch.StreamFormat | undefined = undefined,
 	>(
-		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS>,
-		options?: EndpointQueryOptions<
-			Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
-			Ps,
-			Fetch.Success<O>,
-			EndpointQueryArgs<R, Fetch.QueryInput, QS>
-		>,
+		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS, St>,
+		options?: [St] extends [Fetch.StreamFormat]
+			? EndpointStreamOptions<
+					Fetch.CallError<
+						Fetch.AnySchema,
+						ErrorSchema<Own, EB>,
+						Ps,
+						OwnSE | SE
+					>,
+					Ps,
+					Fetch.StreamElement<St, O>,
+					EndpointQueryArgs<R, Fetch.QueryInput, QS>
+				>
+			: EndpointQueryOptions<
+					Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
+					Ps,
+					Fetch.Success<O>,
+					EndpointQueryArgs<R, Fetch.QueryInput, QS>
+				>,
 	) => EndpointQuery<
 		R,
-		Fetch.Success<O>,
-		Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
+		[St] extends [Fetch.StreamFormat]
+			? Fetch.StreamElement<St, O>
+			: Fetch.Success<O>,
+		Fetch.CallError<
+			[St] extends [Fetch.StreamFormat] ? Fetch.AnySchema : O,
+			ErrorSchema<Own, EB>,
+			Ps,
+			OwnSE | SE
+		>,
 		QS
 	>;
 	/**
@@ -708,6 +789,7 @@ interface AnyEndpoint {
 	readonly error: Fetch.AnySchema | undefined;
 	readonly statusErrors?: Fetch.StatusErrorMap | undefined;
 	readonly query?: Fetch.QuerySchema | undefined;
+	readonly stream?: Fetch.StreamFormat | undefined;
 }
 
 /**
@@ -804,6 +886,19 @@ const callArgs = (
 
 type Call = (options: unknown) => Effect.Effect<unknown, unknown, never>;
 
+/** What a stream endpoint's query holds: an `SseEvent` of `output`, or `output` itself. */
+const elementSchema = (
+	output: Schema.Codec<unknown, unknown>,
+	stream: Fetch.StreamFormat | undefined,
+): Schema.Codec<unknown, unknown> =>
+	stream === "sse"
+		? (Schema.Struct({
+				event: Schema.String,
+				id: Schema.UndefinedOr(Schema.String),
+				data: output,
+			}) as unknown as Schema.Codec<unknown, unknown>)
+		: output;
+
 interface AnyClient {
 	readonly bind: (endpoint: AnyEndpoint, options: unknown) => Call;
 }
@@ -891,12 +986,23 @@ export const endpoints = <
 	const call = (endpoint: AnyEndpoint, bind: Fetch.BindOptions<Ps>) => {
 		const bound = new WeakMap<AnyClient, Call>();
 		return (args: unknown) =>
-			Effect.flatMap(reach, (api) => {
+			Effect.map(reach, (api) => {
 				const send = bound.get(api) ?? api.bind(endpoint, bind);
 				bound.set(api, send);
 				return send(args);
 			});
 	};
+	const callEffect =
+		(endpoint: AnyEndpoint, bind: Fetch.BindOptions<Ps>) => (args: unknown) =>
+			Effect.flatten(call(endpoint, bind)(args));
+	// A stream endpoint's call gives a `Stream`; interrupting it aborts the request.
+	const callStream =
+		(endpoint: AnyEndpoint, bind: Fetch.BindOptions<Ps>) => (args: unknown) =>
+			Stream.unwrap(
+				call(endpoint, bind)(args) as unknown as Effect.Effect<
+					Stream.Stream<unknown, unknown>
+				>,
+			);
 	// Calls with the same arguments after `toArgs` share a query.
 	const endpointFamily = (
 		endpoint: AnyEndpoint,
@@ -952,7 +1058,10 @@ export const endpoints = <
 			: {
 					codec: makeCodec(
 						schema(
-							endpoint.output as Schema.Codec<unknown, unknown>,
+							elementSchema(
+								endpoint.output as Schema.Codec<unknown, unknown>,
+								endpoint.stream,
+							),
 							wireErrors(
 								(endpoint.error ?? defaultError) as
 									| Schema.Codec<unknown, unknown>
@@ -968,15 +1077,28 @@ export const endpoints = <
 				};
 	const query = (
 		endpoint: AnyEndpoint,
-		queryOptions?: EndpointQueryOptions<unknown, Ps, unknown, RouteArgs>,
+		queryOptions?:
+			| EndpointQueryOptions<unknown, Ps, unknown, RouteArgs>
+			| EndpointStreamOptions<unknown, Ps, unknown, RouteArgs>,
 	) => {
-		const { headers, plugins, placeholder, ...rest } = queryOptions ?? {};
-		const fetch = call(endpoint, { headers, plugins });
+		const {
+			headers,
+			plugins,
+			placeholder,
+			live,
+			...rest
+		}: EndpointQueryOptions<unknown, Ps, unknown, RouteArgs> =
+			queryOptions ?? {};
 		const path = segments(endpoint.path);
 		const hydration = hydrationOf(endpoint, (success, error) => ({
 			success,
 			error,
 		}));
+		const fetch = callEffect(endpoint, { headers, plugins });
+		const stream =
+			endpoint.stream === undefined
+				? undefined
+				: callStream(endpoint, { headers, plugins });
 		return endpointFamily(
 			endpoint,
 			path,
@@ -984,7 +1106,12 @@ export const endpoints = <
 			(key, args, family) =>
 				makeQuery({
 					key: routeKey(prefix, path, key),
-					fetch: runOnce(() => fetch(args)),
+					...(stream === undefined
+						? {
+								fetch: runOnce(() => fetch(args)),
+								live: live && { _tag: "Updates", stream: live(args) },
+							}
+						: { live: { _tag: "Stream", stream: () => stream(args) } }),
 					options: rest,
 					member: { family, args },
 					hydration,
@@ -1006,7 +1133,7 @@ export const endpoints = <
 			maxPages,
 			...rest
 		} = queryOptions;
-		const fetch = call(endpoint, { headers, plugins });
+		const fetch = callEffect(endpoint, { headers, plugins });
 		const path = segments(endpoint.path);
 		const toArgs = callArgs(endpoint, path);
 		const pages = {
@@ -1048,7 +1175,7 @@ export const endpoints = <
 				(options?.invalidates === "route"
 					? [routeKeyPrefix(prefix, segments(endpoint.path))]
 					: undefined),
-			run: call(endpoint, { headers, plugins }),
+			run: callEffect(endpoint, { headers, plugins }),
 		});
 	};
 	return { query, infiniteQuery, mutation } as unknown as Endpoints<

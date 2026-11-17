@@ -5,8 +5,15 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import * as QueryClient from "../QueryClient.js";
 import { StateAtom } from "./runtime.js";
 
-/** Puts a query back the way it was before a write. */
-export type Undo = () => void;
+/**
+ * Puts a query back the way it was before a write. `release` lets go of
+ * what the undo holds, for a write that stays (a `live` query keeps its
+ * pushes for an undo: see `cache.ts`).
+ */
+export interface Undo {
+	(): void;
+	readonly release?: (() => void) | undefined;
+}
 
 interface Writes {
 	readonly record: (undo: Undo) => void;
@@ -42,6 +49,8 @@ export const makeRecorded = (): Recorded => {
 			record: (undo) => {
 				if (open) {
 					undos.push(undo);
+				} else {
+					undo.release?.();
 				}
 			},
 		},
@@ -54,7 +63,9 @@ export const makeRecorded = (): Recorded => {
 			}
 		},
 		keep: () => {
-			undos.length = 0;
+			for (const undo of undos.splice(0)) {
+				undo.release?.();
+			}
 		},
 	};
 };
@@ -71,13 +82,23 @@ export const write = (
 	OptimisticWrites.use((writes) =>
 		QueryClient.QueryClient.useSync(({ registry }) => {
 			const undo = f(registry);
-			if (undo !== undefined && writes !== undefined) {
-				const state = registry.get(StateAtom);
-				writes.record(() => {
-					if (!state.disposed) {
-						undo();
-					}
-				});
+			if (undo === undefined) {
+				return;
 			}
+			if (writes === undefined) {
+				undo.release?.();
+				return;
+			}
+			const state = registry.get(StateAtom);
+			writes.record(
+				Object.assign(
+					() => {
+						if (!state.disposed) {
+							undo();
+						}
+					},
+					{ release: undo.release },
+				),
+			);
 		}),
 	);

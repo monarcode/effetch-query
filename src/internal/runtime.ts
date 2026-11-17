@@ -13,6 +13,7 @@ import type { Query } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import type { Signals } from "../Signals.js";
 import { type Activity, type CacheEvent, makeActivity } from "./events.js";
+import type { PushLog } from "./live.js";
 
 /** What `QueryClient.make` stores for queries and mutations to read at run time. */
 export interface Config {
@@ -83,6 +84,8 @@ export interface ClientState {
 	 * those copies, so the core's own checks never see them.
 	 */
 	readonly placeholders: WeakSet<AsyncResult.AsyncResult<any, any>>;
+	/** Each live query's pushes, while a fetch or an undo may need them (see `live.ts`). */
+	readonly pushes: WeakMap<Query<any, any>, PushLog>;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -101,6 +104,7 @@ export const makeClientState = (): ClientState => ({
 	activity: makeActivity(),
 	runCount: 0,
 	placeholders: new WeakSet(),
+	pushes: new WeakMap(),
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */

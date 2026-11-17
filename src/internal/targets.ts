@@ -4,7 +4,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Query from "../Query.js";
 import { clearQuery, resetQuery, settled } from "./cache.js";
 import { matching } from "./keyIndex.js";
-import { isQuery, wake } from "./queryAtom.js";
+import { cachedQuery, internals, isQuery, wake } from "./queryAtom.js";
 import { isInUse } from "./usage.js";
 
 /** Marks the matching queries stale: those in use refetch at once. */
@@ -83,7 +83,7 @@ const withReaders = (
 	registry: AtomRegistry.AtomRegistry,
 	queries: ReadonlyArray<Query.Query<any, any>>,
 ): ReadonlyArray<Query.Query<any, any>> => {
-	const ordered: Array<Query.Query<any, any>> = [];
+	const ordered = new Set<Query.Query<any, any>>();
 	const seen = new Set<AtomRegistry.Node<any>>();
 	const visit = (node: AtomRegistry.Node<any>): void => {
 		seen.add(node);
@@ -92,16 +92,19 @@ const withReaders = (
 				visit(child);
 			}
 		}
-		if (isQuery(node.atom)) {
-			ordered.push(node.atom);
+		// A live query's cache comes after the query, which reads it.
+		const query = isQuery(node.atom) ? node.atom : cachedQuery(node.atom);
+		if (query !== undefined) {
+			ordered.add(query);
 		}
 	};
 	const nodes = registry.getNodes();
 	for (const query of queries) {
-		const node = nodes.get(query);
+		// A live query no one reads has only its cache.
+		const node = nodes.get(query) ?? nodes.get(internals(query).cache);
 		if (node !== undefined && !seen.has(node)) {
 			visit(node);
 		}
 	}
-	return ordered;
+	return Array.from(ordered);
 };

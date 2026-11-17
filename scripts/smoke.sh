@@ -123,6 +123,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import { Entity, InfiniteQuery, Query, QueryClient } from "@monarcode/effetch-query";
 import * as ReactNative from "@monarcode/effetch-query/react-native";
@@ -197,6 +198,8 @@ await client.runPromise(
 	Entity.update(Todos, 1, (todo) => ({ ...todo, title: "renamed" })),
 );
 const renamed = await client.runPromise(Query.fetch(list));
+const ticks = Query.stream({ key: ["ticks"], run: Stream.make(1, 2) });
+const tick = await client.runPromise(Query.fetch(ticks));
 const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(client)));
 await client.dispose();
 
@@ -208,6 +211,9 @@ QueryClient.hydrate(browser, sent);
 const hydrated = await browser.runPromise(Query.fetch(count));
 await browser.dispose();
 
+if (tick !== 1) {
+	throw new Error(`Query.stream's first element: ${tick}`);
+}
 if (renamed[0]?.title !== "renamed") {
 	throw new Error(`Entity.update didn't reach the list: ${JSON.stringify(renamed)}`);
 }

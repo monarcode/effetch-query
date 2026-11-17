@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as Fetch from "@monarcode/effetch";
 import { FetchTest } from "@monarcode/effetch/test";
@@ -23,6 +24,7 @@ import {
 afterEach(disposeClients);
 
 const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+type Todo = typeof Todo.Type;
 
 class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
 	message: Schema.String,
@@ -426,5 +428,123 @@ describe("api.query placeholder", () => {
 		await vi.waitFor(() =>
 			expect(shown.at(-1)).toBe('Success {"id":1,"title":"Fetched"}'),
 		);
+	});
+});
+
+describe("stream endpoints and live", () => {
+	const Progress = Schema.Struct({ percent: Schema.Finite });
+	const progressEvents = Fetch.endpoint("GET /jobs/:id/events", {
+		output: Progress,
+		stream: "sse",
+	});
+	const progressLines = Fetch.endpoint("GET /jobs/:id/lines", {
+		output: Progress,
+		stream: "ndjson",
+	});
+
+	it("makes a stream query of an SSE endpoint, keyed by route", async () => {
+		const client = await serve([
+			FetchTest.respond(progressEvents, ({ params }) =>
+				Effect.succeed([
+					{ data: { percent: 10 } },
+					{ event: "done", id: params.id, data: { percent: 100 } },
+				]),
+			),
+		]);
+		const job = api.query(progressEvents);
+		const query = job({ params: { id: "7" } });
+		expect(query.key).toEqual(["jobs", "7", "events"]);
+		// The first element, then the latest.
+		expect(await client.runPromise(Query.fetch(query))).toEqual({
+			event: "message",
+			id: undefined,
+			data: { percent: 10 },
+		});
+		const unmount = client.registry.mount(query);
+		await client.runPromise(Query.refetch(query));
+		await vi.waitFor(() =>
+			expect(AsyncResult.value(client.registry.get(query))).toEqual(
+				Option.some({ event: "done", id: "7", data: { percent: 100 } }),
+			),
+		);
+		unmount();
+	});
+
+	it("sends an SSE query's latest event to the browser", async () => {
+		const server = await serve([
+			FetchTest.respond(progressEvents, () =>
+				Effect.succeed([{ id: "1", data: { percent: 40 } }]),
+			),
+		]);
+		const job = api.query(progressEvents);
+		await server.runPromise(Query.prefetch(job({ params: { id: "7" } })));
+		const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(server)));
+		const browser = await serve([]);
+		QueryClient.hydrate(browser, sent);
+		// It shows as it subscribes again.
+		const shown = browser.registry.get(job({ params: { id: "7" } }));
+		expect(shown.waiting).toBe(true);
+		expect(AsyncResult.value(shown)).toEqual(
+			Option.some({ event: "message", id: "1", data: { percent: 40 } }),
+		);
+	});
+
+	it("sends an SSE event without an id", async () => {
+		const server = await serve([
+			FetchTest.respond(progressEvents, () =>
+				Effect.succeed([{ data: { percent: 5 } }]),
+			),
+		]);
+		const job = api.query(progressEvents);
+		await server.runPromise(Query.prefetch(job({ params: { id: "8" } })));
+		const sent = JSON.parse(JSON.stringify(QueryClient.dehydrate(server)));
+		const browser = await serve([]);
+		QueryClient.hydrate(browser, sent);
+		expect(
+			AsyncResult.value(browser.registry.get(job({ params: { id: "8" } }))),
+		).toEqual(
+			Option.some({ event: "message", id: undefined, data: { percent: 5 } }),
+		);
+	});
+
+	it("makes a stream query of an NDJSON endpoint", async () => {
+		const client = await serve([
+			FetchTest.respond(progressLines, () =>
+				Effect.succeed([{ percent: 1 }, { percent: 2 }]),
+			),
+		]);
+		const lines = api.query(progressLines);
+		expect(
+			await client.runPromise(Query.fetch(lines({ params: { id: "1" } }))),
+		).toEqual({ percent: 1 });
+	});
+
+	it("applies live updates to an endpoint's query", async () => {
+		const client = await serve([
+			FetchTest.respond(getTodo, ({ params }) =>
+				Effect.succeed({ id: Number(params.id), title: "fetched" }),
+			),
+		]);
+		const renamed = api.query(getTodo, {
+			// A push after the fetch: one before it is in what it fetches.
+			live: ({ params }) =>
+				Stream.fromEffect(
+					Effect.delay(
+						Effect.succeed((todo: Todo) => ({
+							...todo,
+							title: `pushed ${params.id}`,
+						})),
+						"20 millis",
+					),
+				),
+		});
+		const query = renamed({ params: { id: 3 } });
+		const unmount = client.registry.mount(query);
+		await vi.waitFor(() =>
+			expect(AsyncResult.value(client.registry.get(query))).toEqual(
+				Option.some({ id: 3, title: "pushed 3" }),
+			),
+		);
+		unmount();
 	});
 });

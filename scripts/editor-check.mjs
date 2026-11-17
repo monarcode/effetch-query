@@ -7,6 +7,7 @@ const dir = process.cwd();
 const probe = path.join(dir, "editor.ts");
 const source = `import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import { /*Entity*/Entity, /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
 import { /*endpoints*/endpoints } from "@monarcode/effetch-query/effetch";
@@ -26,6 +27,8 @@ const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
 export const /*Todos*/Todos = Entity.make(Todo, { id: (todo) => todo.id });
 export const update = Entity./*entityUpdate*/update;
 export const rename = (id: number) => update(Todos, id, (todo) => ({ ...todo, title: "renamed" }));
+export const stream = Query./*queryStream*/stream;
+export const /*price*/price = stream({ key: ["price"], run: Stream.fromIterable([1, 2]) });
 export { connectQueryClient, endpoints, reactNativeSignals, useIsFetching, useMutationState, useQueries };
 `;
 
@@ -120,6 +123,12 @@ for (const [marker, file, signature, docs] of [
 		"Entity.d.ts",
 		"const update: <A, Id>(entity: Entity.Entity<A, Id>, id: NoInfer<Id>, f: (value: A) => A)",
 		"Writes a value computed from the entity",
+	],
+	[
+		"queryStream",
+		"Query.d.ts",
+		"const stream: <A, E>(options: Query.MakeStreamOptions<A, E>) => Query.Query<A, E>",
+		"Defines a query whose value is the latest element",
 	],
 	[
 		"useQuery",
@@ -222,6 +231,15 @@ expect(
 	todos ===
 		"const Todos: Entity.Entity<{\n    readonly id: number;\n    readonly title: string;\n}, number>",
 	`Hover on an entity shows ${JSON.stringify(todos)}`,
+);
+
+// A stream query is a query of its elements.
+const price = ts.displayPartsToString(
+	service.getQuickInfoAtPosition(probe, at("price"))?.displayParts,
+);
+expect(
+	price === "const price: Query.Query<number, never>",
+	`Hover on a stream query shows ${JSON.stringify(price)}`,
 );
 
 if (failures.length > 0) {

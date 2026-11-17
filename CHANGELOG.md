@@ -90,6 +90,23 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   shows isn't `waiting`, and a `clear` replaces it with what the cache has.
   When it resumes, the query refetches if it's stale. For screens a
   navigator keeps mounted.
+- Live queries, which a server keeps current while they're read:
+  - `Query.stream({ key, run })` and `Query.streamFamily`: the value is a
+    `Stream`'s latest element, such as a price feed over a WebSocket.
+    `Query.fetch` returns the first element; `retry` resubscribes after a
+    failure; `refetch`, `invalidate` and `reset` subscribe again.
+  - `live` on `Query.make`, `Query.family` and `api.query`: a `Stream` of
+    updates, each applied to the fetched value as it arrives. A push keeps
+    the value's age, and is applied again to a fetch that was running and
+    after an optimistic write is undone, so make updates idempotent.
+  - `api.query` takes Effetch stream endpoints (`stream: "sse"` or
+    `"ndjson"`) as stream queries keyed by route, holding each
+    `Fetch.SseEvent` or NDJSON value; `EndpointStreamOptions` types their
+    options.
+
+  The stream runs only while the query is read, and stops about a second
+  after the last reader leaves; the value stays cached for `gcTime`.
+
 - `Entity`: one record held by many queries, written everywhere it's
   cached. `Entity.make(Todo, { id })` says once what identifies a todo;
   `Entity.update(Todos, id, f)`, `Entity.set(Todos, todo)` and

@@ -1,16 +1,23 @@
 import * as Cause from "effect/Cause";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import type * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
-import { resolveGcTime, resolveQueryOptions } from "./defaults.js";
+import {
+	type QuerySettings,
+	resolveGcTime,
+	resolveQueryOptions,
+} from "./defaults.js";
 import { emit } from "./events.js";
 import { type Watcher, watch } from "./freshness.js";
 import { hashKey } from "./hashKey.js";
@@ -21,6 +28,7 @@ import {
 	hashOption,
 	type Hydration,
 } from "./hydration.js";
+import { type Mark, openMark, recordPush } from "./live.js";
 import {
 	type ClientState,
 	ConfigAtom,
@@ -35,6 +43,7 @@ export const QueryTypeId = "~@monarcode/effetch-query/Query" as const;
 export type QueryTypeId = typeof QueryTypeId;
 
 const InternalsId = "~@monarcode/effetch-query/Query/internals";
+const CacheOfId = "~@monarcode/effetch-query/Query/cacheOf";
 
 type Run<A, E> = (
 	context: Query.RunContext,
@@ -102,6 +111,30 @@ export interface Internals<A, E> {
 		generation: number,
 	) => Atom.Atom<AsyncResult.AsyncResult<A, E>>;
 	readonly watcher: Atom.Atom<Watcher<E>>;
+	/**
+	 * The atom that holds the query's value: the query itself, or for a live
+	 * query, the atom it reads, which outlives its readers for `gcTime`.
+	 */
+	readonly cache: Atom.Writable<AsyncResult.AsyncResult<A, E>, A>;
+	/** The query's settings, from its options and the client's defaults. */
+	readonly settings: (
+		defaults: QueryClient.QueryDefaults | undefined,
+	) => QuerySettings<E>;
+	/** What keeps it live, if anything ({@link Live}). */
+	readonly live: Live<A, E>["_tag"] | undefined;
+	/** A stream query's stream atom per generation, which waits until its first element. */
+	readonly stream:
+		| ((
+				generation: number,
+		  ) => Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>>)
+		| undefined;
+}
+
+/** What a fetch needs once it settles, read when it starts. */
+interface FetchRun {
+	readonly registry: AtomRegistry.AtomRegistry;
+	readonly state: ClientState;
+	readonly queries: QueryClient.QueriesOptions;
 }
 
 export interface QueryHydration<A, E> {
@@ -277,12 +310,20 @@ export const peek = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<A, E>,
 ): Option.Option<AsyncResult.AsyncResult<A, E>> => {
+	const { fetchAtom, stream } = internals(query);
 	const { generation, written: value } = localValue(registry, query);
-	const result = nodeValue(registry, internals(query).fetchAtom(generation));
-	if (Option.isNone(result)) {
-		return Option.map(value, (written) => written.value);
-	}
-	return Option.some(combine(result.value, value));
+	const result = nodeValue(registry, fetchAtom(generation));
+	const shown = Option.isNone(result)
+		? Option.map(value, (written) => written.value)
+		: Option.some(combine(result.value, value));
+	// A stream query waits while its stream connects, as the query shows.
+	return stream !== undefined &&
+		Option.exists(
+			nodeValue(registry, stream(generation)),
+			(run) => run.waiting,
+		)
+		? Option.map(shown, (current) => AsyncResult.waiting(current))
+		: shown;
 };
 
 // The node takes `skipInitialRun` as `initialValues` does, though its
@@ -408,10 +449,59 @@ const fromServer = <A, E, R>(
 // One object, so a server snapshot read again is the same.
 const notCached = AsyncResult.initial<never, never>(true);
 
+/**
+ * How long a live query's stream outlives its last reader: the registry
+ * rounds it up to its timeout resolution, about a second. A reader that
+ * reads, then subscribes on a later task (React does, between render and
+ * commit), or unsubscribes and subscribes again (a selector change), keeps
+ * the one stream instead of restarting it.
+ */
+const liveGrace = Duration.millis(1);
+
+/**
+ * Waits for the atom being built to finish, so a live query's stream writes
+ * nothing while it's built: the write would rebuild the query, which is
+ * building it. An atom runs its Effect synchronously until it suspends, and
+ * that includes `Effect.yieldNow`, so this waits for a microtask.
+ */
+const afterBuild = Effect.promise(() => Promise.resolve());
+
+/**
+ * What keeps a query live (DESIGN.md §4.14): a stream whose elements are its
+ * value (`Query.stream`), or one whose elements update a fetched value
+ * (`live`).
+ */
+export type Live<A, E> =
+	| {
+			readonly _tag: "Stream";
+			readonly stream: (
+				context: Query.RunContext,
+			) => Stream.Stream<A, E, QueryClient.Requirements>;
+	  }
+	| {
+			readonly _tag: "Updates";
+			readonly stream: Stream.Stream<
+				(value: A) => A,
+				unknown,
+				QueryClient.Requirements
+			>;
+	  };
+
+/** A stream query's settings: its stream keeps it current, so nothing refetches it but a failure. */
+const streamSettings = <E>(settings: QuerySettings<E>): QuerySettings<E> => ({
+	...settings,
+	staleTime: Duration.infinity,
+	refetchOnMount: false,
+	refetchOnFocus: false,
+	refetchOnReconnect: false,
+	refetchInterval: undefined,
+});
+
 /** Builds a query atom (DESIGN.md §5.2). */
 export const makeQuery = <A, E>(definition: {
 	readonly key: Query.Key;
-	readonly fetch: Fetch<A, E>;
+	/** The query's fetch; a `Stream` query has none. */
+	readonly fetch?: Fetch<A, E> | undefined;
 	readonly options: Query.Options<E>;
 	readonly member?: Member | undefined;
 	/** Atoms that live as long as the query, without refetching it when they change. */
@@ -421,6 +511,7 @@ export const makeQuery = <A, E>(definition: {
 	readonly placeholder?:
 		| Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>
 		| undefined;
+	readonly live?: Live<A, E> | undefined;
 }): Query.Query<A, E> => {
 	const {
 		key,
@@ -430,6 +521,7 @@ export const makeQuery = <A, E>(definition: {
 		mounts = [],
 		hydration: definitionHydration,
 		placeholder,
+		live,
 	} = definition;
 	// Read only while the query has nothing to show, so it's dropped, and
 	// runs again, as the query gets and loses a value.
@@ -450,14 +542,16 @@ export const makeQuery = <A, E>(definition: {
 		hash: () => (hash ??= hashKey(key, definitionHydration.kind)),
 	};
 	const { reactivityKeys } = options;
+	const settings = (
+		defaults: QueryClient.QueryDefaults | undefined,
+	): QuerySettings<E> => {
+		const resolved = resolveQueryOptions(options, defaults);
+		return live?._tag === "Stream" ? streamSettings(resolved) : resolved;
+	};
 	// The client's defaults are read at run time, so one definition serves
 	// every client; the watcher resolves them once per query node.
 	const watcher = Atom.readable((get) =>
-		watch(
-			get,
-			query,
-			resolveQueryOptions(options, get.once(ConfigAtom).queries.defaults),
-		),
+		watch(get, query, settings(get.once(ConfigAtom).queries.defaults)),
 	);
 	// Refreshing the query refreshes this, and every fetch atom reads it, so
 	// a refresh refetches whichever generation is current.
@@ -466,178 +560,540 @@ export const makeQuery = <A, E>(definition: {
 		generation: 0,
 		written: Option.none(),
 	});
-	const fetchAtom = Atom.family((generation: number) =>
-		runtime.atom((get) => {
-			get(refreshSignal);
-			const { registry } = get;
-			if (reactivityKeys !== undefined) {
-				// Registered for this build, which a refresh ends: a stale fetch
-				// atom refetches on its next read anyway.
-				get.subscribe(
-					ReactivityAtom,
-					(reactivity) => {
-						if (AsyncResult.isSuccess(reactivity)) {
-							get.addFinalizer(
-								reactivity.value.registerUnsafe(reactivityKeys, () =>
-									registry.refresh(query),
-								),
-							);
-						}
-					},
-					{ immediate: true },
-				);
-			}
-			const { retry } = get(watcher).settings;
-			const { queries } = get.once(ConfigAtom);
-			const runContext: Query.RunContext = {
-				result: (dependency) => {
-					if (isIdle(registry, dependency)) {
-						wakeForReader(registry, dependency, query, generation);
-					}
-					// A placeholder isn't a value to derive from: wait, as for
-					// `Initial`, until the dependency's fetch replaces it.
-					return isPlaceholder(registry, get(dependency))
-						? Effect.never
-						: get.result(dependency);
-				},
-			};
-			const context: FetchContext<A, E> = {
-				get,
-				previous: () => {
-					const { written: value } = get.once(local);
-					const shown = Option.match(
-						get.self<AsyncResult.AsyncResult<A, E>>(),
-						{
-							onNone: () =>
-								Option.map(value, (written) => written.value),
-							onSome: (result) => Option.some(combine(result, value)),
-						},
+	const subscribeReactivity = (get: Atom.AtomContext): void => {
+		if (reactivityKeys === undefined) {
+			return;
+		}
+		const { registry } = get;
+		// Registered for this build, which a refresh ends: a stale fetch
+		// atom refetches on its next read anyway.
+		get.subscribe(
+			ReactivityAtom,
+			(reactivity) => {
+				if (AsyncResult.isSuccess(reactivity)) {
+					get.addFinalizer(
+						reactivity.value.registerUnsafe(reactivityKeys, () =>
+							registry.refresh(query),
+						),
 					);
-					return Option.flatMap(shown, AsyncResult.value);
-				},
-				// Each attempt gets its own scope, closed in its fiber, and the
-				// client tracks the fiber: `dispose()` waits for both.
-				attempt: (run) => {
-					const once = Effect.scoped(run(runContext));
-					return retry === undefined ? once : Effect.retry(once, retry);
-				},
-			};
-			const streamed = takeStreamed(get.once(StateAtom), hydration);
-			const fetch =
-				streamed === undefined || hydration === undefined
-					? makeFetch(context)
-					: fromServer(streamed, hydration.codec, () =>
-							makeFetch(context),
-						);
-			return Effect.withFiber((fiber) => {
-				const state = get.once(StateAtom);
-				track(state, fiber);
-				state.fetchedAt.set(query, ++state.fetchCount);
-				emit(state, {
-					_tag: "FetchStarted",
-					key,
-					query,
-					fetchId: fiber.id,
-				});
-				return Effect.onExit(fetch, (exit) =>
-					Effect.suspend(() => {
-						emit(state, {
-							_tag: "FetchSettled",
-							key,
-							fetchId: fiber.id,
-							exit,
-							awaited: state.awaited.has(query),
+				}
+			},
+			{ immediate: true },
+		);
+	};
+	const runContext = (
+		get: Atom.AtomContext,
+		generation: number,
+	): Query.RunContext => ({
+		result: (dependency) => {
+			if (isIdle(get.registry, dependency)) {
+				wakeForReader(get.registry, dependency, query, generation);
+			}
+			// A placeholder isn't a value to derive from: wait, as for
+			// `Initial`, until the dependency's fetch replaces it.
+			return isPlaceholder(get.registry, get(dependency))
+				? Effect.never
+				: get.result(dependency);
+		},
+	});
+	const started = (
+		state: ClientState,
+		fiber: Fiber.Fiber<unknown, unknown>,
+	) => {
+		track(state, fiber);
+		state.fetchedAt.set(query, ++state.fetchCount);
+		emit(state, {
+			_tag: "FetchStarted",
+			key,
+			query,
+			fetchId: fiber.id,
+		});
+	};
+	// What a settled fetch leaves: a written value replaced, or kept as the
+	// last success, and the query hooks run.
+	const afterSettled = (
+		run: FetchRun,
+		generation: number,
+		exit: Exit.Exit<A, E>,
+	): Effect.Effect<void, never, QueryClient.Requirements> =>
+		Effect.suspend(() => {
+			markWritten(run.registry, local, generation, exit);
+			return forkQueryHooks(run.state, run.queries, key, exit);
+		});
+	const settled = (
+		run: FetchRun,
+		fiber: Fiber.Fiber<unknown, unknown>,
+		generation: number,
+		exit: Exit.Exit<A, E>,
+	): Effect.Effect<void, never, QueryClient.Requirements> =>
+		Effect.suspend(() => {
+			emit(run.state, {
+				_tag: "FetchSettled",
+				key,
+				fetchId: fiber.id,
+				exit,
+				awaited: run.state.awaited.has(query),
+			});
+			// An interrupted fetch was replaced or left: it isn't a failure.
+			if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) {
+				return Effect.void;
+			}
+			return afterSettled(run, generation, exit);
+		});
+	// Read when a fetch starts: the registry may be disposed by the time it settles.
+	const fetchRun = (get: Atom.AtomContext): FetchRun => ({
+		registry: get.registry,
+		state: get.once(StateAtom),
+		queries: get.once(ConfigAtom).queries,
+	});
+	const fetchAtom: (
+		generation: number,
+	) => Atom.Atom<AsyncResult.AsyncResult<A, E>> =
+		live?._tag === "Stream"
+			? // A stream query's value is written by its stream (`streamAtom`).
+				Atom.family(() => Atom.make(AsyncResult.initial<A, E>()))
+			: Atom.family((generation: number) =>
+					runtime.atom((get) => {
+						get(refreshSignal);
+						subscribeReactivity(get);
+						const { retry } = get(watcher).settings;
+						const context: FetchContext<A, E> = {
+							get,
+							previous: () => {
+								const { written: value } = get.once(local);
+								const shown = Option.match(
+									get.self<AsyncResult.AsyncResult<A, E>>(),
+									{
+										onNone: () =>
+											Option.map(value, (written) => written.value),
+										onSome: (result) =>
+											Option.some(combine(result, value)),
+									},
+								);
+								return Option.flatMap(shown, AsyncResult.value);
+							},
+							// Each attempt gets its own scope, closed in its fiber, and the
+							// client tracks the fiber: `dispose()` waits for both.
+							attempt: (run) => {
+								const once = Effect.scoped(
+									run(runContext(get, generation)),
+								);
+								return retry === undefined
+									? once
+									: Effect.retry(once, retry);
+							},
+						};
+						const run = fetchRun(get);
+						const { state } = run;
+						const streamed = takeStreamed(state, hydration);
+						const fetched = (): Effect.Effect<
+							A,
+							E,
+							QueryClient.Requirements
+						> => makeFetch!(context);
+						const fetch =
+							streamed === undefined || hydration === undefined
+								? fetched()
+								: fromServer(streamed, hydration.codec, fetched);
+						return Effect.withFiber((fiber) => {
+							started(state, fiber);
+							return Effect.onExit(
+								live === undefined
+									? fetch
+									: withPushes(state, query, fetch),
+								(exit) => settled(run, fiber, generation, exit),
+							);
 						});
-						// An interrupted fetch was replaced or left: it isn't a failure.
+					}),
+				);
+	// Runs a stream query's stream into its fetch atom while the query is
+	// read: the query reads it, and keeps it for `liveGrace` after its last
+	// reader leaves. A refresh restarts it. Its own value waits until the
+	// first element, which the query shows as waiting. It writes nothing
+	// while it's built: a write would rebuild the query, which reads it.
+	const streamAtom =
+		live?._tag !== "Stream"
+			? undefined
+			: Atom.family((generation: number) =>
+					runtime.atom((get) => {
+						get(refreshSignal);
+						const { retry, retryOnMount } = get(watcher).settings;
+						const cell = fetchAtom(generation) as Atom.Writable<
+							AsyncResult.AsyncResult<A, E>
+						>;
+						// A new reader of a stream that failed subscribes again only
+						// with `retryOnMount`. A refresh rebuilds this atom, and does.
 						if (
-							Exit.isFailure(exit) &&
-							Cause.hasInterruptsOnly(exit.cause)
+							!retryOnMount &&
+							Option.isNone(get.self()) &&
+							AsyncResult.isFailure(get.once(cell))
 						) {
 							return Effect.void;
 						}
-						markWritten(registry, local, generation, exit);
-						return forkQueryHooks(state, queries, key, exit);
+						subscribeReactivity(get);
+						const run = fetchRun(get);
+						const { registry, state } = run;
+						const source = live.stream(runContext(get, generation));
+						const stream =
+							retry === undefined ? source : Stream.retry(source, retry);
+						return Effect.withFiber((fiber) => {
+							started(state, fiber);
+							let first = true;
+							// The first element or failure settles the fetch; a later
+							// failure runs the hooks.
+							const settle = (exit: Exit.Exit<A, E>) => {
+								if (first) {
+									first = false;
+									return settled(run, fiber, generation, exit);
+								}
+								return Exit.isSuccess(exit)
+									? Effect.void
+									: afterSettled(run, generation, exit);
+							};
+							const elements = Stream.runForEach(stream, (value) =>
+								Effect.suspend(() => {
+									const exit = Exit.succeed(value);
+									// So a value written over the query gives way to the next element.
+									markWritten(registry, local, generation, exit);
+									// One change: the value, and the query no longer waiting.
+									Atom.batch(() => {
+										registry.set(cell, AsyncResult.success(value));
+										if (first) {
+											get.setSelf(AsyncResult.success(undefined));
+										}
+									});
+									return settle(exit);
+								}),
+							).pipe(
+								Effect.andThen(
+									Effect.suspend(() =>
+										first
+											? Effect.die(
+													new Cause.NoSuchElementError(
+														"A query's stream ended without a value",
+													),
+												)
+											: Effect.void,
+									),
+								),
+							);
+							return Effect.onExit(
+								Effect.andThen(afterBuild, elements),
+								(exit) =>
+									Effect.suspend(() => {
+										if (Exit.isSuccess(exit) || state.disposed) {
+											return Effect.void;
+										}
+										const failed = Exit.failCause(exit.cause);
+										// Left or replaced: the query isn't read, or a new stream runs.
+										if (Cause.hasInterruptsOnly(exit.cause)) {
+											return first
+												? settled(run, fiber, generation, failed)
+												: Effect.void;
+										}
+										registry.set(
+											cell,
+											AsyncResult.failure(exit.cause, {
+												previousSuccess: lastSuccess(
+													registry.get(cell),
+												),
+											}),
+										);
+										return settle(failed);
+									}),
+							);
+						});
 					}),
 				);
-			});
-		}),
-	);
+	// Runs a `live` query's update stream while the query is read, as
+	// `streamAtom` does. An update that throws is logged and skipped; a
+	// stream that fails is logged, and starts again when the query is next
+	// read after its readers leave.
+	const updatesAtom =
+		live?._tag !== "Updates"
+			? undefined
+			: runtime.atom((get) => {
+					const { registry } = get;
+					const state = get.once(StateAtom);
+					return Effect.withFiber((fiber) => {
+						track(state, fiber);
+						const run = Stream.runForEach(live.stream, (f) =>
+							Effect.suspend(() => {
+								try {
+									push(registry, state, query, f);
+									return Effect.void;
+								} catch (error) {
+									return Effect.logError(
+										"A query's live update threw, and was skipped",
+										Cause.die(error),
+									);
+								}
+							}),
+						);
+						return Effect.andThen(afterBuild, run).pipe(
+							Effect.catchCause((cause) =>
+								Cause.hasInterruptsOnly(cause)
+									? Effect.failCause(cause)
+									: Effect.logError(
+											"A query's live stream failed",
+											cause,
+										),
+							),
+						);
+					});
+				});
 
-	const query: QueryWithInternals<A, E> = Object.assign(
-		Atom.setIdleTTL(
-			Atom.writable(
-				(get): AsyncResult.AsyncResult<A, E> => {
-					const { generation, written, idle } = get(local);
-					for (const atom of mounts) {
-						get.mount(atom);
-					}
-					if (idle === true) {
-						return AsyncResult.initial<A, E>();
-					}
-					if (generation === 0 && hydration !== undefined) {
-						seedPreloaded(get.registry, fetchAtom(0), hydration);
-					}
-					const result = combine(get(fetchAtom(generation)), written);
-					get(watcher).resume();
-					if (placeholderAtom === undefined || result._tag !== "Initial") {
-						return result;
-					}
-					const shown = get(placeholderAtom);
-					if (
-						!AsyncResult.isSuccess(shown) ||
-						Option.isNone(shown.value)
-					) {
-						return result;
-					}
-					const value = AsyncResult.success<A, E>(shown.value.value, {
-						waiting: true,
-					});
-					get.once(StateAtom).placeholders.add(value);
-					return value;
-				},
-				(ctx, value: A) => {
-					ctx.set(local, {
-						generation: ctx.get(local).generation,
-						written: Option.some(written<A, E>(value)),
-					});
-				},
-				(refresh) => {
-					refresh(refreshSignal);
-				},
-			),
-			resolveGcTime(options),
+	const cache = Atom.setIdleTTL(
+		Atom.writable(
+			(get): AsyncResult.AsyncResult<A, E> => {
+				const { generation, written, idle } = get(local);
+				for (const atom of mounts) {
+					get.mount(atom);
+				}
+				if (idle === true) {
+					return AsyncResult.initial<A, E>();
+				}
+				if (generation === 0 && hydration !== undefined) {
+					seedPreloaded(get.registry, fetchAtom(0), hydration);
+				}
+				const result = combine(get(fetchAtom(generation)), written);
+				get(watcher).resume();
+				if (placeholderAtom === undefined || result._tag !== "Initial") {
+					return result;
+				}
+				const shown = get(placeholderAtom);
+				if (!AsyncResult.isSuccess(shown) || Option.isNone(shown.value)) {
+					return result;
+				}
+				const value = AsyncResult.success<A, E>(shown.value.value, {
+					waiting: true,
+				});
+				get.once(StateAtom).placeholders.add(value);
+				return value;
+			},
+			(ctx, value: A) => {
+				ctx.set(local, {
+					generation: ctx.get(local).generation,
+					written: Option.some(written<A, E>(value)),
+				});
+			},
+			(refresh) => {
+				refresh(refreshSignal);
+			},
 		),
-		{
-			[QueryTypeId]: QueryTypeId,
-			key,
-			initialValueTarget: fetchAtom(0),
-			// A server render reads the cache and never fetches (DESIGN.md §5.8).
-			// React reads this while hydrating server HTML too, before the query
-			// is read, so it shows a value `hydrate` left as the read will. It
-			// leaves the value for that read: a fetch atom seeded here has nothing
-			// observing it, and the registry drops such a node on its next task,
-			// which can come before React subscribes.
-			[Atom.ServerValueTypeId]: (get: <X>(atom: Atom.Atom<X>) => X) => {
-				const registry = get(RegistryAtom);
-				return peek(registry, query).pipe(
-					Option.orElse(() =>
-						hydration !== undefined &&
-						localValue(registry, query).generation === 0
-							? preloadedResult(registry, hydration)
-							: Option.none(),
-					),
-					Option.getOrElse((): AsyncResult.AsyncResult<A, E> => notCached),
-				);
-			},
-			[InternalsId]: {
-				options,
-				member,
-				hydration,
-				local,
-				fetchAtom,
-				watcher,
-			},
-		},
+		resolveGcTime(options),
 	);
+	// A live query is a reader of its cache: readers keep it, and its stream,
+	// while the cache keeps the value for `gcTime` (DESIGN.md §4.14).
+	const atom =
+		live === undefined
+			? cache
+			: Atom.setIdleTTL(
+					Atom.writable(
+						(get): AsyncResult.AsyncResult<A, E> => {
+							const { generation, idle } = get(local);
+							if (idle === true) {
+								return get(cache);
+							}
+							// Read, not mounted: a mount ends when this goes stale, and
+							// would restart the stream between a read and a subscribe.
+							if (updatesAtom !== undefined) {
+								get(updatesAtom);
+								return get(cache);
+							}
+							// Before the stream writes its fetch atom.
+							if (generation === 0 && hydration !== undefined) {
+								seedPreloaded(get.registry, fetchAtom(0), hydration);
+							}
+							const running = get(streamAtom!(generation));
+							const result = get(cache);
+							return running.waiting
+								? AsyncResult.waiting(result)
+								: result;
+						},
+						(ctx, value: A) => {
+							ctx.set(cache, value);
+						},
+						(refresh) => {
+							refresh(cache);
+						},
+					),
+					liveGrace,
+				);
+	const query: QueryWithInternals<A, E> = Object.assign(atom, {
+		[QueryTypeId]: QueryTypeId,
+		key,
+		initialValueTarget: fetchAtom(0),
+		// A server render reads the cache and never fetches (DESIGN.md §5.8).
+		// React reads this while hydrating server HTML too, before the query
+		// is read, so it shows a value `hydrate` left as the read will. It
+		// leaves the value for that read: a fetch atom seeded here has nothing
+		// observing it, and the registry drops such a node on its next task,
+		// which can come before React subscribes.
+		[Atom.ServerValueTypeId]: (get: <X>(atom: Atom.Atom<X>) => X) => {
+			const registry = get(RegistryAtom);
+			return peek(registry, query).pipe(
+				Option.orElse(() =>
+					hydration !== undefined &&
+					localValue(registry, query).generation === 0
+						? preloadedResult(registry, hydration)
+						: Option.none(),
+				),
+				Option.getOrElse((): AsyncResult.AsyncResult<A, E> => notCached),
+			);
+		},
+		[InternalsId]: {
+			options,
+			member,
+			hydration,
+			local,
+			fetchAtom,
+			watcher,
+			cache,
+			settings,
+			live: live?._tag,
+			stream: streamAtom,
+		},
+	});
+	if (cache !== atom) {
+		Object.assign(cache, { [CacheOfId]: query });
+	}
 	return query;
+};
+
+/** A result's success, or a failure's last one. */
+export const lastSuccess = <A, E>(
+	result: AsyncResult.AsyncResult<A, E>,
+): Option.Option<AsyncResult.Success<A, E>> =>
+	AsyncResult.isSuccess(result)
+		? Option.some(result)
+		: AsyncResult.isFailure(result)
+			? result.previousSuccess
+			: Option.none();
+
+/**
+ * A `live` query's fetch: pushes that come while it runs are applied again
+ * to its value, which may have been read before them.
+ */
+const withPushes = <A, E, R>(
+	state: ClientState,
+	query: Query.Query<A, E>,
+	fetch: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+	Effect.suspend(() => {
+		const mark = openMark(state, query);
+		return Effect.ensuring(
+			Effect.map(fetch, (value) => mark.replay(value)),
+			Effect.sync(mark.close),
+		);
+	});
+
+/**
+ * Applies a push to a `live` query's value (DESIGN.md §4.14): to its
+ * success, keeping its age, and to whatever a fetch or an undo in progress
+ * shows later. A query with no success yet, or that failed, keeps it only
+ * for a fetch in progress.
+ */
+const push = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	state: ClientState,
+	query: Query.Query<A, E>,
+	f: (value: A) => A,
+): void => {
+	recordPush(state, query, f);
+	const current = peek(registry, query);
+	if (Option.isSome(current) && AsyncResult.isSuccess(current.value)) {
+		writeKeepingAge(
+			registry,
+			query,
+			f(current.value.value),
+			current.value.timestamp,
+		);
+	}
+};
+
+/**
+ * Writes over a query that has a value, with that value's timestamp, so it
+ * stays as fresh, or as stale, as it was. Returns what `local` was, or
+ * `undefined` when the query has no current value: it isn't cached, was
+ * invalidated or was cleared, so it fetches when next used.
+ */
+export const writeKeepingAge = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	value: A,
+	timestamp: number,
+): Local<A, E> | undefined => {
+	const { local, fetchAtom } = internals(query);
+	const previous = localValue(registry, query);
+	const state = registry
+		.getNodes()
+		.get(fetchAtom(previous.generation))
+		?.currentState();
+	if (previous.idle === true || state !== "valid") {
+		return undefined;
+	}
+	registry.set(local, {
+		generation: previous.generation,
+		written: Option.some(written<A, E>(value, timestamp)),
+	});
+	return previous;
+};
+
+/**
+ * Puts `local` back as it was before a write. If a fetch settled over the
+ * write since, the value written before it gave way too, so it comes back
+ * as the fetch left it (replaced, or kept as the last success), not shown
+ * over the newer result.
+ */
+export const restoreLocal = <A, E>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
+	previous: Local<A, E>,
+): void => {
+	const current = localValue(registry, query);
+	const settled =
+		current.generation === previous.generation &&
+		Option.isSome(current.written) &&
+		current.written.value.state !== "shown" &&
+		Option.isSome(previous.written) &&
+		previous.written.value.state === "shown"
+			? current.written.value.state
+			: undefined;
+	registry.set(
+		internals(query).local,
+		settled === undefined
+			? previous
+			: {
+					...previous,
+					written: Option.map(previous.written, ({ value }) => ({
+						value,
+						state: settled,
+					})),
+				},
+	);
+};
+
+/**
+ * Opens a mark on a `live` query's pushes for an undo, so pushes since are
+ * applied again once it puts the query back. `undefined` for other queries.
+ */
+export const pushMark = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): Mark | undefined =>
+	internals(query).live === "Updates"
+		? openMark(registry.get(StateAtom), query)
+		: undefined;
+
+/** The query whose value a node holds: its cache's, for a live query. */
+export const cachedQuery = (
+	atom: Atom.Atom<any>,
+): Query.Query<any, any> | undefined => {
+	if (CacheOfId in atom) {
+		return (atom as unknown as { [CacheOfId]: Query.Query<any, any> })[
+			CacheOfId
+		];
+	}
+	return isQuery(atom) && internals(atom).cache === atom ? atom : undefined;
 };

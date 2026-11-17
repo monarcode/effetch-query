@@ -54,6 +54,9 @@ it. It works with any Effect too.
   - [Entities](#entities)
   - [Invalidating after a mutation](#invalidating-after-a-mutation)
 - [Infinite queries](#infinite-queries)
+- [Live queries](#live-queries)
+  - [A query from a stream](#a-query-from-a-stream)
+  - [Pushes on a fetched query](#pushes-on-a-fetched-query)
 - [React](#react)
   - [Reading queries](#reading-queries)
   - [Reading a query as an object](#reading-a-query-as-an-object)
@@ -1222,6 +1225,174 @@ optimistic update, `Query.update` the whole `{ pages, pageParams }` value.
 | `previousPageParam` | The same, from the first page, for `fetchPreviousPage`. Without it, there's no previous page.                            |
 | `maxPages`          | The most pages to keep. Past it, a page is dropped from the far end; give `previousPageParam` too, so it can load again. |
 | the rest            | As for [queries](#query-options): `staleTime`, `retry` (for each page), `refetchOnFocus`, …                              |
+
+## Live queries
+
+A live query stays current while it's read: a stream's elements are its
+value, or server pushes update a fetched value. Both run only while
+something reads the query, and stop about a second after the last reader
+leaves. The value stays cached for `gcTime`, and the stream starts again
+for the next reader.
+
+### A query from a stream
+
+`Query.stream` makes a query whose value is a `Stream`'s latest element,
+such as a price feed. Until the first element, the query is `Initial` and
+waiting: `useSuspenseQuery` suspends, and `Query.fetch` waits for it.
+
+```ts socket.ts
+import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+
+export class SocketClosed extends Data.TaggedError("SocketClosed")<{
+  readonly code: number;
+}> {}
+
+// A WebSocket's messages. The socket opens when the stream starts and
+// closes when it stops; a socket the server closes fails the stream.
+export const socketMessages = (url: string) =>
+  Stream.callback<string, SocketClosed>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const socket = new WebSocket(url);
+        socket.onmessage = (event) =>
+          Queue.offerUnsafe(queue, String(event.data));
+        socket.onclose = (event) =>
+          Queue.failCauseUnsafe(
+            queue,
+            Cause.fail(new SocketClosed({ code: event.code })),
+          );
+        return socket;
+      }),
+      (socket) => Effect.sync(() => socket.close()),
+    ),
+  );
+```
+
+```ts prices.ts
+import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { socketMessages } from "./socket.js";
+
+const Price = Schema.Struct({ symbol: Schema.String, price: Schema.Finite });
+const decodePrice = Schema.decodeEffect(Schema.fromJsonString(Price));
+
+export const price = Query.streamFamily({
+  key: ["prices"],
+  run: (symbol: string) =>
+    socketMessages(`wss://api.example.com/prices/${symbol}`).pipe(
+      Stream.mapEffect((message) => decodePrice(message)),
+    ),
+  // Subscribes again after a failure, waiting longer each time.
+  retry: Schedule.exponential("1 second"),
+  schema: { success: Price },
+});
+// price("ACME") is the query keyed ["prices", "ACME"]
+```
+
+Read it as any other query, with `useQuery(price("ACME"))` or
+`useSuspenseQuery`. What differs from a fetched query:
+
+- It has no `staleTime`: nothing refetches it on mount, focus, reconnect or
+  an interval. `Query.refetch`, `Query.invalidate` and `Query.reset`
+  subscribe again; `Query.clear` stops it until it's read again.
+- A failure is retried with `retry`, which starts over once an element comes
+  through. When `retry` is done, the query shows the failure with the last
+  element as its previous success; a new reader subscribes again
+  (`retryOnMount`).
+- A stream that ends keeps its last element. One that ends with none fails
+  with a `NoSuchElementError` defect.
+- `Query.fetch` and `Query.prefetch` return the first element, or the latest
+  while the stream runs.
+- A server render shows only what's cached. `Query.prefetch` on the server
+  runs the stream to its first element, which
+  [`QueryClient.dehydrate`](#sending-the-cache) sends with a `schema`; the
+  browser shows it, and subscribes again.
+
+An Effetch endpoint defined with `stream: "sse"` or `stream: "ndjson"` makes
+stream queries through `api.query`, keyed by route:
+
+```ts job-progress.ts
+import * as Schema from "effect/Schema";
+
+import * as Fetch from "@monarcode/effetch";
+
+import { api } from "./todos.js";
+
+const Progress = Schema.Struct({ percent: Schema.Finite });
+
+export const jobProgress = api.query(
+  Fetch.endpoint("GET /jobs/:id/events", { output: Progress, stream: "sse" }),
+);
+// jobProgress({ params: { id: "7" } }) holds the latest Fetch.SseEvent.
+// Read its data with useQuery(query, { select: (event) => event.data }).
+```
+
+### Pushes on a fetched query
+
+`live` keeps a fetched value up to date between fetches, from a stream of
+updates: functions that each take the value and return the next one. With
+the `socketMessages` helper from the previous section, a WebSocket that
+announces changes to the todo list keeps it current:
+
+```ts live-todos.ts
+import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+
+import { Todo } from "./api.js";
+import { socketMessages } from "./socket.js";
+import { api, listTodos } from "./todos.js";
+
+const TodoChange = Schema.Union([
+  Schema.TaggedStruct("Saved", { todo: Todo }),
+  Schema.TaggedStruct("Deleted", { id: Schema.Finite }),
+]);
+type TodoChange = typeof TodoChange.Type;
+const decodeChange = Schema.decodeEffect(Schema.fromJsonString(TodoChange));
+
+// A change as an update of the list, by id, so applying it twice is safe.
+const apply =
+  (change: TodoChange) =>
+  (list: ReadonlyArray<Todo>): ReadonlyArray<Todo> => {
+    const id = change._tag === "Saved" ? change.todo.id : change.id;
+    const rest = list.filter((todo) => todo.id !== id);
+    return change._tag === "Saved" ? [...rest, change.todo] : rest;
+  };
+
+const changes = socketMessages("wss://api.example.com/todos/changes").pipe(
+  Stream.mapEffect((message) => decodeChange(message)),
+  Stream.map(apply),
+  Stream.retry(Schedule.spaced("5 seconds")),
+);
+
+export const liveTodos = api.query(listTodos, { live: () => changes });
+```
+
+A push keeps the value's age, so `staleTime` and the refetches it drives
+work as they do without one, and catch changes the stream missed. Make each
+update idempotent, such as an upsert or a removal by id, because some are
+applied twice:
+
+- A push that comes while a fetch runs is applied to the fetch's result
+  too, which may or may not hold the change.
+- A push that comes after an [optimistic update](#optimistic-updates) is
+  applied again if the mutation fails and the update is undone.
+
+A push to a query with no value yet is kept only for a fetch in progress:
+a fetch that starts after it already holds the change. An update that
+throws is logged with `Effect.logError` and skipped. If the stream fails,
+the error is logged and pushes stop until the query is next read after its
+readers leave; add `Stream.retry` to subscribe again sooner. `live` works
+on `Query.make` and `Query.family` (a function of the member's argument) as
+on `api.query`.
 
 ## React
 
@@ -2668,6 +2839,8 @@ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 | `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                  |
 | `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                   |
 | A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                 |
+| `experimental_streamedQuery`                                        | `Query.stream`, `Query.streamFamily`; `api.query` of an SSE or NDJSON endpoint               |
+| `setQueryData` from a WebSocket's messages                          | `live` on `api.query`, `Query.make` / `Query.family`                                         |
 | `cancelQueries`, devtools                                           | Not in 0.1                                                                                   |
 
 ## Reference

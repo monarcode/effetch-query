@@ -54,6 +54,8 @@ describe("public entry points", () => {
 			"refetch",
 			"reset",
 			"set",
+			"stream",
+			"streamFamily",
 			"update",
 		]);
 		expect(Object.keys(Core.QueryClient).sort()).toEqual([

@@ -1,22 +1,31 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import type * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
-import { type QuerySettings, resolveQueryOptions } from "./defaults.js";
+import type { QuerySettings } from "./defaults.js";
 import { emit } from "./events.js";
 import { isFresh } from "./freshness.js";
+import type { Mark } from "./live.js";
 import type { Undo } from "./optimistic.js";
+
+export { lastSuccess } from "./queryAtom.js";
+
 import {
+	cachedQuery,
 	internals,
 	isIdle,
-	isQuery,
+	lastSuccess,
 	localValue,
 	nodeValue,
 	peek,
+	pushMark,
+	restoreLocal,
 	seed,
 	wake,
+	writeKeepingAge,
 	written,
 } from "./queryAtom.js";
 import { type ClientState, ConfigAtom, StateAtom } from "./runtime.js";
@@ -31,15 +40,17 @@ export const observeNodes = (
 	state: ClientState,
 ): void => {
 	registry.onNodeAdded = (node) => {
-		if (isQuery(node.atom)) {
-			state.index.add(node.atom);
-			emit(state, { _tag: "QueryAdded", key: node.atom.key });
+		const query = cachedQuery(node.atom);
+		if (query !== undefined) {
+			state.index.add(query);
+			emit(state, { _tag: "QueryAdded", key: query.key });
 		}
 	};
 	registry.onNodeRemoved = (node) => {
-		if (isQuery(node.atom)) {
-			state.index.delete(node.atom);
-			emit(state, { _tag: "QueryRemoved", key: node.atom.key });
+		const query = cachedQuery(node.atom);
+		if (query !== undefined) {
+			state.index.delete(query);
+			emit(state, { _tag: "QueryRemoved", key: query.key });
 		}
 	};
 };
@@ -49,14 +60,10 @@ export const settings = <E>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<any, E>,
 ): QuerySettings<E> => {
-	const { options, watcher } = internals(query);
+	const { settings, watcher } = internals(query);
 	return Option.match(nodeValue(registry, watcher), {
 		onSome: (watcher) => watcher.settings,
-		onNone: () =>
-			resolveQueryOptions(
-				options,
-				registry.get(ConfigAtom).queries.defaults,
-			),
+		onNone: () => settings(registry.get(ConfigAtom).queries.defaults),
 	});
 };
 
@@ -82,16 +89,48 @@ export const setValue = <A, E>(
 	query: Query.Query<A, E>,
 	value: A,
 ): Undo => {
-	// A clear since the write wins: its undo would bring back what was
-	// cleared, such as a signed-out account's data.
+	const mark = pushMark(registry, query);
+	return guardUndo(registry, query, mark, writeValue(registry, query, value));
+};
+
+/**
+ * Wraps a write's undo. A clear since the write wins: the undo would bring
+ * back what was cleared, such as a signed-out account's data, so it does
+ * nothing. Otherwise, for a `live` query, it applies the pushes since
+ * `mark` again once it has put the query back (DESIGN.md §4.14). The mark
+ * closes when the undo runs or is released.
+ */
+const guardUndo = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+	mark: Mark | undefined,
+	undo: Undo,
+): Undo => {
 	const { clears } = registry.get(StateAtom);
 	const clearsBefore = clears.get(query);
-	const undo = writeValue(registry, query, value);
-	return () => {
+	const guarded = () => {
 		if (clears.get(query) === clearsBefore) {
 			undo();
+			if (mark?.pushed() === true) {
+				const current = peek(registry, query);
+				if (
+					Option.isSome(current) &&
+					AsyncResult.isSuccess(current.value)
+				) {
+					writeKeepingAge(
+						registry,
+						query,
+						mark.replay(current.value.value),
+						current.value.timestamp,
+					);
+				}
+			}
 		}
+		mark?.close();
 	};
+	return mark === undefined
+		? guarded
+		: Object.assign(guarded, { release: mark.close });
 };
 
 const writeValue = <A, E>(
@@ -99,20 +138,21 @@ const writeValue = <A, E>(
 	query: Query.Query<A, E>,
 	value: A,
 ): Undo => {
-	const { local, fetchAtom } = internals(query);
+	const { local, fetchAtom, cache } = internals(query);
 	const previous = localValue(registry, query);
 	const { generation } = previous;
-	const restore = () => registry.set(local, previous);
+	const restore = () => restoreLocal(registry, query, previous);
 	const state = registry.getNodes().get(fetchAtom(generation))?.currentState();
 	if (state === "valid") {
-		registry.set(query, value);
+		// The cache, so a live query's stream doesn't start.
+		registry.set(cache, value);
 		return restore;
 	}
 	const target = state === "stale" ? generation + 1 : generation;
 	const stale = nodeValue(registry, fetchAtom(generation));
 	seed(registry, fetchAtom(target), written<A, E>(value).value);
 	registry.set(local, { generation: target, written: Option.none() });
-	registry.get(query);
+	registry.get(cache);
 	if (target === generation) {
 		// Undoing a write over a cleared query leaves it cleared, in a new
 		// generation, so waking it later fetches rather than showing the write.
@@ -125,7 +165,7 @@ const writeValue = <A, E>(
 		onSome: (result) => () => {
 			seed(registry, fetchAtom(generation), result);
 			restore();
-			registry.get(query);
+			registry.get(cache);
 			registry.refresh(fetchAtom(generation));
 		},
 	});
@@ -154,25 +194,15 @@ export const hydrateValue = <A, E>(
 	) {
 		return;
 	}
-	const { local, fetchAtom } = internals(query);
+	const { local, fetchAtom, cache } = internals(query);
 	const { generation } = localValue(registry, query);
 	const target = Option.isSome(nodeValue(registry, fetchAtom(generation)))
 		? generation + 1
 		: generation;
 	seed(registry, fetchAtom(target), result);
 	registry.set(local, { generation: target, written: Option.none() });
-	registry.get(query);
+	registry.get(cache);
 };
-
-/** A result's success, or a failure's last one. */
-export const lastSuccess = <A, E>(
-	result: AsyncResult.AsyncResult<A, E>,
-): Option.Option<AsyncResult.Success<A, E>> =>
-	AsyncResult.isSuccess(result)
-		? Option.some(result)
-		: AsyncResult.isFailure(result)
-			? result.previousSuccess
-			: Option.none();
 
 /** Writes a value computed from the cached one, as `setValue` does, if there is one. */
 export const updateValue = <A, E>(
@@ -195,16 +225,27 @@ export const updateMembers = <Args, A>(
 	family: object,
 	f: (value: A, args: Args) => A,
 ): Undo | undefined => {
-	const undos = Array.from(registry.get(StateAtom).index).flatMap((query) => {
-		const member = internals(query).member;
-		if (member?.family !== family) {
-			return [];
+	const undos: Array<Undo> = [];
+	try {
+		for (const query of registry.get(StateAtom).index) {
+			const member = internals(query).member;
+			if (member?.family !== family) {
+				continue;
+			}
+			const undo = updateValue(registry, query, (value: A) =>
+				f(value, member.args as Args),
+			);
+			if (undo !== undefined) {
+				undos.push(undo);
+			}
 		}
-		const undo = updateValue(registry, query, (value: A) =>
-			f(value, member.args as Args),
-		);
-		return undo === undefined ? [] : [undo];
-	});
+	} catch (error) {
+		// Nothing records these undos, so what they hold is let go.
+		for (const undo of undos) {
+			undo.release?.();
+		}
+		throw error;
+	}
 	return undoAll(undos);
 };
 
@@ -222,37 +263,35 @@ export const patchValue = <A, E>(
 	value: A,
 	timestamp: number,
 ): Undo | undefined => {
-	const { local, fetchAtom } = internals(query);
-	const previous = localValue(registry, query);
-	const state = registry
-		.getNodes()
-		.get(fetchAtom(previous.generation))
-		?.currentState();
-	if (previous.idle === true || state !== "valid") {
+	const mark = pushMark(registry, query);
+	const previous = writeKeepingAge(registry, query, value, timestamp);
+	if (previous === undefined) {
+		mark?.close();
 		return undefined;
 	}
-	const { clears } = registry.get(StateAtom);
-	const clearsBefore = clears.get(query);
-	registry.set(local, {
-		generation: previous.generation,
-		written: Option.some(written<A, E>(value, timestamp)),
-	});
-	return () => {
-		if (clears.get(query) === clearsBefore) {
-			registry.set(local, previous);
-		}
-	};
+	return guardUndo(registry, query, mark, () =>
+		restoreLocal(registry, query, previous),
+	);
 };
 
 /** One undo for several, run newest first; `undefined` for none. */
 export const undoAll = (undos: ReadonlyArray<Undo>): Undo | undefined =>
 	undos.length === 0
 		? undefined
-		: () => {
-				for (let i = undos.length - 1; i >= 0; i--) {
-					undos[i]!();
-				}
-			};
+		: Object.assign(
+				() => {
+					for (let i = undos.length - 1; i >= 0; i--) {
+						undos[i]!();
+					}
+				},
+				{
+					release: () => {
+						for (const undo of undos) {
+							undo.release?.();
+						}
+					},
+				},
+			);
 
 /**
  * Drops the query's value and written value in one write, which moves it to
@@ -263,7 +302,10 @@ export const resetQuery = (
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<any, any>,
 ): void => {
-	if (registry.getNodes().get(query)?.currentState() === "uninitialized") {
+	if (
+		registry.getNodes().get(internals(query).cache)?.currentState() ===
+		"uninitialized"
+	) {
 		return;
 	}
 	registry.update(internals(query).local, (local) => ({
@@ -342,7 +384,7 @@ const readOrFetch = <A, E>(
 		// fetches it, and a fetch that settles at once leaves nothing waiting
 		// to tell it by. A read that doesn't fetch shows a cached value or one
 		// `hydrate` left, which may be stale.
-		const current = registry.get(query);
+		const current = registry.get(fetchTarget(query));
 		if (fetchedAt.get(query) === before) {
 			if (isFresh(current, settings(registry, query).staleTime)) {
 				return Effect.succeed(current.value);
@@ -353,6 +395,18 @@ const readOrFetch = <A, E>(
 		}
 		return settled(registry, query, Effect.interrupt);
 	});
+
+/**
+ * What a fetch reads and waits on: the query, or for a `live` query its
+ * cache, so it doesn't start the query's pushes (`Query.stream` queries
+ * must start their stream: their value is its elements).
+ */
+const fetchTarget = <A, E>(
+	query: Query.Query<A, E>,
+): Atom.Atom<AsyncResult.AsyncResult<A, E>> => {
+	const { live, cache } = internals(query);
+	return live === "Updates" ? cache : query;
+};
 
 /**
  * Waits for the query to settle, as `AtomRegistry.getResult` does, but a
@@ -378,10 +432,11 @@ export const settled = <A, E, A2, E2>(
 			}
 			return false;
 		};
-		if (check(registry.get(query))) {
+		const target = fetchTarget(query);
+		if (check(registry.get(target))) {
 			return;
 		}
-		const cancel = registry.subscribe(query, (result) => {
+		const cancel = registry.subscribe(target, (result) => {
 			if (check(result)) {
 				cancel();
 			}

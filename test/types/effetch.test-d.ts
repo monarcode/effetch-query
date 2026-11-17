@@ -5,6 +5,7 @@ import type * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as Fetch from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
@@ -590,6 +591,77 @@ describe("status errors", () => {
 				output: Todo,
 				statusErrors: { 404: needy },
 			}),
+		);
+	});
+});
+
+describe("Endpoints.query with a stream endpoint", () => {
+	const Progress = Schema.Struct({ percent: Schema.Finite });
+	type Progress = typeof Progress.Type;
+
+	it("holds an SseEvent of the output, or the output for NDJSON", () => {
+		const events = api.query(
+			Fetch.endpoint("GET /jobs/:id/events", {
+				output: Progress,
+				stream: "sse",
+			}),
+		);
+		expectTypeOf(events({ params: { id: 1 } })).toEqualTypeOf<
+			Query.Query<Fetch.SseEvent<Progress>, CallErrors<typeof ApiError.Type>>
+		>();
+		const lines = api.query(
+			Fetch.endpoint("GET /jobs/:id/lines", {
+				output: Progress,
+				stream: "ndjson",
+			}),
+		);
+		expectTypeOf(lines({ params: { id: 1 } })).toEqualTypeOf<
+			Query.Query<Progress, CallErrors<typeof ApiError.Type>>
+		>();
+	});
+
+	it("takes a stream query's options, not a fetched one's", () => {
+		const endpoint = Fetch.endpoint("GET /jobs/:id/events", {
+			output: Progress,
+			stream: "sse",
+		});
+		api.query(endpoint, {
+			placeholder: ({ params }) =>
+				Effect.succeed(
+					Option.some({
+						event: "message",
+						id: String(params.id),
+						data: { percent: 0 },
+					}),
+				),
+		});
+		// @ts-expect-error: a stream keeps its query current
+		api.query(endpoint, { staleTime: "1 minute" });
+	});
+});
+
+describe("EndpointQueryOptions.live", () => {
+	it("updates the endpoint's output, from the call's params", () => {
+		api.query(Fetch.endpoint("GET /todos/:id", { output: Todo }), {
+			live: ({ params }) =>
+				Stream.make((todo: Todo) => ({
+					...todo,
+					title: String(params.id),
+				})),
+		});
+		api.query(Fetch.endpoint("GET /todos/:id", { output: Todo }), {
+			// @ts-expect-error: an update returns a Todo
+			live: () => Stream.make((todo: Todo) => todo.title),
+		});
+	});
+
+	it("is taken by options typed with two parameters, as before", () => {
+		const options = <E, Ps extends ReadonlyArray<Fetch.Plugin.Any>>(
+			value: EndpointQueryOptions<E, Ps>,
+		): EndpointQueryOptions<E, Ps> => value;
+		api.query(
+			Fetch.endpoint("GET /todos/:id", { output: Todo }),
+			options({ live: () => Stream.empty }),
 		);
 	});
 });

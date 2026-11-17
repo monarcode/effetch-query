@@ -4,8 +4,10 @@ import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type * as Reactivity from "effect/reactivity/Reactivity";
+import type * as Schedule from "effect/Schedule";
 import type * as EffectSchema from "effect/Schema";
 import type * as Scope from "effect/Scope";
+import type * as Stream from "effect/Stream";
 
 import * as cache from "./internal/cache.js";
 import { makeCodec } from "./internal/hydration.js";
@@ -413,6 +415,29 @@ export interface MakeOptions<A, E> extends Options<E> {
 	readonly placeholder?:
 		| Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>
 		| undefined;
+	/**
+	 * Server pushes that keep the value up to date between fetches, such as
+	 * a WebSocket's messages: a `Stream` of functions, each applied to the
+	 * value as it arrives. It runs while the query is read, and stops about
+	 * a second after its last reader leaves; the value stays cached for
+	 * `gcTime`. `Query.fetch` doesn't start it. An update that throws is
+	 * logged with `Effect.logError` and skipped. If the stream fails, the
+	 * error is logged and it starts again the next time the query is read
+	 * after its readers leave: add `Stream.retry` to resubscribe sooner.
+	 *
+	 * A push keeps the value's age, so `staleTime` and the refetches it
+	 * drives work as without one. A push that comes while a fetch runs is
+	 * applied to its result too, and one that comes after an optimistic
+	 * write is applied again if the write is undone, so make each update
+	 * idempotent: an upsert or a removal by id, not a counter's increment. A
+	 * push to a query with no value yet (or a failure) is kept only for a
+	 * fetch in progress. Default: none.
+	 *
+	 * @see {@link stream} for a query whose value is a stream's latest element
+	 */
+	readonly live?:
+		| Stream.Stream<(value: A) => A, unknown, QueryClient.Requirements>
+		| undefined;
 }
 
 /**
@@ -454,6 +479,124 @@ export interface FamilyOptions<Args, A, E> extends Options<E> {
 				args: Args,
 		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
 		| undefined;
+	/**
+	 * Server pushes that keep a member's value up to date, from its
+	 * argument, as {@link MakeOptions.live}. Default: none.
+	 */
+	readonly live?:
+		| ((
+				args: Args,
+		  ) => Stream.Stream<(value: A) => A, unknown, QueryClient.Requirements>)
+		| undefined;
+}
+
+/**
+ * The options every stream query takes besides `key` and `run`, in
+ * {@link MakeStreamOptions} and {@link StreamFamilyOptions}. A stream keeps
+ * its query current, so it has no `staleTime`, and nothing refetches it on
+ * mount, focus, reconnect or an interval.
+ *
+ * @example
+ * ```ts
+ * import * as Schedule from "effect/Schedule";
+ *
+ * import type { Query } from "@monarcode/effetch-query";
+ *
+ * export const options: Query.StreamOptions<never> = {
+ *   gcTime: "1 minute",
+ *   retry: Schedule.exponential("1 second"),
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface StreamOptions<E> {
+	/** How long a query nothing uses stays cached, as {@link Options.gcTime}. Default: 5 minutes. */
+	readonly gcTime?: Duration.Input | undefined;
+	/**
+	 * How to resubscribe after the stream fails, as `Stream.retry` does: the
+	 * schedule starts over once an element comes through. Defects aren't
+	 * retried. Default: the client's `queries.defaults.retry`, or none.
+	 */
+	readonly retry?: Schedule.Schedule<unknown, E> | undefined;
+	/**
+	 * Whether a new reader of a query whose stream failed subscribes again.
+	 * Default: the client's `queries.defaults.retryOnMount`, or `true`.
+	 */
+	readonly retryOnMount?: boolean | undefined;
+	/** `Reactivity` keys that resubscribe this query when invalidated, as {@link Options.reactivityKeys}. Default: none. */
+	readonly reactivityKeys?: Reactivity.KeysInput | undefined;
+}
+
+/**
+ * Options for {@link stream}.
+ *
+ * @example
+ * ```ts
+ * import * as Stream from "effect/Stream";
+ *
+ * import type { Query } from "@monarcode/effetch-query";
+ *
+ * export const options: Query.MakeStreamOptions<number, never> = {
+ *   key: ["clock"],
+ *   run: Stream.make(1, 2, 3),
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface MakeStreamOptions<A, E> extends StreamOptions<E> {
+	/** The query's key. */
+	readonly key: Key;
+	/**
+	 * The stream whose elements are the value: a `Stream`, or a function of
+	 * a {@link RunContext} for streams that read other queries. It runs with
+	 * your services and the client.
+	 */
+	readonly run:
+		| Stream.Stream<A, E, QueryClient.Requirements>
+		| ((ctx: RunContext) => Stream.Stream<A, E, QueryClient.Requirements>);
+	/** How the latest value crosses from server to browser, as {@link MakeOptions.schema}. */
+	readonly schema?: Schema<A, E> | undefined;
+	/** A value to show until the first element, as {@link MakeOptions.placeholder}. Default: none. */
+	readonly placeholder?:
+		| Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>
+		| undefined;
+}
+
+/**
+ * Options for {@link streamFamily}.
+ *
+ * @example
+ * ```ts
+ * import * as Stream from "effect/Stream";
+ *
+ * import type { Query } from "@monarcode/effetch-query";
+ *
+ * export const options: Query.StreamFamilyOptions<string, number, never> = {
+ *   key: ["prices"],
+ *   run: (symbol) => Stream.make(symbol.length),
+ * };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface StreamFamilyOptions<Args, A, E> extends StreamOptions<E> {
+	/** The family's key. Each member appends its argument. */
+	readonly key: Key;
+	/** The stream whose elements are one member's value, from its argument. */
+	readonly run: (
+		args: Args,
+		ctx: RunContext,
+	) => Stream.Stream<A, E, QueryClient.Requirements>;
+	/** How each member's latest value crosses from server to browser, as {@link MakeOptions.schema}. */
+	readonly schema?: Schema<A, E> | undefined;
+	/** A value to show for a member until its first element, as {@link FamilyOptions.placeholder}. Default: none. */
+	readonly placeholder?:
+		| ((
+				args: Args,
+		  ) => Effect.Effect<Option.Option<A>, never, QueryClient.Requirements>)
+		| undefined;
 }
 
 /**
@@ -482,6 +625,7 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
 		options,
 		hydration: options.schema && { codec: makeCodec(options.schema) },
 		placeholder: options.placeholder,
+		live: options.live && { _tag: "Updates", stream: options.live },
 	});
 
 /**
@@ -531,6 +675,111 @@ export const family = <Args, A, E>(
 				member: { family: self, args },
 				hydration,
 				placeholder: options.placeholder?.(args),
+				live: options.live && {
+					_tag: "Updates",
+					stream: options.live(args),
+				},
+			}),
+		),
+		{ key: options.key },
+	);
+	return self;
+};
+
+/**
+ * Defines a query whose value is the latest element of a `Stream`, such as
+ * prices from a WebSocket or events from Server-Sent Events. Nothing runs
+ * until it's used.
+ *
+ * - The stream runs while the query is read, and stops about a second
+ *   after its last reader leaves; the value stays cached for `gcTime`, and
+ *   the stream starts again for the next reader.
+ * - Until the first element, the query is `Initial` and waiting, so a
+ *   suspense reader suspends and {@link fetch} waits; after it, each
+ *   element shows as a `Success` stamped with the time it came.
+ * - {@link refetch}, {@link invalidate} and {@link reset} subscribe again;
+ *   {@link clear} stops the stream until the query is read again.
+ * - If the stream fails, it's resubscribed on `retry`; once that's done,
+ *   the query shows the failure with the last element as its previous
+ *   success. A stream that ends keeps its last element; one that ends with
+ *   none fails with a `NoSuchElementError` defect.
+ * - A server render shows only what's cached, and doesn't start it.
+ *   {@link prefetch} on the server runs it to its first element, which
+ *   `QueryClient.dehydrate` sends with a `schema`.
+ *
+ * @example
+ * ```ts
+ * import * as Schedule from "effect/Schedule";
+ * import * as Stream from "effect/Stream";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ *
+ * declare const ticks: Stream.Stream<number, Error>;
+ *
+ * export const price = Query.stream({
+ *   key: ["price"],
+ *   run: ticks,
+ *   retry: Schedule.exponential("1 second"),
+ * });
+ * ```
+ *
+ * @see {@link streamFamily} for a stream query per argument
+ * @see {@link MakeOptions.live} to keep a fetched value up to date with pushes
+ *
+ * @since 0.1.0
+ */
+export const stream = <A, E>(options: MakeStreamOptions<A, E>): Query<A, E> => {
+	const { run } = options;
+	return internal.makeQuery({
+		key: options.key,
+		options,
+		hydration: options.schema && { codec: makeCodec(options.schema) },
+		placeholder: options.placeholder,
+		live: {
+			_tag: "Stream",
+			stream: typeof run === "function" ? run : () => run,
+		},
+	});
+};
+
+/**
+ * Defines a {@link Family} of stream queries: one per argument, each with
+ * its own stream, as {@link stream} makes one.
+ *
+ * @example
+ * ```ts
+ * import * as Stream from "effect/Stream";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ *
+ * declare const ticks: (symbol: string) => Stream.Stream<number>;
+ *
+ * export const price = Query.streamFamily({
+ *   key: ["price"],
+ *   run: (symbol: string) => ticks(symbol),
+ * });
+ *
+ * price("ACME").key; // ["price", "ACME"]
+ * ```
+ *
+ * @since 0.1.0
+ */
+export const streamFamily = <Args, A, E>(
+	options: StreamFamilyOptions<Args, A, E>,
+): Family<Args, A, E> => {
+	const hydration = options.schema && { codec: makeCodec(options.schema) };
+	const self: Family<Args, A, E> = Object.assign(
+		Atom.family((args: Args) =>
+			internal.makeQuery({
+				key: [...options.key, args],
+				options,
+				member: { family: self, args },
+				hydration,
+				placeholder: options.placeholder?.(args),
+				live: {
+					_tag: "Stream",
+					stream: (ctx: RunContext) => options.run(args, ctx),
+				},
 			}),
 		),
 		{ key: options.key },
