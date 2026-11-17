@@ -175,6 +175,11 @@ and rc.2 additions were.
   more" after a delete no longer repeats a todo, and All todos' count
   drops with a delete in every app.
 
+- `effect-only` shows a live query (`Query.stream` on a store that pushes
+  its count), `Query.refetch` of a `Query.group` next to
+  `Query.invalidate`, and a client `queries.onFailure` hook.
+  `test/examples/effect-only` runs it.
+
 ### Deprecated
 
 - `endpoints`: use `fromClient`, and rename the import and the call. It

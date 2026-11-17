@@ -3,37 +3,48 @@
 Complete programs using Effetch Query, to read and copy. Each one is
 typechecked with the package (`pnpm run typecheck`), so they always match
 the current API. Each folder has its own `tsconfig.json`, because each
-registers its own services (`Register`). The three full apps are also the
-package's integration tests:
-[`test/examples/`](../test/examples) builds them, serves them and drives
-them in a browser environment.
+registers its own services (`Register`). `effect-only` and the three full
+apps are also the package's integration tests:
+[`test/examples/`](../test/examples) runs `effect-only`'s program, and
+builds the full apps, serves them and drives them in a browser
+environment.
 
 All but `effect-only` use [dummyjson.com](https://dummyjson.com)'s todos and
 auth APIs. dummyjson answers writes but saves nothing, so a reload shows its
 todos as they were.
 
-| Example                                                   | What it shows                                                                                      |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [`effect-only/`](effect-only)                             | Queries, the cache and a mutation from Effect code, with no UI: what's cached, what's refetched.   |
-| [`basic/`](basic)                                         | The smallest React app: a query, and a mutation that shows its change at once.                     |
-| [`tanstack-start/`](tanstack-start)                       | A full TanStack Start app on Effetch endpoints.                                                    |
-| [`tanstack-start-httpclient/`](tanstack-start-httpclient) | The same app on Effect's `HttpClient`, with no Effetch: the queries and mutations written by hand. |
-| [`react-router/`](react-router)                           | The same app in React Router's framework mode, on Effetch endpoints.                               |
+| Example                                                   | What it shows                                                                                       |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`effect-only/`](effect-only)                             | Queries, a live query and a mutation from Effect code, with no UI: what's cached, what's refetched. |
+| [`basic/`](basic)                                         | The smallest React app: a query, and a mutation that shows its change at once.                      |
+| [`tanstack-start/`](tanstack-start)                       | A full TanStack Start app on Effetch endpoints.                                                     |
+| [`tanstack-start-httpclient/`](tanstack-start-httpclient) | The same app on Effect's `HttpClient`, with no Effetch: the queries and mutations written by hand.  |
+| [`react-router/`](react-router)                           | The same app in React Router's framework mode, on Effetch endpoints.                                |
 
 ## `effect-only/`
 
 [`effect-only.ts`](effect-only/effect-only.ts) defines a `TodoStore`
-service that counts its reads, two queries and a mutation, then runs a
-program against them with `QueryClient.layer`:
+service that counts its reads and pushes its todo count, then runs a
+program against it with `QueryClient.layer`:
 
 1. `todos` is fetched twice; the second fetch is answered from the cache.
-2. `addTodo` adds a todo, writes it to `todo(id)` in its `onSuccess`, and
-   invalidates `todos`.
-3. `Query.get(todo(id))` finds the written todo without a read.
+2. `todoCount` is a live query (`Query.stream`) on the store's count. The
+   program mounts it, as a component would, so its stream runs.
+3. `addTodo` adds a todo, writes it to `todo(id)` in its `onSuccess`, and
+   invalidates `todos`. `Query.get(todo(id))` finds the written todo
+   without a read, and the store pushes the new count, with no refetch.
 4. `todos` is fetched again, and read again, because it was invalidated.
-5. A missing todo fails with the store's own `TodoNotFound`, caught by tag.
+5. A missing todo fails with the store's own `TodoNotFound`, caught by tag,
+   and the client's `queries.onFailure` hook logs the failed fetch.
+6. `Query.refetch(listScreen)` refetches the queries of a `Query.group`
+   that are in use, and waits for them: the list is read again, and the
+   count's stream subscribes again. `Query.invalidate(todo)` reaches
+   `todo(1)` too, though nothing uses it: its next fetch reads the store.
 
-Five cache operations, three reads: `main` returns what each step saw.
+`main` returns what each step saw, how many times the count's stream was
+subscribed to, and the store's read count after steps 1, 4, 5 and 6 (two
+counts for 6: after the refetch and after the invalidation).
+[`test/examples/effect-only`](../test/examples/effect-only) runs it.
 
 ## `basic/`
 

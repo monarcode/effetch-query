@@ -4463,11 +4463,11 @@ to Definition", to read it.
 ## Examples
 
 The [`examples/`](examples) folder has complete programs, typechecked with
-the package. The full apps are also tested end to end, in
+the package. `effect-only` and the full apps are also tested, in
 [`test/examples/`](test/examples). There are five:
 
-- [`effect-only.ts`](examples/effect-only/effect-only.ts): queries, the cache
-  and mutations from Effect code, with no UI.
+- [`effect-only.ts`](examples/effect-only/effect-only.ts): queries, a live
+  query, the cache and mutations from Effect code, with no UI.
 - [`basic/`](examples/basic): the smallest React app, with dummyjson.com's
   todos and an optimistic toggle.
 - [`tanstack-start/`](examples/tanstack-start): a full TanStack Start app on
