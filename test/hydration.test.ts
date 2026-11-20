@@ -8,7 +8,7 @@ import * as Hydration from "effect/reactivity/Hydration";
 import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fromClient } from "../src/effetch/index.js";

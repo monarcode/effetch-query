@@ -39,7 +39,8 @@ typed HTTP client for Effect: Effetch makes the call, Effetch Query caches
 it. It works with any Effect too.
 
 > **Release candidate.** The API is frozen for `0.1.0`: the
-> `0.1.0-rc.N` releases fix bugs and only ever add to it. See the
+> `0.1.0-rc.N` releases fix bugs and only ever add to it. Each needs the
+> matching Effetch release candidate, so upgrade the two together. See the
 > [release notes](./CHANGELOG.md).
 
 ## Contents
@@ -209,7 +210,7 @@ import * as Layer from "effect/Layer";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { QueryClient } from "@monarcode/effetch-query";
 import { fromClient } from "@monarcode/effetch-query/effetch";
 import {
@@ -317,7 +318,9 @@ For React, add `@effect/atom-react` and `react` (19):
 pnpm add @effect/atom-react react
 ```
 
-Effetch Query needs `effect` 4.1 or later. It runs in browsers, React
+Effetch Query needs `effect` 4.1 or later. With Effetch, it needs Effetch
+`0.1.0-rc.4` or later in 0.1, which you import as
+`import { Fetch } from "@monarcode/effetch"`. It runs in browsers, React
 Native (Hermes), Node 20+, Bun and Deno.
 
 ### 1. Describe your API
@@ -330,7 +333,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 export const Todo = Schema.Struct({
   id: Schema.Finite,
@@ -402,7 +405,7 @@ cached query per call:
 ```ts todos.ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { fromClient } from "@monarcode/effetch-query/effetch";
 
 import { ApiClient, Todo } from "./api.js";
@@ -525,7 +528,7 @@ refetch:
 ```ts toggle-todo.ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import { Todo } from "./api.js";
 import { api, todos } from "./todos.js";
@@ -752,7 +755,7 @@ requests share a query, and the key is JSON for server rendering:
 ```ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import { Todo } from "./api.js";
 import { api } from "./todos.js";
@@ -812,7 +815,7 @@ returned. Here the todos load once the session says whose they are:
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 
 import { ApiClient, Todo } from "./api.js";
@@ -894,7 +897,7 @@ query, give it a `retry` schedule:
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import { api } from "./todos.js";
 
@@ -925,7 +928,7 @@ import * as Effect from "effect/Effect";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 import { useQuery } from "@monarcode/effetch-query/react";
 
@@ -988,7 +991,7 @@ turns a `404` into `Option.none()`:
 ```ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 
 import { ApiClient, Todo } from "./api.js";
@@ -1204,7 +1207,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 import { fromClient } from "@monarcode/effetch-query/effetch";
 
@@ -1661,7 +1664,7 @@ screen refreshes the todos and the profile together:
 ```tsx
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 import { useRefetch } from "@monarcode/effetch-query/react";
 
@@ -1768,6 +1771,50 @@ Each use keeps its own state, so two components that run `toggleTodo`
 never share a waiting or failed state. Define mutations at module level,
 as you do queries: a definition made on each render starts a new state
 each time.
+
+**Upload files.** An endpoint whose `input` is wrapped in Effetch's
+`Fetch.multipart` sends its body as `multipart/form-data`, and its
+mutation's `body` is typed by the schema. `Fetch.UploadFile` is a file
+field: a `File` or `Blob`, or in React Native the `{ uri, name, type }` a
+picker gives:
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import { api } from "./todos.js";
+
+const Document = Schema.Struct({ id: Schema.Finite, name: Schema.String });
+
+export const uploadDocument = api.mutation(
+  Fetch.endpoint("POST /documents", {
+    input: Fetch.multipart(
+      Schema.Struct({ file: Fetch.UploadFile, kind: Schema.String }),
+    ),
+    output: Document,
+  }),
+);
+
+export function UploadPassport() {
+  const { run, result } = useMutation(uploadDocument);
+  return (
+    <input
+      type="file"
+      disabled={result.waiting}
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        // Cleared, so picking the same file again uploads it again.
+        event.target.value = "";
+        if (file !== undefined) {
+          void run({ body: { file, kind: "PASSPORT" } });
+        }
+      }}
+    />
+  );
+}
+```
 
 **What a run does.** A run calls its options in this order:
 
@@ -1978,7 +2025,7 @@ in use, and completes when they've all settled:
 ```ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 
 import { Todo } from "./api.js";
@@ -2007,7 +2054,7 @@ route's literals before its first param. `PATCH /todos/:id` invalidates
 ```ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { fromClient } from "@monarcode/effetch-query/effetch";
 
 import { ApiClient, Todo } from "./api.js";
@@ -2073,7 +2120,7 @@ is in progress until they have the todo
 ```tsx
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Query } from "@monarcode/effetch-query";
 import { useMutation } from "@monarcode/effetch-query/react";
 
@@ -2120,7 +2167,7 @@ query and in every cached list, through the `Todos` entity
 ```ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Entity } from "@monarcode/effetch-query";
 
 import { Todo } from "./api.js";
@@ -2195,7 +2242,7 @@ Writes are recorded like `Query.update`'s, so in `optimistic` they're
 undone if the run fails:
 
 ```ts
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Entity } from "@monarcode/effetch-query";
 
 import { Todos } from "./entities.js";
@@ -2259,7 +2306,7 @@ form twice:
 ```ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import { Todo } from "./api.js";
 import { api, todos } from "./todos.js";
@@ -2609,7 +2656,7 @@ endpoint or any Effect, and show the pages in a component.
 ```ts activity.ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import { api } from "./todos.js";
 
@@ -2934,7 +2981,7 @@ A stream query takes the following options:
 ```ts job-progress.ts
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import { api } from "./todos.js";
 

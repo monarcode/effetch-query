@@ -7,7 +7,7 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { FetchTest } from "@monarcode/effetch/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

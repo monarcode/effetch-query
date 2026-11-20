@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Entity, Query } from "@monarcode/effetch-query";
 import { fromClient } from "@monarcode/effetch-query/effetch";
 import { redirect } from "@tanstack/react-router";

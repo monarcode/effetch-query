@@ -4,7 +4,7 @@ import type * as HttpClient from "effect/http/HttpClient";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { QueryClient } from "@monarcode/effetch-query";
 import { connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
 import { createRouter } from "@tanstack/react-router";

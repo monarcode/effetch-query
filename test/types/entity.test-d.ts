@@ -2,7 +2,7 @@ import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
 import { fromClient } from "../../src/effetch/index.js";
