@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fromClient } from "../src/effetch/index.js";
@@ -500,6 +500,40 @@ describe("mutations", () => {
 		);
 
 		expect(response.status).toBe(204);
+	});
+
+	it("send a multipart body as a form, typed by its schema", async () => {
+		const received: Array<unknown> = [];
+		const contentTypes: Array<string | undefined> = [];
+		const client = await serve((request) => {
+			received.push(request.body);
+			contentTypes.push(request.headers["content-type"]);
+			return Response.json({ id: 1, title: "scan.pdf" }, { status: 201 });
+		});
+		const upload = api.mutation(
+			Fetch.endpoint("POST /documents", {
+				input: Fetch.multipart(
+					Schema.Struct({ file: Fetch.UploadFile, kind: Schema.String }),
+				),
+				output: Todo,
+			}),
+		);
+		const file = new File(["%PDF"], "scan.pdf", { type: "application/pdf" });
+
+		const saved = await client.runPromise(
+			Mutation.run(upload, {
+				body: { file, kind: "PASSPORT" },
+				// Dropped for a form, so the platform can set its boundary.
+				headers: { "content-type": "application/json" },
+			}),
+		);
+
+		expect(saved).toEqual({ id: 1, title: "scan.pdf" });
+		const [form] = received;
+		expect(form).toBeInstanceOf(FormData);
+		expect((form as FormData).get("kind")).toBe("PASSPORT");
+		expect(((form as FormData).get("file") as File).name).toBe("scan.pdf");
+		expect(contentTypes).toEqual([undefined]);
 	});
 
 	it("fail with the endpoint's errors", async () => {

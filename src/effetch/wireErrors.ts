@@ -2,7 +2,7 @@ import * as Headers from "effect/http/Headers";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 /**
  * How Effetch's errors cross from server to browser (DESIGN.md §3.12), for

@@ -9,7 +9,7 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 import type * as InfiniteQuery from "../InfiniteQuery.js";
 import { infiniteSchema, makeCodec } from "../internal/hydration.js";
@@ -615,7 +615,7 @@ export interface EndpointInfiniteQuery<
  *
  * @example
  * ```ts
- * import * as Fetch from "@monarcode/effetch";
+ * import { Fetch } from "@monarcode/effetch";
  * import * as Schema from "effect/Schema";
  *
  * import type { Endpoints } from "@monarcode/effetch-query/effetch";
@@ -760,7 +760,10 @@ export interface Endpoints<
 	 * as `invalidates` and `optimistic`. It invalidates what its
 	 * `invalidates` says, or with {@link EndpointsOptions.invalidates} set to
 	 * `"route"` and no `invalidates` of its own, its route's queries. Its
-	 * value and errors are those of {@link Endpoints.query}.
+	 * value and errors are those of {@link Endpoints.query}. An endpoint
+	 * whose `input` is a `Fetch.multipart` schema sends `body` as
+	 * `multipart/form-data`, typed by the schema: an upload, with
+	 * `Fetch.UploadFile` for each file.
 	 */
 	readonly mutation: <
 		const R extends string,
@@ -924,11 +927,11 @@ interface AnyClient {
  * client is made with, to send errors to the browser; from a
  * `Context.Service` key, give them in the options ({@link EndpointsOptions}).
  * The definitions of a `Fetch.Endpoints` class (`TodoApi.definitions`) work
- * as any other. It needs `@monarcode/effetch` 0.1, from `0.1.0-rc.3`.
+ * as any other. It needs `@monarcode/effetch` 0.1, from `0.1.0-rc.4`.
  *
  * @example
  * ```ts
- * import * as Fetch from "@monarcode/effetch";
+ * import { Fetch } from "@monarcode/effetch";
  * import * as Schema from "effect/Schema";
  *
  * import { Query } from "@monarcode/effetch-query";
@@ -1198,7 +1201,7 @@ export const fromClient = <
  *
  * @example
  * ```ts
- * import * as Fetch from "@monarcode/effetch";
+ * import { Fetch } from "@monarcode/effetch";
  *
  * import { Query } from "@monarcode/effetch-query";
  * import { fromClient } from "@monarcode/effetch-query/effetch";

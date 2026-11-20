@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { Entity } from "@monarcode/effetch-query";
 import { fromClient } from "@monarcode/effetch-query/effetch";
 

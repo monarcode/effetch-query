@@ -2,6 +2,38 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-rc.4
+
+Released alongside `@monarcode/effetch` 0.1.0-rc.4, which it needs: upgrade
+both together. Effetch Query's own API is unchanged.
+
+### Changed
+
+- **Breaking for Effetch's import:** the `@monarcode/effetch` peer range is
+  now `>=0.1.0-rc.4 <0.2.0`. Effetch rc.4's main entry exports only the
+  `Fetch` namespace, and Effetch Query imports it that way, so it doesn't
+  work with Effetch rc.3. The other way round fails too: Effetch Query
+  rc.3 and earlier, whose range allows Effetch rc.4, throw from
+  `fromClient` with it. Upgrade both together. In your own code, change
+  each import:
+
+  ```ts
+  // Before
+  import * as Fetch from "@monarcode/effetch";
+  // After
+  import { Fetch } from "@monarcode/effetch";
+  ```
+
+  `pnpm exec effetch-migrate` (or `npx -p @monarcode/effetch
+  effetch-migrate`) rewrites them for you; run it with `--dry-run` first.
+  Imports from `@monarcode/effetch-query` and its subpaths stay the same.
+
+- The README, the JSDoc examples and every example app import
+  `{ Fetch }`. The README's "Define a mutation" shows uploading a file
+  with Effetch's new `Fetch.multipart` and `Fetch.UploadFile`:
+  `api.mutation` sends such an endpoint's body as `multipart/form-data`,
+  with `body` typed by the schema, and needed no change for it.
+
 ## 0.1.0-rc.3
 
 Released alongside `@monarcode/effetch` 0.1.0-rc.3, which it needs: upgrade

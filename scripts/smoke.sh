@@ -251,7 +251,7 @@ npm install --silent --no-audit --no-fund --no-package-lock \
 	"@monarcode/effetch@$effetch_version"
 
 cat >effetch.ts <<'TS'
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as HttpClient from "effect/http/HttpClient";

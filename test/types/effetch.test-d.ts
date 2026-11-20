@@ -7,7 +7,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { describe, expectTypeOf, it } from "vitest";
 
 import {
@@ -277,6 +277,31 @@ describe("Endpoints.mutation", () => {
 		expectTypeOf(run).returns.toEqualTypeOf<
 			Promise<Exit.Exit<Todo, CallErrors<typeof ApiError.Type>>>
 		>();
+	});
+
+	it("types a multipart body by its schema", () => {
+		const upload = api.mutation(
+			Fetch.endpoint("POST /documents", {
+				input: Fetch.multipart(
+					Schema.Struct({ file: Fetch.UploadFile, kind: Schema.String }),
+				),
+				output: Todo,
+			}),
+		);
+		const { run } = useMutation(upload);
+		const file = new File(["%PDF"], "scan.pdf");
+
+		void run({ body: { file, kind: "PASSPORT" } });
+		void run({
+			body: {
+				file: { uri: "file:///scan.pdf", name: "scan.pdf" },
+				kind: "PASSPORT",
+			},
+		});
+		// @ts-expect-error: the file is required
+		void run({ body: { kind: "PASSPORT" } });
+		// @ts-expect-error: a string isn't a file
+		void run({ body: { file: "scan.pdf", kind: "PASSPORT" } });
 	});
 
 	it("runs with no variables when the endpoint needs none", () => {

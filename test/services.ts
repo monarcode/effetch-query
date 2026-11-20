@@ -1,12 +1,13 @@
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import type * as Headers from "effect/http/Headers";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 
 // The test suite is one TypeScript program, so this augmentation applies to
 // every test: queries and clients in the tests run with `Greeting`,
@@ -71,15 +72,23 @@ export interface ApiRequest {
 	readonly method: string;
 	readonly url: URL;
 	readonly body: unknown;
+	readonly headers: Headers.Headers;
 }
 
 /** How the test API answers: a `Response`, or `undefined` for a 404. */
 export type ApiHandler = (request: ApiRequest) => Response | undefined;
 
-const bodyOf = (body: { readonly _tag: string; readonly body?: unknown }) =>
+// A multipart body stays a `FormData`, so tests can read its parts and files.
+const bodyOf = (body: {
+	readonly _tag: string;
+	readonly body?: unknown;
+	readonly formData?: unknown;
+}) =>
 	body._tag === "Uint8Array" && body.body instanceof Uint8Array
 		? JSON.parse(new TextDecoder().decode(body.body))
-		: undefined;
+		: body._tag === "FormData"
+			? body.formData
+			: undefined;
 
 /** An in-memory `HttpClient` that answers with `handler`. */
 export const httpLayer = (
@@ -95,6 +104,7 @@ export const httpLayer = (
 						method: request.method,
 						url,
 						body: bodyOf(request.body),
+						headers: request.headers,
 					}) ?? Response.json({ message: "not found" }, { status: 404 }),
 				),
 			),

@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import type * as SchemaAST from "effect/SchemaAST";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
-import * as Fetch from "@monarcode/effetch";
+import { Fetch } from "@monarcode/effetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fromClient } from "../src/effetch/index.js";
