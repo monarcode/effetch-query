@@ -93,9 +93,13 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   `readonly foo?: T | undefined`.
 - The build is plain `tsc` (`scripts/build.mjs`), not a bundler. Bundlers
   rewrite `export * as Query` into a synthetic namespace whose name shows up
-  in consumers' hovers. Stay on TypeScript 6: TypeScript 7 ships no compiler
-  API, which `check-docs.mjs`, `editor-check.mjs` and the Effect language
-  service need.
+  in consumers' hovers. After `tsc`, the build rewrites `dist/index.d.ts`
+  to declare each namespace with its JSDoc
+  (`declare namespace Query { export { … } }`), since TypeScript shows no
+  JSDoc for `export * as` in a hover. `pnpm run dev` (`tsc --watch`)
+  skips that step, so run `pnpm run build` before checking hovers. Stay on
+  TypeScript 6: TypeScript 7 ships no compiler API, which `check-docs.mjs`, `editor-check.mjs` and
+  the Effect language service need.
 
 ## Testing
 

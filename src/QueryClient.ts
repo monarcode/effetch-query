@@ -15,9 +15,12 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 
+import type * as Entity from "./Entity.js";
 import { fetchValue, observeNodes } from "./internal/cache.js";
 import * as hydration from "./internal/dehydrate.js";
 import * as disposal from "./internal/disposeAfter.js";
+import { definition } from "./internal/entity.js";
+import { stampWritten, syncFetched } from "./internal/entitySync.js";
 import { peek } from "./internal/queryAtom.js";
 import { initialValues, makeClientState, track } from "./internal/runtime.js";
 import * as targets from "./internal/targets.js";
@@ -213,7 +216,7 @@ export interface QueryClient {
 	 * those in use refetch at once, the rest the next time they're used.
 	 * Without a target, every query. Resolves at once, without waiting for
 	 * the refetches, and does nothing on a disposed client. Rejects with a
-	 * `KeyHoldsTargetError` for a key that holds queries ({@link Query.Target}).
+	 * {@link Query.KeyHoldsTargetError} for a key that holds queries ({@link Query.Target}).
 	 *
 	 * @see {@link QueryClient.refetch} to wait for them
 	 */
@@ -223,7 +226,7 @@ export interface QueryClient {
 	 * does, and resolves when they've all settled. Without a target, every
 	 * query in use. A query that fails doesn't reject it: each shows its own
 	 * failure. It rejects only with a defect, such as a
-	 * `KeyHoldsTargetError` for a key that holds queries
+	 * {@link Query.KeyHoldsTargetError} for a key that holds queries
 	 * ({@link Query.Target}). On a disposed client, it resolves at once.
 	 */
 	readonly refetch: (target?: Query.Target | undefined) => Promise<void>;
@@ -448,6 +451,96 @@ export interface CommonOptions {
 	readonly queries?: QueriesOptions | undefined;
 	/** Defaults and app-wide hooks for every mutation. */
 	readonly mutations?: MutationsOptions | undefined;
+	/** Entities whose cached copies are kept in sync ({@link EntitiesOptions}). */
+	readonly entities?: EntitiesOptions | undefined;
+}
+
+/**
+ * The `entities` group of {@link Options}: entities whose copies a fetch
+ * keeps in sync across the cache.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ * import * as Schema from "effect/Schema";
+ *
+ * import { Entity, Query, QueryClient } from "@monarcode/effetch-query";
+ *
+ * const Transaction = Schema.Struct({
+ *   id: Schema.String,
+ *   status: Schema.String,
+ * });
+ * const Transactions = Entity.make(Transaction, { id: (t) => t.id });
+ *
+ * export const transactions = Query.make({
+ *   key: ["transactions"],
+ *   run: Effect.succeed([{ id: "t1", status: "Pending" }]),
+ *   schema: { success: Schema.Array(Transaction) },
+ * });
+ *
+ * export const transaction = Query.family({
+ *   key: ["transactions"],
+ *   run: (id: string) => Effect.succeed({ id, status: "Successful" }),
+ *   schema: { success: Transaction },
+ * });
+ *
+ * // Fetching transaction("t1") shows "Successful" in the list at once,
+ * // and a list fetch with a newer copy updates the cached details.
+ * export const client = QueryClient.make({
+ *   entities: { sync: [Transactions] },
+ * });
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface EntitiesOptions {
+	/**
+	 * Entities kept in sync: when a query's fetch succeeds, each copy of
+	 * these entities in its value goes over the other cached copies with
+	 * the same id, in every query whose `schema` holds the entity. A copy
+	 * another query holds that is newer comes into the fetched value
+	 * instead. So a details refetch updates every list row of that record,
+	 * and a list fetch updates the cached details, with no other fetch.
+	 *
+	 * - **Newer wins.** A copy is as new as the fetch attempt it came from,
+	 *   by when that attempt started: a slow response that lands after a
+	 *   newer one doesn't overwrite it, and the query that fetched it shows
+	 *   the newer copy instead. A refetch of an infinite query dates each
+	 *   page by its own attempt. Its next page is new, and only that page
+	 *   spreads: the pages it already had keep their age. A copy a query read from
+	 *   another (`ctx.result`) keeps that query's age, and a value from the
+	 *   server (`hydrate`) is older than any fetch.
+	 * - **Only fetched copies spread.** A copy a write changed
+	 *   (`Query.set`, `Query.update`, {@link Entity.set},
+	 *   {@link Entity.update}, a `live` push) counts as newer than every
+	 *   fetch already in flight, so none syncs over it. But a sync doesn't
+	 *   copy it to other queries: an entity write already reached every
+	 *   query that held it, and an optimistic one may be rolled back.
+	 * - **Only fetches sync.** Writes, `live` pushes and stream queries'
+	 *   elements don't, so a sync never starts another sync. A sync doesn't
+	 *   write the queries the fetch read through `ctx.result`, so a fetch
+	 *   doesn't start itself again. A query that reads a written query
+	 *   through `ctx.result` refetches, as after any write to it.
+	 * - **Ages kept.** A query written by a sync keeps its own age and
+	 *   staleness, as with {@link Entity.update}. Queries that are
+	 *   invalidated, failed, not cached or that opted out
+	 *   (`entities: { sync: false }`) are neither read nor written, and a
+	 *   query that doesn't hold an id doesn't gain it. A copy equal to the
+	 *   newer one (`Equal.equals`) isn't written.
+	 * - **Optimistic writes.** A sync replaces a copy a mutation's
+	 *   `optimistic` changed when its fetch started later. If the mutation
+	 *   then fails, its rollback puts the old value back and the synced
+	 *   copy over it again, unless the query has fetched since.
+	 * - **Cost.** Each fetch of a query that holds a synced entity reads
+	 *   every cached query that holds it, once per entity. For an entity in
+	 *   many large lists, opt out the queries that don't need it.
+	 * - **Errors.** An `id` that throws is logged with `Effect.logError`;
+	 *   the fetch keeps its value and nothing is written. A listener that
+	 *   throws as a query is written is logged too.
+	 *
+	 * The other copies are written as the fetch settles. Default: none.
+	 */
+	readonly sync?: ReadonlyArray<Entity.Entity<any, any>> | undefined;
 }
 
 /**
@@ -872,6 +965,11 @@ export const make = (...[given]: OptionalOptions): QueryClient => {
 			memoMap,
 			state,
 			options,
+			entities: (options.entities?.sync ?? []).map((entity) =>
+				definition(entity),
+			),
+			syncFetched,
+			stampWritten,
 		}),
 	});
 	observeNodes(registry, state);

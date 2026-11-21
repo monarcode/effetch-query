@@ -644,8 +644,10 @@ describe("Query.group", () => {
 			Query.invalidate([wallet.query, transactions.family]),
 		);
 
-		expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
-			_tag: "KeyHoldsTargetError",
+		const defect = Exit.isFailure(exit) && Cause.squash(exit.cause);
+		expect(defect).toBeInstanceOf(Query.KeyHoldsTargetError);
+		expect(defect).toMatchObject({
+			key: [wallet.query, transactions.family],
 		});
 		expect(fetches()).toEqual([1, 1, 1, 1, 1]);
 	});

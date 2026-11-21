@@ -2,6 +2,65 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## 0.1.0-rc.5
+
+Additive: opt-in entity sync, two exported errors, named types for
+`api.query`, and namespace docs in editor hovers. It works with
+`@monarcode/effetch` 0.1.0-rc.4 and later in 0.1, as rc.4 does. One fix
+can surface in your app: `useRefetch` with a key that holds a query now
+throws `Query.KeyHoldsTargetError` instead of doing nothing (see Fixed).
+
+### Added
+
+- `Query.KeyHoldsTargetError` and, from `@monarcode/effetch-query/effetch`,
+  `EndpointQueryError` are exported, so you can check for them with
+  `instanceof` and name their types. They were thrown before, but only
+  their `_tag` could be matched. Their tags and messages are unchanged,
+  and their fields (`key`; `route` and `cause`) are documented.
+- Named types for what `api.query` takes and gives:
+  `EndpointQueryValue`, `EndpointQueryCallError` and
+  `EndpointQueryOptionsFor`. `api.query`'s declaration uses them in place
+  of inline conditional types, so Go to Definition and its hover read
+  more simply. The types they resolve to, at each call, are unchanged.
+- `api.query`, `api.infiniteQuery` and `api.mutation` have examples in
+  their hovers.
+- Entity sync: `QueryClient.make({ entities: { sync: [Todos] } })` keeps
+  the cached copies of those entities in sync. When a query's fetch
+  succeeds, each copy in its value goes over the older copies with the
+  same id in every other query that holds the entity, so a details
+  refetch updates the list rows, and a list fetch updates the cached
+  details, with no other fetch. The newer copy wins, by when its fetch
+  started (each page's own request, for an infinite query's refetch), and
+  loading the next page sends only that page. A write counts as newer than fetches in flight, but only
+  fetched copies are synced to other queries. A query opts out with
+  `entities: { sync: false }` (`Query.EntitiesOptions`). See "Keep copies
+  in sync" in the README.
+- The README explains decoding an endpoint's own response shape to an
+  entity's schema ("Responses in other shapes"), and what server
+  rendering needs from a schema that transforms ("Schemas that
+  transform"): a query whose schema can't encode its value is left out
+  of `dehydrate` with no error, and the browser fetches it again.
+
+### Fixed
+
+- `useRefetch` with a key that holds a query, a family or a group, such as
+  `useRefetch([todos, profile])`, now throws `Query.KeyHoldsTargetError` as
+  it renders, as the README said it fails. Before, its `refetch` did
+  nothing and the error was lost. Pass a `Query.group` instead.
+
+### Changed
+
+- Hovers on the core namespaces (`Entity`, `InfiniteQuery`, `Mutation`,
+  `Query`, `QueryClient` and `Signals`) show their docs. Before, a hover
+  showed only the module's path, such as
+  `(alias) module ".../dist/Query"`. A member's hover now reads
+  `(alias) const Query.make: …`, with its docs as before. Go to Definition
+  on a namespace lands on `index.d.ts`; on a member, it still lands on the
+  member's own declaration. Completions after `Query.` list each member as
+  an alias, as Effetch's `Fetch.` does.
+- Developed and tested against `effect` 4.1.5 (and `@effect/atom-react`
+  4.1.5). The peer ranges are unchanged.
+
 ## 0.1.0-rc.4
 
 Released alongside `@monarcode/effetch` 0.1.0-rc.4, which it needs: upgrade

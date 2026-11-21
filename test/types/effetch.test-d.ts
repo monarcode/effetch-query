@@ -12,7 +12,12 @@ import { describe, expectTypeOf, it } from "vitest";
 
 import {
 	type EndpointQuery,
+	type EndpointQueryArgs,
+	type EndpointQueryCallError,
 	type EndpointQueryOptions,
+	type EndpointQueryOptionsFor,
+	type EndpointQueryValue,
+	type EndpointStreamOptions,
 	fromClient,
 } from "../../src/effetch/index.js";
 import { type InfiniteQuery, Mutation, Query } from "../../src/index.js";
@@ -617,6 +622,91 @@ describe("status errors", () => {
 				statusErrors: { 404: needy },
 			}),
 		);
+	});
+});
+
+describe("Endpoints.query's named types", () => {
+	const Progress = Schema.Struct({ percent: Schema.Finite });
+
+	it("resolve to a fetched endpoint's value, error and options", () => {
+		type E = EndpointQueryCallError<
+			typeof Todo,
+			typeof ApiError,
+			[],
+			undefined,
+			undefined
+		>;
+		expectTypeOf<
+			EndpointQueryValue<typeof Todo, undefined>
+		>().toEqualTypeOf<Todo>();
+		expectTypeOf<E>().toEqualTypeOf<
+			Fetch.CallError<typeof Todo, typeof ApiError, [], undefined>
+		>();
+		expectTypeOf<
+			EndpointQueryOptionsFor<"GET /todos/:id", undefined, E, [], Todo>
+		>().toEqualTypeOf<
+			EndpointQueryOptions<E, [], Todo, EndpointQueryArgs<"GET /todos/:id">>
+		>();
+	});
+
+	it("resolve to a stream endpoint's element, error and options", () => {
+		type E = EndpointQueryCallError<
+			typeof Progress,
+			typeof ApiError,
+			[],
+			undefined,
+			"sse"
+		>;
+		expectTypeOf<EndpointQueryValue<typeof Progress, "sse">>().toEqualTypeOf<
+			Fetch.SseEvent<typeof Progress.Type>
+		>();
+		expectTypeOf<E>().toEqualTypeOf<
+			Fetch.CallError<Fetch.AnySchema, typeof ApiError, [], undefined>
+		>();
+		expectTypeOf<
+			EndpointQueryOptionsFor<
+				"GET /jobs",
+				"sse",
+				E,
+				[],
+				Fetch.SseEvent<typeof Progress.Type>
+			>
+		>().toEqualTypeOf<
+			EndpointStreamOptions<
+				E,
+				[],
+				Fetch.SseEvent<typeof Progress.Type>,
+				EndpointQueryArgs<"GET /jobs">
+			>
+		>();
+	});
+
+	it("type the args by the endpoint's query schema", () => {
+		const Page = Schema.Struct({ page: Schema.FiniteFromString });
+		type E = EndpointQueryCallError<
+			typeof Todo,
+			typeof ApiError,
+			[],
+			undefined,
+			undefined
+		>;
+		expectTypeOf<
+			EndpointQueryOptionsFor<
+				"GET /todos",
+				undefined,
+				E,
+				[],
+				Todo,
+				typeof Page
+			>
+		>().toEqualTypeOf<
+			EndpointQueryOptions<
+				E,
+				[],
+				Todo,
+				EndpointQueryArgs<"GET /todos", Fetch.QueryInput, typeof Page>
+			>
+		>();
 	});
 });
 

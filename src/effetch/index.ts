@@ -484,6 +484,109 @@ export type ErrorSchema<
 > = Own extends Fetch.AnySchema ? Own : Default;
 
 /**
+ * The value of a query {@link Endpoints.query} makes from an endpoint, from
+ * its `output` schema `O` and its stream format `St`: the decoded `output`
+ * (the raw `HttpClientResponse` without one), or for a stream endpoint
+ * (`stream: "sse"` or `"ndjson"`) its latest element, a `Fetch.SseEvent` of
+ * the `output` for SSE.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { EndpointQueryValue } from "@monarcode/effetch-query/effetch";
+ *
+ * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+ *
+ * // { readonly id: number; readonly title: string }
+ * export type TodoValue = EndpointQueryValue<typeof Todo, undefined>;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type EndpointQueryValue<
+	O extends Fetch.AnySchema | undefined,
+	St extends Fetch.StreamFormat | undefined,
+> = [St] extends [Fetch.StreamFormat]
+	? Fetch.StreamElement<St, O>
+	: Fetch.Success<O>;
+
+/**
+ * The error of a query {@link Endpoints.query} makes from an endpoint: the
+ * `Fetch.CallError` of its call, from its `output` schema `O`, its error
+ * body schema `EB` ({@link ErrorSchema}), the client's plugins `Ps`, its
+ * status errors `SE` and its stream format `St`. A stream endpoint's
+ * elements are decoded as they come, so its `DecodeError` isn't for the
+ * whole `output`.
+ *
+ * @example
+ * ```ts
+ * import * as Schema from "effect/Schema";
+ *
+ * import type { EndpointQueryCallError } from "@monarcode/effetch-query/effetch";
+ *
+ * const Todo = Schema.Struct({ id: Schema.Finite });
+ *
+ * export type TodoError = EndpointQueryCallError<
+ *   typeof Todo,
+ *   Schema.Unknown,
+ *   [],
+ *   undefined,
+ *   undefined
+ * >;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type EndpointQueryCallError<
+	O extends Fetch.AnySchema | undefined,
+	EB extends Fetch.AnySchema,
+	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+	SE extends Fetch.StatusErrorMap | undefined,
+	St extends Fetch.StreamFormat | undefined,
+> = Fetch.CallError<
+	[St] extends [Fetch.StreamFormat] ? Fetch.AnySchema : O,
+	EB,
+	Ps,
+	SE
+>;
+
+/**
+ * The options {@link Endpoints.query} takes for an endpoint: those of a
+ * stream query ({@link EndpointStreamOptions}) for a stream endpoint,
+ * whose stream format `St` is `"sse"` or `"ndjson"`, else those of a
+ * fetched one ({@link EndpointQueryOptions}). `E` is the query's error
+ * ({@link EndpointQueryCallError}), `A` its value
+ * ({@link EndpointQueryValue}), `R` the endpoint's route and `QS` its
+ * `query` schema, which type `placeholder` and `live`.
+ *
+ * @example
+ * ```ts
+ * import type { EndpointQueryOptionsFor } from "@monarcode/effetch-query/effetch";
+ *
+ * export const options: EndpointQueryOptionsFor<
+ *   "GET /todos",
+ *   undefined,
+ *   never,
+ *   [],
+ *   string
+ * > = { staleTime: "1 minute" };
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type EndpointQueryOptionsFor<
+	R extends string,
+	St extends Fetch.StreamFormat | undefined,
+	E,
+	Ps extends ReadonlyArray<Fetch.Plugin.Any>,
+	A,
+	QS extends KeyQuerySchema | undefined = undefined,
+> = [St] extends [Fetch.StreamFormat]
+	? EndpointStreamOptions<E, Ps, A, EndpointQueryArgs<R, Fetch.QueryInput, QS>>
+	: EndpointQueryOptions<E, Ps, A, EndpointQueryArgs<R, Fetch.QueryInput, QS>>;
+
+/**
  * A family of queries, one per call of an Effetch endpoint, made by
  * {@link Endpoints.query}. Call it with the endpoint's `params` and `query`
  * to get the query for that call. Its key is the route's path with the
@@ -510,7 +613,7 @@ export type ErrorSchema<
  * each field by its sent name. Equal requests share a query, and keys stay
  * JSON for server rendering. The query a member was first called with is
  * the one it sends, and the `args` {@link Query.update} gives. A call
- * throws an `EndpointQueryError` (its `_tag`) when its query doesn't match
+ * throws an {@link EndpointQueryError} when its query doesn't match
  * the schema, a field encodes to an object, or a field is `Redacted`: a key
  * would hold the secret and send it to the browser, so send it in a header.
  *
@@ -674,6 +777,38 @@ export interface Endpoints<
 	 * has them: read from a `Fetch.Service` class, or given for a
 	 * `Context.Service` key ({@link EndpointsOptions.statusErrors}). A query
 	 * that failed with a plugin's error isn't sent.
+	 *
+	 * @example
+	 * ```ts
+	 * import { Fetch } from "@monarcode/effetch";
+	 * import * as Schema from "effect/Schema";
+	 *
+	 * import { Query } from "@monarcode/effetch-query";
+	 * import { fromClient } from "@monarcode/effetch-query/effetch";
+	 *
+	 * class Api extends Fetch.Service<Api>()("Api", {
+	 *   baseUrl: "https://api.example.com",
+	 * }) {}
+	 *
+	 * declare module "@monarcode/effetch-query" {
+	 *   interface Register {
+	 *     readonly services: Api;
+	 *   }
+	 * }
+	 *
+	 * const api = fromClient(Api);
+	 * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+	 *
+	 * // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
+	 * export const todo = api.query(
+	 *   Fetch.endpoint("GET /todos/:id", { output: Todo }),
+	 *   { staleTime: "1 minute" },
+	 * );
+	 *
+	 * export const loadTodo = Query.fetch(todo({ params: { id: 1 } }));
+	 * ```
+	 *
+	 * @since 0.1.0
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -685,35 +820,18 @@ export interface Endpoints<
 		St extends Fetch.StreamFormat | undefined = undefined,
 	>(
 		endpoint: Fetch.UnboundEndpoint<R, O, Own, I, OwnSE, undefined, QS, St>,
-		options?: [St] extends [Fetch.StreamFormat]
-			? EndpointStreamOptions<
-					Fetch.CallError<
-						Fetch.AnySchema,
-						ErrorSchema<Own, EB>,
-						Ps,
-						OwnSE | SE
-					>,
-					Ps,
-					Fetch.StreamElement<St, O>,
-					EndpointQueryArgs<R, Fetch.QueryInput, QS>
-				>
-			: EndpointQueryOptions<
-					Fetch.CallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE>,
-					Ps,
-					Fetch.Success<O>,
-					EndpointQueryArgs<R, Fetch.QueryInput, QS>
-				>,
+		options?: EndpointQueryOptionsFor<
+			R,
+			St,
+			EndpointQueryCallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE, St>,
+			Ps,
+			EndpointQueryValue<O, St>,
+			QS
+		>,
 	) => EndpointQuery<
 		R,
-		[St] extends [Fetch.StreamFormat]
-			? Fetch.StreamElement<St, O>
-			: Fetch.Success<O>,
-		Fetch.CallError<
-			[St] extends [Fetch.StreamFormat] ? Fetch.AnySchema : O,
-			ErrorSchema<Own, EB>,
-			Ps,
-			OwnSE | SE
-		>,
+		EndpointQueryValue<O, St>,
+		EndpointQueryCallError<O, ErrorSchema<Own, EB>, Ps, OwnSE | SE, St>,
 		QS
 	>;
 	/**
@@ -726,6 +844,45 @@ export interface Endpoints<
 	 * names one of its optional fields ({@link EndpointPageField}). Only
 	 * endpoints without a body. Its queries cross from server to browser as
 	 * {@link Endpoints.query}'s do, the page params as JSON.
+	 *
+	 * @example
+	 * ```ts
+	 * import { Fetch } from "@monarcode/effetch";
+	 * import * as Schema from "effect/Schema";
+	 *
+	 * import { InfiniteQuery } from "@monarcode/effetch-query";
+	 * import { fromClient } from "@monarcode/effetch-query/effetch";
+	 *
+	 * class Api extends Fetch.Service<Api>()("Api", {
+	 *   baseUrl: "https://api.example.com",
+	 * }) {}
+	 *
+	 * declare module "@monarcode/effetch-query" {
+	 *   interface Register {
+	 *     readonly services: Api;
+	 *   }
+	 * }
+	 *
+	 * const api = fromClient(Api);
+	 * const ActivityPage = Schema.Struct({
+	 *   items: Schema.Array(Schema.String),
+	 *   nextCursor: Schema.NullOr(Schema.String),
+	 * });
+	 *
+	 * // activity({}) loads GET /activity, then GET /activity?cursor=…
+	 * export const activity = api.infiniteQuery(
+	 *   Fetch.endpoint("GET /activity", { output: ActivityPage }),
+	 *   {
+	 *     pageParam: "cursor",
+	 *     initialPageParam: null as string | null,
+	 *     nextPageParam: (lastPage) => lastPage.nextCursor,
+	 *   },
+	 * );
+	 *
+	 * export const loadMore = InfiniteQuery.fetchNextPage(activity({}));
+	 * ```
+	 *
+	 * @since 0.1.0
 	 */
 	readonly infiniteQuery: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -764,6 +921,41 @@ export interface Endpoints<
 	 * whose `input` is a `Fetch.multipart` schema sends `body` as
 	 * `multipart/form-data`, typed by the schema: an upload, with
 	 * `Fetch.UploadFile` for each file.
+	 *
+	 * @example
+	 * ```ts
+	 * import { Fetch } from "@monarcode/effetch";
+	 * import * as Schema from "effect/Schema";
+	 *
+	 * import { Mutation } from "@monarcode/effetch-query";
+	 * import { fromClient } from "@monarcode/effetch-query/effetch";
+	 *
+	 * class Api extends Fetch.Service<Api>()("Api", {
+	 *   baseUrl: "https://api.example.com",
+	 * }) {}
+	 *
+	 * declare module "@monarcode/effetch-query" {
+	 *   interface Register {
+	 *     readonly services: Api;
+	 *   }
+	 * }
+	 *
+	 * const api = fromClient(Api);
+	 * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+	 *
+	 * // run with { body: { title } }; on success, invalidates every todos query
+	 * export const addTodo = api.mutation(
+	 *   Fetch.endpoint("POST /todos", {
+	 *     input: Schema.Struct({ title: Schema.String }),
+	 *     output: Todo,
+	 *   }),
+	 *   { invalidates: [["todos"]] },
+	 * );
+	 *
+	 * export const addMilk = Mutation.run(addTodo, { body: { title: "Milk" } });
+	 * ```
+	 *
+	 * @since 0.1.0
 	 */
 	readonly mutation: <
 		const R extends string,
@@ -801,11 +993,32 @@ interface AnyEndpoint {
 /**
  * Thrown when a call's `query` can't be part of its key: it doesn't match
  * the endpoint's `query` schema, a field encodes to an object, or a field is
- * `Redacted`, whose secret the key would hold and send to the browser.
+ * `Redacted`, whose secret the key would hold and send to the browser. Send
+ * a secret in a header instead. It's thrown when the query is made, such as
+ * `todos({ query })` in a component, before anything is fetched.
+ *
+ * @example
+ * ```ts
+ * import { EndpointQueryError } from "@monarcode/effetch-query/effetch";
+ *
+ * // The message names the route: "Invalid query for GET /todos: …".
+ * export const explain = (error: unknown): string =>
+ *   error instanceof EndpointQueryError ? error.message : String(error);
+ * ```
+ *
+ * @see {@link Endpoints.query} for how a query becomes part of a key
+ *
+ * @since 0.1.0
  */
-class EndpointQueryError extends Data.TaggedError("EndpointQueryError")<{
+export class EndpointQueryError extends Data.TaggedError("EndpointQueryError")<{
+	/** The endpoint's route, such as `"GET /todos"`. */
 	readonly route: string;
+	/** What can't be part of the key, for logs. */
 	readonly message: string;
+	/**
+	 * What encoding the query threw, when it doesn't match the schema: a
+	 * `Schema.SchemaError`, whose `issue` says which field is wrong.
+	 */
 	readonly cause?: unknown;
 }> {}
 

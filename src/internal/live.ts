@@ -11,7 +11,12 @@ type Update = (value: any) => any;
  */
 export interface PushLog {
 	seq: number;
-	entries: Array<{ readonly seq: number; readonly f: Update }>;
+	/** `sync` marks an entity sync's write (DESIGN.md §4.15), which only an undo applies again. */
+	entries: Array<{
+		readonly seq: number;
+		readonly f: Update;
+		readonly sync: boolean;
+	}>;
 	readonly marks: Set<Mark>;
 }
 
@@ -35,14 +40,22 @@ const logOf = (state: ClientState, query: Query.Query<any, any>): PushLog => {
 	return log;
 };
 
-/** Opens a {@link Mark} at the query's latest push. */
+/**
+ * Opens a {@link Mark} at the query's latest push. A fetch's mark leaves out
+ * entity syncs: they're dated, and a fetch that settles over one is newer
+ * or gets it back from where it came from.
+ */
 export const openMark = (
 	state: ClientState,
 	query: Query.Query<any, any>,
+	purpose: "fetch" | "undo",
 ): Mark => {
 	const log = logOf(state, query);
 	const since = log.seq;
-	const after = () => log.entries.filter((entry) => entry.seq > since);
+	const after = () =>
+		log.entries.filter(
+			(entry) => entry.seq > since && (purpose === "undo" || !entry.sync),
+		);
 	const mark: Mark = {
 		since,
 		replay: (value) =>
@@ -74,10 +87,25 @@ export const recordPush = (
 	state: ClientState,
 	query: Query.Query<any, any>,
 	f: Update,
+	sync = false,
 ): void => {
 	const log = logOf(state, query);
 	log.seq++;
 	if (log.marks.size > 0) {
-		log.entries.push({ seq: log.seq, f });
+		log.entries.push({ seq: log.seq, f, sync });
+	}
+};
+
+/**
+ * Forgets a query's entity syncs once its own fetch settles: the fetched
+ * value is dated after them, so an undo mustn't apply them over it.
+ */
+export const dropSyncs = (
+	state: ClientState,
+	query: Query.Query<any, any>,
+): void => {
+	const log = state.pushes.get(query);
+	if (log !== undefined) {
+		log.entries = log.entries.filter((entry) => !entry.sync);
 	}
 };

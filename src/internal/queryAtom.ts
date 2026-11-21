@@ -13,6 +13,7 @@ import * as Stream from "effect/Stream";
 
 import type * as Query from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
+import { oldest, stampQuery, tick } from "./ages.js";
 import {
 	type QuerySettings,
 	resolveGcTime,
@@ -386,6 +387,7 @@ const preloadedResult = <A, E>(
  */
 const seedPreloaded = <A, E>(
 	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<A, E>,
 	atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,
 	hydration: QueryHydration<A, E>,
 ): void => {
@@ -394,9 +396,13 @@ const seedPreloaded = <A, E>(
 		return;
 	}
 	if (Option.isNone(nodeValue(registry, atom))) {
-		Option.map(preloadedResult(registry, hydration), (result) =>
-			seed(registry, atom, result),
-		);
+		Option.map(preloadedResult(registry, hydration), (result) => {
+			seed(registry, atom, result);
+			// The server's copies are older than any fetch here.
+			if (registry.get(ConfigAtom).entities.length > 0) {
+				stampQuery(registry.get(StateAtom), query, oldest);
+			}
+		});
 	}
 	registry.preloadedSerializable.delete(hash.value);
 };
@@ -657,6 +663,15 @@ export const makeQuery = <A, E>(definition: {
 						get(refreshSignal);
 						subscribeReactivity(get);
 						const { retry } = get(watcher).settings;
+						const run = fetchRun(get);
+						const { state } = run;
+						const streamed = takeStreamed(state, hydration);
+						// What each attempt read, and when it started, for entity sync:
+						// a refetch of an infinite query reads its pages one by one.
+						const reads: Array<{
+							readonly result: unknown;
+							readonly start: number;
+						}> = [];
 						const context: FetchContext<A, E> = {
 							get,
 							previous: () => {
@@ -674,18 +689,24 @@ export const makeQuery = <A, E>(definition: {
 							},
 							// Each attempt gets its own scope, closed in its fiber, and the
 							// client tracks the fiber: `dispose()` waits for both.
-							attempt: (run) => {
-								const once = Effect.scoped(
-									run(runContext(get, generation)),
-								);
+							attempt: (runAttempt) => {
+								const once = Effect.suspend(() => {
+									const start = tick(state);
+									return Effect.map(
+										Effect.scoped(
+											runAttempt(runContext(get, generation)),
+										),
+										(result) => {
+											reads.push({ result, start });
+											return result;
+										},
+									);
+								});
 								return retry === undefined
 									? once
 									: Effect.retry(once, retry);
 							},
 						};
-						const run = fetchRun(get);
-						const { state } = run;
-						const streamed = takeStreamed(state, hydration);
 						const fetched = (): Effect.Effect<
 							A,
 							E,
@@ -695,12 +716,22 @@ export const makeQuery = <A, E>(definition: {
 							streamed === undefined || hydration === undefined
 								? fetched()
 								: fromServer(streamed, hydration.codec, fetched);
+						const { syncFetched } = get.once(ConfigAtom);
 						return Effect.withFiber((fiber) => {
 							started(state, fiber);
-							return Effect.onExit(
+							const withLive =
 								live === undefined
 									? fetch
-									: withPushes(state, query, fetch),
+									: withPushes(state, query, fetch);
+							return Effect.onExit(
+								syncFetched === undefined
+									? withLive
+									: Effect.flatMap(withLive, (value) =>
+											syncFetched(run.registry, query, value, {
+												reads,
+												generation,
+											}),
+										),
 								(exit) => settled(run, fiber, generation, exit),
 							);
 						});
@@ -857,7 +888,7 @@ export const makeQuery = <A, E>(definition: {
 					return AsyncResult.initial<A, E>();
 				}
 				if (generation === 0 && hydration !== undefined) {
-					seedPreloaded(get.registry, fetchAtom(0), hydration);
+					seedPreloaded(get.registry, query, fetchAtom(0), hydration);
 				}
 				const result = combine(get(fetchAtom(generation)), written);
 				get(watcher).resume();
@@ -906,7 +937,12 @@ export const makeQuery = <A, E>(definition: {
 							}
 							// Before the stream writes its fetch atom.
 							if (generation === 0 && hydration !== undefined) {
-								seedPreloaded(get.registry, fetchAtom(0), hydration);
+								seedPreloaded(
+									get.registry,
+									query,
+									fetchAtom(0),
+									hydration,
+								);
 							}
 							const running = get(streamAtom!(generation));
 							const result = get(cache);
@@ -984,7 +1020,7 @@ const withPushes = <A, E, R>(
 	fetch: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
 	Effect.suspend(() => {
-		const mark = openMark(state, query);
+		const mark = openMark(state, query, "fetch");
 		return Effect.ensuring(
 			Effect.map(fetch, (value) => mark.replay(value)),
 			Effect.sync(mark.close),
@@ -1006,12 +1042,17 @@ const push = <A, E>(
 	recordPush(state, query, f);
 	const current = peek(registry, query);
 	if (Option.isSome(current) && AsyncResult.isSuccess(current.value)) {
-		writeKeepingAge(
-			registry,
-			query,
-			f(current.value.value),
-			current.value.timestamp,
-		);
+		const next = f(current.value.value);
+		writeKeepingAge(registry, query, next, current.value.timestamp);
+		// A pushed copy is newer than any fetch in flight (DESIGN.md §4.15).
+		registry
+			.get(ConfigAtom)
+			.stampWritten?.(
+				registry,
+				query,
+				Option.some(current.value.value),
+				next,
+			);
 	}
 };
 
@@ -1027,15 +1068,11 @@ export const writeKeepingAge = <A, E>(
 	value: A,
 	timestamp: number,
 ): Local<A, E> | undefined => {
-	const { local, fetchAtom } = internals(query);
 	const previous = localValue(registry, query);
-	const state = registry
-		.getNodes()
-		.get(fetchAtom(previous.generation))
-		?.currentState();
-	if (previous.idle === true || state !== "valid") {
+	if (!isCurrent(registry, query)) {
 		return undefined;
 	}
+	const { local } = internals(query);
 	registry.set(local, {
 		generation: previous.generation,
 		written: Option.some(written<A, E>(value, timestamp)),
@@ -1085,9 +1122,42 @@ export const pushMark = (
 	registry: AtomRegistry.AtomRegistry,
 	query: Query.Query<any, any>,
 ): Mark | undefined =>
-	internals(query).live === "Updates"
-		? openMark(registry.get(StateAtom), query)
+	internals(query).live === "Updates" || syncsEntities(registry, query)
+		? openMark(registry.get(StateAtom), query, "undo")
 		: undefined;
+
+/**
+ * Whether entity sync (DESIGN.md §4.15) reads and writes the query: the
+ * client syncs entities, and the query has a schema to find them in and
+ * didn't opt out. A stream query's elements aren't synced.
+ */
+export const syncsEntities = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): boolean => {
+	const { options, hydration, live } = internals(query);
+	return (
+		registry.get(ConfigAtom).entities.length > 0 &&
+		hydration !== undefined &&
+		live !== "Stream" &&
+		options.entities?.sync !== false
+	);
+};
+
+/** Whether the query shows a value a write can go over (`writeKeepingAge`). */
+export const isCurrent = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query.Query<any, any>,
+): boolean => {
+	const { idle, generation } = localValue(registry, query);
+	return (
+		idle !== true &&
+		registry
+			.getNodes()
+			.get(internals(query).fetchAtom(generation))
+			?.currentState() === "valid"
+	);
+};
 
 /** The query whose value a node holds: its cache's, for a live query. */
 export const cachedQuery = (

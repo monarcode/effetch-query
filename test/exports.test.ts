@@ -41,6 +41,7 @@ describe("public entry points", () => {
 			"run",
 		]);
 		expect(Object.keys(Core.Query).sort()).toEqual([
+			"KeyHoldsTargetError",
 			"TypeId",
 			"clear",
 			"family",
@@ -101,7 +102,11 @@ describe("public entry points", () => {
 	});
 
 	it("@monarcode/effetch-query/effetch exports exactly these values", () => {
-		expect(Object.keys(Effetch).sort()).toEqual(["endpoints", "fromClient"]);
+		expect(Object.keys(Effetch).sort()).toEqual([
+			"EndpointQueryError",
+			"endpoints",
+			"fromClient",
+		]);
 	});
 
 	it("keeps endpoints as the deprecated name of fromClient", () => {

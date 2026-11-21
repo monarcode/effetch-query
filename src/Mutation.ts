@@ -184,7 +184,7 @@ export interface MakeOptions<
 	 * that returns one. Default: none. A failed run invalidates nothing.
 	 *
 	 * A key that holds a query, a family or a group matches nothing: in a
-	 * list, the run dies with a `KeyHoldsTargetError` before it starts; from
+	 * list, the run dies with a {@link Query.KeyHoldsTargetError} before it starts; from
 	 * the function, the change is already saved, so the target is logged and
 	 * skipped. Combine targets with {@link Query.group}.
 	 */
