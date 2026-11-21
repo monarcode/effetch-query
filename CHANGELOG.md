@@ -2,7 +2,13 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
-## Unreleased
+## 0.1.0-rc.5
+
+Additive: opt-in entity sync, two exported errors, named types for
+`api.query`, and namespace docs in editor hovers. It works with
+`@monarcode/effetch` 0.1.0-rc.4 and later in 0.1, as rc.4 does. One fix
+can surface in your app: `useRefetch` with a key that holds a query now
+throws `Query.KeyHoldsTargetError` instead of doing nothing (see Fixed).
 
 ### Added
 
@@ -24,7 +30,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   same id in every other query that holds the entity, so a details
   refetch updates the list rows, and a list fetch updates the cached
   details, with no other fetch. The newer copy wins, by when its fetch
-  started. A write counts as newer than fetches in flight, but only
+  started (each page's own request, for an infinite query's refetch), and
+  loading the next page sends only that page. A write counts as newer than fetches in flight, but only
   fetched copies are synced to other queries. A query opts out with
   `entities: { sync: false }` (`Query.EntitiesOptions`). See "Keep copies
   in sync" in the README.

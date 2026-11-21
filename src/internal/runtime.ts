@@ -20,7 +20,8 @@ import type { PushLog } from "./live.js";
 /**
  * Entity sync after a fetch (DESIGN.md §4.15): writes the fetched copies
  * over older ones in other queries, and gives back the value with any newer
- * copy those hold. `start` dates the fetch (`ClientState.clock`), and
+ * copy those hold. `reads` are what the fetch's attempts returned, each with
+ * when it started (`ClientState.clock`): none for a value the server sent.
  * `generation` is the fetch atom's. `QueryClient.make` passes it in, so the
  * query atom doesn't import the entity code.
  */
@@ -28,7 +29,13 @@ export type SyncFetched = <A>(
 	registry: AtomRegistry.AtomRegistry,
 	query: Query<A, any>,
 	value: A,
-	fetch: { readonly start: number; readonly generation: number },
+	fetch: {
+		readonly reads: ReadonlyArray<{
+			readonly result: unknown;
+			readonly start: number;
+		}>;
+		readonly generation: number;
+	},
 ) => Effect.Effect<A>;
 
 /**

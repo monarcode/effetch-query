@@ -2,11 +2,19 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as MutableHashMap from "effect/MutableHashMap";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import type * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
-import { ageOf, isFetched, now, stampCopies, stampQuery } from "./ages.js";
+import {
+	ageOf,
+	isFetched,
+	now,
+	oldest,
+	stampCopies,
+	stampQuery,
+} from "./ages.js";
 import {
 	applyPlan,
 	type EntityDefinition,
@@ -36,6 +44,8 @@ import {
 interface Copy {
 	readonly copy: object;
 	readonly age: number;
+	/** Read by this fetch: only those go to other queries. */
+	readonly fresh: boolean;
 }
 
 type Holding = ReturnType<typeof holding>[number];
@@ -114,12 +124,45 @@ const dependencies = (
 };
 
 /**
+ * When each object in what a fetch's attempts read was read: an infinite
+ * query's refetch reads its pages one after the other, and a retried page
+ * later still. `undefined` for an object no attempt read.
+ */
+const readDates = (
+	reads: ReadonlyArray<{ readonly result: unknown; readonly start: number }>,
+): ((copy: object) => number | undefined) => {
+	let dates: WeakMap<object, number> | undefined;
+	return (copy) => {
+		if (dates === undefined) {
+			dates = new WeakMap();
+			for (const { result, start } of reads) {
+				const pending: Array<unknown> = [result];
+				while (pending.length > 0) {
+					const next = pending.pop();
+					if (Predicate.isObjectOrArray(next) && !dates.has(next)) {
+						dates.set(next, start);
+						// One by one: a spread of a large array exceeds the
+						// engine's argument limit. A typed array holds no copies.
+						if (!ArrayBuffer.isView(next)) {
+							for (const field of Object.values(next)) {
+								pending.push(field);
+							}
+						}
+					}
+				}
+			}
+		}
+		return dates.get(copy);
+	};
+};
+
+/**
  * Dates each copy of the entity in the fetched value and pulls newer
- * copies into it. A copy is dated by the fetch's start, unless it isn't
- * new: one the query already showed (an infinite query's older pages)
- * keeps its age, and one another query holds (read through `ctx.result`)
- * takes that query's. Only fetched copies are pulled: from other queries,
- * and the query's own, synced in while it fetched.
+ * copies into it. A copy is dated by `dateOf`, unless it isn't new: one
+ * the query already showed (an infinite query's older pages) keeps its
+ * age, and one another query holds (read through `ctx.result`) takes that
+ * query's. Only fetched copies are pulled: from other queries, and the
+ * query's own, synced in while it fetched.
  */
 const pull = <A>(
 	registry: AtomRegistry.AtomRegistry,
@@ -128,7 +171,7 @@ const pull = <A>(
 	entity: EntityDefinition<any, any>,
 	plan: Plan,
 	value: A,
-	start: number,
+	dateOf: (copy: object) => Omit<Copy, "copy">,
 ): { readonly value: A; readonly pass: Pass } => {
 	const shown = Option.flatMap(peek(registry, query), lastSuccess);
 	const carried = new Set<object>();
@@ -138,18 +181,21 @@ const pull = <A>(
 			carried.add(copy);
 			const id = entity.id(copy);
 			const age = ageOf(state, query, entity, id);
-			if (isFetched(age) && age > start) {
-				keepNewer(newest, id, { copy, age });
+			if (isFetched(age)) {
+				keepNewer(newest, id, { copy, age, fresh: false });
 			}
 		}),
 	);
 	const mine = MutableHashMap.empty<unknown, Copy>();
 	eachCopy(plan, value, (copy) => {
 		const id = entity.id(copy);
-		keepNewer(mine, id, {
-			copy,
-			age: carried.has(copy) ? ageOf(state, query, entity, id) : start,
-		});
+		keepNewer(
+			mine,
+			id,
+			carried.has(copy)
+				? { copy, age: ageOf(state, query, entity, id), fresh: false }
+				: { copy, ...dateOf(copy) },
+		);
 	});
 	const others = holding(registry, entity).filter(
 		(other) =>
@@ -171,13 +217,13 @@ const pull = <A>(
 				MutableHashMap.set(borrowed, id, age);
 			}
 			if (isFetched(age)) {
-				keepNewer(newest, id, { copy, age });
+				keepNewer(newest, id, { copy, age, fresh: false });
 			}
 		});
 	}
 	for (const [id, age] of borrowed) {
 		const own = Option.getOrThrow(MutableHashMap.get(mine, id));
-		MutableHashMap.set(mine, id, { copy: own.copy, age });
+		MutableHashMap.set(mine, id, { copy: own.copy, age, fresh: false });
 	}
 	const pulled = MutableHashMap.empty<unknown, Copy>();
 	for (const [id, other] of newest) {
@@ -202,9 +248,9 @@ const pull = <A>(
 
 /**
  * The writes of the fetched copies over older copies in other queries,
- * from the value with every entity's newer copies pulled in. Only fetched
- * copies go, not pulled ones, and a query the fetch depends on isn't
- * written.
+ * from the value with every entity's newer copies pulled in. Only the
+ * copies this fetch read go, not carried, borrowed or pulled ones, and a
+ * query the fetch depends on isn't written.
  */
 const push = (
 	state: ClientState,
@@ -232,7 +278,7 @@ const push = (
 			const own = MutableHashMap.get(mine, id);
 			if (
 				Option.isNone(own) ||
-				!isFetched(own.value.age) ||
+				!own.value.fresh ||
 				MutableHashMap.has(pulled, id) ||
 				own.value.age <= ageOf(state, other.query, entity, id)
 			) {
@@ -288,6 +334,23 @@ export const syncFetched: SyncFetched = (registry, query, value, fetch) =>
 			return Effect.succeed(value);
 		}
 		const state = registry.get(StateAtom);
+		// A value the server sent, read by no attempt, is older than any fetch.
+		const base =
+			fetch.reads.length === 0
+				? oldest
+				: Math.min(...fetch.reads.map(({ start }) => start));
+		const readAt = readDates(fetch.reads);
+		// A copy no attempt read was changed while the fetch ran, by a `live`
+		// push `withPushes` replayed: a write, dated as one.
+		const dateOf = (copy: object): Omit<Copy, "copy"> => {
+			const read = fetch.reads.length === 0 ? undefined : readAt(copy);
+			return read !== undefined
+				? { age: read, fresh: true }
+				: {
+						age: fetch.reads.length === 0 ? oldest : now(state),
+						fresh: false,
+					};
+		};
 		let synced = value;
 		const passes: Array<Pass> = [];
 		const writes: Array<Write> = [];
@@ -302,7 +365,7 @@ export const syncFetched: SyncFetched = (registry, query, value, fetch) =>
 						entity,
 						plan,
 						synced,
-						fetch.start,
+						dateOf,
 					);
 					synced = pulled.value;
 					passes.push(pulled.pass);
@@ -316,21 +379,28 @@ export const syncFetched: SyncFetched = (registry, query, value, fetch) =>
 				writes.push(...push(state, pass, synced, skip));
 			}
 		} catch (cause) {
-			stampQuery(state, query, fetch.start);
+			// A fetch that read nothing (an infinite query with no page to
+			// add) returns what the query showed, which keeps its ages.
+			if (fetch.reads.length > 0) {
+				stampQuery(state, query, base);
+			}
 			return Effect.as(Effect.logError("Entity sync failed", cause), value);
 		}
-		stampQuery(state, query, fetch.start);
+		stampQuery(state, query, base);
 		for (const { entity, mine } of passes) {
 			for (const [id, { age }] of mine) {
-				if (age !== fetch.start) {
+				if (age !== base) {
 					stampCopies(state, query, [[entity, id]], age);
 				}
 			}
 		}
 		// The fetched value is dated after them, so an undo mustn't apply them.
 		dropSyncs(state, query);
-		try {
-			for (const { entity, query: other, apply, ages } of writes) {
+		// Each write is made whatever another throws: a listener, or an `id`
+		// over a value a listener changed.
+		const failures: Array<unknown> = [];
+		for (const { entity, query: other, apply, ages } of writes) {
+			try {
 				for (const [id, age] of ages) {
 					stampCopies(state, other, [[entity, id]], age);
 				}
@@ -339,48 +409,62 @@ export const syncFetched: SyncFetched = (registry, query, value, fetch) =>
 					continue;
 				}
 				const next = apply(current.value.value);
-				if (next !== current.value.value) {
-					writeKeepingAge(registry, other, next, current.value.timestamp);
-					recordPush(state, other, apply, true);
+				if (next === current.value.value) {
+					continue;
 				}
+				// Recorded first: the registry stores the value before a
+				// listener can throw.
+				recordPush(state, other, apply, true);
+				writeKeepingAge(registry, other, next, current.value.timestamp);
+			} catch (cause) {
+				failures.push(cause);
 			}
-		} catch (cause) {
-			return Effect.as(Effect.logError("Entity sync failed", cause), synced);
 		}
-		return Effect.succeed(synced);
+		return failures.length === 0
+			? Effect.succeed(synced)
+			: Effect.as(
+					Effect.logError("Entity sync failed", ...failures),
+					synced,
+				);
 	});
 
 /**
  * Dates as new the synced entities' copies a write put in a query: those
- * that aren't the same objects it showed before (DESIGN.md §4.15).
+ * that aren't the same objects it showed before (DESIGN.md §4.15). A copy
+ * whose `id` throws isn't dated: the write stands, as without sync, and the
+ * next fetch that syncs the query logs the throw.
  */
 export const stampWritten: StampWritten = (registry, query, before, after) => {
 	if (!syncsEntities(registry, query)) {
 		return () => {};
 	}
 	const state = registry.get(StateAtom);
-	const restores = registry.get(ConfigAtom).entities.flatMap((entity) => {
-		const plan = planIn(entity, query);
-		if (plan === undefined) {
-			return [];
-		}
-		const old = new Set<object>();
-		Option.map(before, (value) =>
-			eachCopy(plan, value, (copy) => old.add(copy)),
-		);
-		const written: Array<readonly [object, unknown]> = [];
-		eachCopy(plan, after, (copy) => {
-			if (!old.has(copy)) {
-				written.push([entity, entity.id(copy)]);
+	const written: Array<readonly [object, unknown]> = [];
+	try {
+		for (const entity of registry.get(ConfigAtom).entities) {
+			const plan = planIn(entity, query);
+			if (plan === undefined) {
+				continue;
 			}
-		});
-		return written.length === 0
-			? []
-			: [stampCopies(state, query, written, now(state))];
-	});
-	return () => {
-		for (const restore of restores) {
-			restore();
+			const old = new Set<object>();
+			Option.map(before, (value) =>
+				eachCopy(plan, value, (copy) => old.add(copy)),
+			);
+			eachCopy(plan, after, (copy) => {
+				if (old.has(copy)) {
+					return;
+				}
+				try {
+					written.push([entity, entity.id(copy)]);
+				} catch {
+					// Left undated.
+				}
+			});
 		}
-	};
+	} catch {
+		// The write has been made: date what was found.
+	}
+	return written.length === 0
+		? () => {}
+		: stampCopies(state, query, written, now(state));
 };

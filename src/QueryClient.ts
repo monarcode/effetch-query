@@ -505,8 +505,9 @@ export interface EntitiesOptions {
 	 * - **Newer wins.** A copy is as new as the fetch attempt it came from,
 	 *   by when that attempt started: a slow response that lands after a
 	 *   newer one doesn't overwrite it, and the query that fetched it shows
-	 *   the newer copy instead. An infinite query's next page is new; the
-	 *   pages it already had keep their age. A copy a query read from
+	 *   the newer copy instead. A refetch of an infinite query dates each
+	 *   page by its own attempt. Its next page is new, and only that page
+	 *   spreads: the pages it already had keep their age. A copy a query read from
 	 *   another (`ctx.result`) keeps that query's age, and a value from the
 	 *   server (`hydrate`) is older than any fetch.
 	 * - **Only fetched copies spread.** A copy a write changed

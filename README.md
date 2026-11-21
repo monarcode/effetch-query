@@ -2392,7 +2392,9 @@ when that fetch started:
 
 - A slow response that lands after a newer one doesn't overwrite it, and
   the query that fetched it shows the newer copy instead. A retry counts
-  from when it started.
+  from when it started. A refetch of an infinite query requests its pages
+  one after the other, and each page counts from when its own request
+  started.
 - A write, such as `Entity.set` with a mutation's result, `Query.set` or
   a `live` push, counts as newer than every fetch already in flight, so
   none of them overwrites it. A sync doesn't copy a written todo to other

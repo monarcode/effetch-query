@@ -20,6 +20,7 @@ import {
 	Query,
 	QueryClient,
 } from "../src/index.js";
+import { setValue } from "../src/internal/cache.js";
 import { peek } from "../src/internal/queryAtom.js";
 import { disposeClients, gate, makeClient, use } from "./helpers.js";
 import { servicesLayer, TestApi } from "./services.js";
@@ -866,5 +867,363 @@ describe("entity sync, from the review", () => {
 		});
 		expect(calls).toBeGreaterThan(0);
 		expect(errors.flat()).toContain("Entity sync failed");
+	});
+});
+
+describe("entity sync, paged and guarded", () => {
+	const Page = Schema.Struct({
+		items: Schema.Array(Transaction),
+		next: Schema.NullOr(Schema.Finite),
+	});
+
+	/** Two pages, t1 then t2, that wait for `hold` when it's set. */
+	const paged = (
+		server: ReturnType<typeof backend>,
+		hold: { page?: number; first?: boolean; until?: Effect.Effect<void> },
+		options: { retry?: Schedule.Schedule<unknown, unknown> } = {},
+	) =>
+		InfiniteQuery.make({
+			key: ["transactions", "pages"],
+			run: (cursor: number) =>
+				Effect.suspend(() => {
+					const read = Effect.sync(() => ({
+						items: [server.records.get(cursor === 0 ? "t1" : "t2")!],
+						next: cursor === 0 ? 1 : null,
+					}));
+					if (hold.page !== cursor || hold.until === undefined) {
+						return read;
+					}
+					const until = hold.until;
+					if (hold.first === true) {
+						hold.first = false;
+						return Effect.andThen(until, Effect.fail("timeout" as const));
+					}
+					return Effect.andThen(until, read);
+				}),
+			initialPageParam: 0,
+			nextPageParam: (last: typeof Page.Type) => last.next,
+			schema: { page: Page },
+			...options,
+		});
+
+	const items = async (
+		client: QueryClient.QueryClient,
+		pages: ReturnType<typeof paged>,
+	) =>
+		statuses(
+			(await cached(client, pages)).pages.flatMap((page) => page.items),
+		);
+
+	it("dates each page of a refetch by when its fetch started", async () => {
+		const client = await syncing();
+		const server = backend();
+		const hold: Parameters<typeof paged>[1] = {};
+		const pages = paged(server, hold);
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+
+		// The first page waits, so the second starts after the details fetch.
+		const firstPage = gate();
+		const started = gate();
+		Object.assign(hold, {
+			page: 0,
+			until: Effect.andThen(Effect.sync(started.open), firstPage.wait),
+		});
+		const refetching = client.fetch(pages);
+		await Effect.runPromise(started.wait);
+		server.set("t2", "Successful");
+		await client.fetch(server.detail("t2"));
+		server.set("t2", "Refunded");
+		firstPage.open();
+		await refetching;
+
+		expect(await items(client, pages)).toEqual(["t1 Pending", "t2 Refunded"]);
+		expect(await cached(client, server.detail("t2"))).toEqual({
+			id: "t2",
+			status: "Refunded",
+		});
+	});
+
+	it("dates a page read before a retried page by when it was read", async () => {
+		const client = await syncing();
+		const server = backend();
+		const hold: Parameters<typeof paged>[1] = {};
+		const pages = paged(server, hold, { retry: Schedule.recurs(1) });
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+
+		// The second page fails once, and its retry starts after the details
+		// fetch: the first page, read before both, is older than the details.
+		const failing = gate();
+		const started = gate();
+		Object.assign(hold, {
+			page: 1,
+			first: true,
+			until: Effect.andThen(Effect.sync(started.open), failing.wait),
+		});
+		const refetching = client.fetch(pages);
+		await Effect.runPromise(started.wait);
+		server.set("t1", "Successful");
+		await client.fetch(server.detail("t1"));
+		hold.until = Effect.void;
+		failing.open();
+		await refetching;
+
+		expect(await items(client, pages)).toEqual([
+			"t1 Successful",
+			"t2 Pending",
+		]);
+		expect(await cached(client, server.detail("t1"))).toEqual({
+			id: "t1",
+			status: "Successful",
+		});
+	});
+
+	it("sends only the new page when loading more, not the pages already shown", async () => {
+		const server = backend();
+		const detail = Query.family({
+			key: ["transactions"],
+			run: (id: string) => Effect.sync(() => server.records.get(id)!),
+			schema: { success: Transaction },
+			staleTime: "1 hour",
+		});
+		const rendered = await makeClient();
+		server.set("t1", "Successful");
+		await rendered.fetch(detail("t1"));
+		const sent = QueryClient.dehydrate(rendered);
+		server.set("t1", "Pending");
+
+		const client = await syncing();
+		const pages = paged(server, {});
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+		// A server render sent the details after the first page loaded.
+		QueryClient.hydrate(client, sent);
+		const unmount = use(client.registry, detail("t1"));
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+
+		expect(await cached(client, detail("t1"))).toEqual({
+			id: "t1",
+			status: "Successful",
+		});
+		unmount();
+	});
+
+	it("keeps a write whose id throws", async () => {
+		const Throwing = Entity.make(Transaction, {
+			id: (t) => {
+				if (t.status === "Broken") {
+					throw new Error("no id");
+				}
+				return t.id;
+			},
+		});
+		const client = await makeClient({ entities: { sync: [Throwing] } });
+		const server = backend();
+		await client.fetch(server.list(10));
+
+		await client.runPromise(
+			Query.set(server.list(10), [{ id: "t1", status: "Broken" }]),
+		);
+
+		expect(statuses(await cached(client, server.list(10)))).toEqual([
+			"t1 Broken",
+		]);
+		const mutation = Mutation.make({
+			run: () => Effect.fail("rejected" as const),
+			optimistic: () =>
+				Query.update(server.list(10), (list) => [
+					...list,
+					{ id: "t3", status: "Broken" },
+				]),
+		});
+		await client.runPromiseExit(Mutation.run(mutation));
+		expect(statuses(await cached(client, server.list(10)))).toEqual([
+			"t1 Broken",
+		]);
+	});
+
+	it("dates a live push made during the query's own fetch as a write", async () => {
+		const client = await syncing();
+		const server = backend();
+		let queue:
+			| Queue.Queue<
+					(rows: ReadonlyArray<Transaction>) => ReadonlyArray<Transaction>,
+					Cause.Done
+			  >
+			| undefined;
+		const listStarted = gate();
+		const slowList = gate();
+		const live = Query.make({
+			key: ["transactions", "live"],
+			run: Effect.flatMap(
+				Effect.sync(() => {
+					listStarted.open();
+					return [...server.records.values()];
+				}),
+				(read) => Effect.as(slowList.wait, read),
+			),
+			schema: { success: Schema.Array(Transaction) },
+			live: Stream.callback<
+				(rows: ReadonlyArray<Transaction>) => ReadonlyArray<Transaction>
+			>((q) =>
+				Effect.sync(() => {
+					queue = q;
+				}),
+			),
+			staleTime: "1 hour",
+		});
+		const unmount = client.registry.mount(live);
+		await Effect.runPromise(listStarted.wait);
+		// The details fetch starts after the list's, and before the push.
+		const detail = slowDetail(server, "t1");
+		const pending = client.fetch(detail.query);
+		await detail.started;
+		await settle();
+		Queue.offerUnsafe(queue!, (rows) =>
+			rows.map((t) => (t.id === "t1" ? { ...t, status: "Successful" } : t)),
+		);
+		await settle();
+		slowList.open();
+		await settle();
+		detail.open();
+		await pending;
+
+		expect(statuses(await cached(client, live))).toEqual([
+			"t1 Successful",
+			"t2 Pending",
+		]);
+		unmount();
+	});
+
+	it("dates the copies a write changed when another's id throws", async () => {
+		let breaking = false;
+		const Flaky = Entity.make(Transaction, {
+			id: (t) => {
+				if (breaking && t.status === "Broken") {
+					throw new Error("no id");
+				}
+				return t.id;
+			},
+		});
+		const client = await makeClient({ entities: { sync: [Flaky] } });
+		const server = backend();
+		await client.fetch(server.list(10));
+		server.set("t1", "Successful");
+		const detail = slowDetail(server, "t1");
+		const pending = client.fetch(detail.query);
+		await detail.started;
+
+		breaking = true;
+		await client.runPromise(
+			Query.update(server.list(10), (list) => [
+				{ id: "t1", status: "Cancelled" },
+				...list.slice(1),
+				{ id: "t3", status: "Broken" },
+			]),
+		);
+		breaking = false;
+		detail.open();
+		await pending;
+
+		// The write is newer than the detail's fetch, which was in flight.
+		expect(statuses(await cached(client, server.list(10)))).toEqual([
+			"t1 Cancelled",
+			"t2 Pending",
+			"t3 Broken",
+		]);
+	});
+
+	it("keeps the fetched value when a listener leaves a copy whose id throws", async () => {
+		const Throwing = Entity.make(Transaction, {
+			id: (t) => {
+				if (t.status === "Broken") {
+					throw new Error("no id");
+				}
+				return t.id;
+			},
+		});
+		const client = await makeClient({
+			layer: Layer.merge(
+				servicesLayer("hello"),
+				Logger.layer([Logger.make(() => {})]),
+			),
+			entities: { sync: [Throwing] },
+		});
+		const server = backend();
+		await client.fetch(server.list(10));
+		await client.fetch(server.list(20));
+		// Each list's first write breaks the other, before its own write.
+		for (const [limit, other] of [
+			[10, 20],
+			[20, 10],
+		] as const) {
+			client.registry.subscribe(server.list(limit), () => {
+				setValue(client.registry, server.list(other), [
+					{ id: "t1", status: "Broken" },
+				]);
+			});
+		}
+
+		server.set("t1", "Successful");
+		expect(await client.fetch(server.detail("t1"))).toEqual({
+			id: "t1",
+			status: "Successful",
+		});
+	});
+
+	it("dates a refetch whose page holds a large array", async () => {
+		const client = await syncing();
+		const server = backend();
+		const pages = InfiniteQuery.make({
+			key: ["transactions", "large"],
+			run: (cursor: number) =>
+				Effect.sync(() => ({
+					items: [server.records.get(cursor === 0 ? "t1" : "t2")!],
+					next: cursor === 0 ? 1 : null,
+					scores: Array.from({ length: 200_000 }, () => 0),
+				})),
+			initialPageParam: 0,
+			nextPageParam: (last: { readonly next: number | null }) => last.next,
+			schema: { page: Page },
+		});
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+		await client.runPromise(InfiniteQuery.fetchNextPage(pages));
+		await client.fetch(server.detail("t2"));
+
+		server.set("t2", "Successful");
+		await client.fetch(pages);
+
+		expect(await cached(client, server.detail("t2"))).toEqual({
+			id: "t2",
+			status: "Successful",
+		});
+	});
+
+	it("writes every query when a listener of one throws", async () => {
+		const client = await makeClient({
+			layer: Layer.merge(
+				servicesLayer("hello"),
+				Logger.layer([Logger.make(() => {})]),
+			),
+			entities: { sync: [Transactions] },
+		});
+		const server = backend();
+		await client.fetch(server.list(10));
+		await client.fetch(server.list(20));
+		for (const limit of [10, 20]) {
+			client.registry.subscribe(server.list(limit), () => {
+				throw new Error("listener");
+			});
+		}
+
+		server.set("t1", "Successful");
+		await client.fetch(server.detail("t1"));
+
+		for (const limit of [10, 20]) {
+			expect(statuses(await cached(client, server.list(limit)))).toEqual([
+				"t1 Successful",
+				"t2 Pending",
+			]);
+		}
 	});
 });

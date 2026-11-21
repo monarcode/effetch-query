@@ -666,11 +666,12 @@ export const makeQuery = <A, E>(definition: {
 						const run = fetchRun(get);
 						const { state } = run;
 						const streamed = takeStreamed(state, hydration);
-						// When what the fetch shows was read, for entity sync: a value
-						// the server sent is older than any fetch here.
-						const dating = {
-							start: streamed === undefined ? tick(state) : oldest,
-						};
+						// What each attempt read, and when it started, for entity sync:
+						// a refetch of an infinite query reads its pages one by one.
+						const reads: Array<{
+							readonly result: unknown;
+							readonly start: number;
+						}> = [];
 						const context: FetchContext<A, E> = {
 							get,
 							previous: () => {
@@ -689,15 +690,16 @@ export const makeQuery = <A, E>(definition: {
 							// Each attempt gets its own scope, closed in its fiber, and the
 							// client tracks the fiber: `dispose()` waits for both.
 							attempt: (runAttempt) => {
-								let first = true;
 								const once = Effect.suspend(() => {
-									// A retry reads later than the fetch started.
-									if (!first || dating.start === oldest) {
-										dating.start = tick(state);
-									}
-									first = false;
-									return Effect.scoped(
-										runAttempt(runContext(get, generation)),
+									const start = tick(state);
+									return Effect.map(
+										Effect.scoped(
+											runAttempt(runContext(get, generation)),
+										),
+										(result) => {
+											reads.push({ result, start });
+											return result;
+										},
 									);
 								});
 								return retry === undefined
@@ -726,7 +728,7 @@ export const makeQuery = <A, E>(definition: {
 									? withLive
 									: Effect.flatMap(withLive, (value) =>
 											syncFetched(run.registry, query, value, {
-												start: dating.start,
+												reads,
 												generation,
 											}),
 										),
