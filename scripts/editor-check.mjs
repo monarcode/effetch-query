@@ -9,7 +9,7 @@ const source = `import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import { /*Entity*/Entity, /*Query*/Query, /*QueryClient*/QueryClient } from "@monarcode/effetch-query";
+import { /*Entity*/Entity, /*InfiniteQuery*/InfiniteQuery, /*Mutation*/Mutation, /*Query*/Query, /*QueryClient*/QueryClient, /*Signals*/Signals } from "@monarcode/effetch-query";
 import { /*endpoints*/endpoints, /*fromClient*/fromClient } from "@monarcode/effetch-query/effetch";
 import { /*useIsFetching*/useIsFetching, /*useMutationState*/useMutationState, /*useQueries*/useQueries, /*useQuery*/useQuery, /*useQueryState*/useQueryState } from "@monarcode/effetch-query/react";
 import { /*reactNativeSignals*/reactNativeSignals } from "@monarcode/effetch-query/react-native";
@@ -29,7 +29,7 @@ export const update = Entity./*entityUpdate*/update;
 export const rename = (id: number) => update(Todos, id, (todo) => ({ ...todo, title: "renamed" }));
 export const stream = Query./*queryStream*/stream;
 export const /*price*/price = stream({ key: ["price"], run: Stream.fromIterable([1, 2]) });
-export { connectQueryClient, endpoints, fromClient, reactNativeSignals, useIsFetching, useMutationState, useQueries };
+export { InfiniteQuery, Mutation, Signals, connectQueryClient, endpoints, fromClient, reactNativeSignals, useIsFetching, useMutationState, useQueries };
 `;
 
 const config = ts.getParsedCommandLineOfConfigFile(
@@ -86,20 +86,39 @@ const dist = path.join(
 	"dist",
 );
 
-// TypeScript doesn't show the JSDoc of `export * as Query` in hovers, so a
-// namespace is only checked for where go-to-definition lands.
-for (const [marker, file] of [
-	["Entity", "Entity.d.ts"],
-	["Query", "Query.d.ts"],
-	["QueryClient", "QueryClient.d.ts"],
+// The entry's .d.ts declares each namespace (scripts/build.mjs), so its
+// hover shows the namespace's docs, and Go to Definition lands on that
+// declaration. [marker, the start of its docs]
+for (const [marker, docs] of [
+	["Entity", "Entities: one record held by many queries"],
+	["InfiniteQuery", "Infinite queries: pages loaded one at a time"],
+	["Mutation", "Mutations: changes to server state"],
+	["Query", "Queries: keyed, cached server state"],
+	["QueryClient", "The query cache: create one per app"],
+	["Signals", "Focus and reconnect signals"],
 ]) {
 	const definitions = service.getDefinitionAtPosition(probe, at(marker)) ?? [];
 	const targets = definitions.map((definition) =>
 		path.relative(dist, definition.fileName),
 	);
 	expect(
-		targets.includes(file),
-		`Go to definition on ${marker} lands on ${targets.join(", ") || "nothing"}, not dist/${file}`,
+		targets.includes("index.d.ts"),
+		`Go to definition on ${marker} lands on ${targets.join(", ") || "nothing"}, not dist/index.d.ts`,
+	);
+	const info = service.getQuickInfoAtPosition(probe, at(marker));
+	const display = ts.displayPartsToString(info?.displayParts);
+	const documentation = ts.displayPartsToString(info?.documentation);
+	expect(
+		display.startsWith(`(alias) namespace ${marker}\n`),
+		`Hover on ${marker} shows ${JSON.stringify(display)}, not the namespace`,
+	);
+	expect(
+		documentation.startsWith(docs),
+		`Hover on ${marker} doesn't show its docs: ${JSON.stringify(documentation.slice(0, 80))}`,
+	);
+	expect(
+		(info?.tags ?? []).some((tag) => tag.name === "since"),
+		`Hover on ${marker} lacks @since`,
 	);
 }
 
@@ -109,25 +128,25 @@ for (const [marker, file, signature, docs] of [
 	[
 		"Key",
 		"Query.d.ts",
-		"type Key = readonly unknown[]",
+		"(alias) type Query.Key = readonly unknown[]",
 		"Identifies a query in the cache",
 	],
 	[
 		"make",
 		"QueryClient.d.ts",
-		"const make: (options?: QueryClient.CommonOptions | QueryClient.Options | undefined) => QueryClient.QueryClient",
+		"(alias) const QueryClient.make: (options?: QueryClient.CommonOptions | QueryClient.Options | undefined) => QueryClient.QueryClient",
 		"Nothing is built until",
 	],
 	[
 		"entityUpdate",
 		"Entity.d.ts",
-		"const update: <A, Id>(entity: Entity.Entity<A, Id>, id: NoInfer<Id>, f: (value: A) => A)",
+		"(alias) const Entity.update: <A, Id>(entity: Entity.Entity<A, Id>, id: NoInfer<Id>, f: (value: A) => A)",
 		"Writes a value computed from the entity",
 	],
 	[
 		"queryStream",
 		"Query.d.ts",
-		"const stream: <A, E>(options: Query.MakeStreamOptions<A, E>) => Query.Query<A, E>",
+		"(alias) const Query.stream: <A, E>(options: Query.MakeStreamOptions<A, E>) => Query.Query<A, E>",
 		"Defines a query whose value is the latest element",
 	],
 	[

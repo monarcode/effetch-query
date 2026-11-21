@@ -16,6 +16,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   `EndpointQueryOptionsFor`. `api.query`'s declaration uses them in place
   of inline conditional types, so Go to Definition and its hover read
   more simply. The types they resolve to, at each call, are unchanged.
+- `api.query`, `api.infiniteQuery` and `api.mutation` have examples in
+  their hovers.
 
 ### Fixed
 
@@ -26,6 +28,14 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ### Changed
 
+- Hovers on the core namespaces (`Entity`, `InfiniteQuery`, `Mutation`,
+  `Query`, `QueryClient` and `Signals`) show their docs. Before, a hover
+  showed only the module's path, such as
+  `(alias) module ".../dist/Query"`. A member's hover now reads
+  `(alias) const Query.make: …`, with its docs as before. Go to Definition
+  on a namespace lands on `index.d.ts`; on a member, it still lands on the
+  member's own declaration. Completions after `Query.` list each member as
+  an alias, as Effetch's `Fetch.` does.
 - Developed and tested against `effect` 4.1.5 (and `@effect/atom-react`
   4.1.5). The peer ranges are unchanged.
 

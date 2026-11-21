@@ -777,6 +777,38 @@ export interface Endpoints<
 	 * has them: read from a `Fetch.Service` class, or given for a
 	 * `Context.Service` key ({@link EndpointsOptions.statusErrors}). A query
 	 * that failed with a plugin's error isn't sent.
+	 *
+	 * @example
+	 * ```ts
+	 * import { Fetch } from "@monarcode/effetch";
+	 * import * as Schema from "effect/Schema";
+	 *
+	 * import { Query } from "@monarcode/effetch-query";
+	 * import { fromClient } from "@monarcode/effetch-query/effetch";
+	 *
+	 * class Api extends Fetch.Service<Api>()("Api", {
+	 *   baseUrl: "https://api.example.com",
+	 * }) {}
+	 *
+	 * declare module "@monarcode/effetch-query" {
+	 *   interface Register {
+	 *     readonly services: Api;
+	 *   }
+	 * }
+	 *
+	 * const api = fromClient(Api);
+	 * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+	 *
+	 * // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
+	 * export const todo = api.query(
+	 *   Fetch.endpoint("GET /todos/:id", { output: Todo }),
+	 *   { staleTime: "1 minute" },
+	 * );
+	 *
+	 * export const loadTodo = Query.fetch(todo({ params: { id: 1 } }));
+	 * ```
+	 *
+	 * @since 0.1.0
 	 */
 	readonly query: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -812,6 +844,45 @@ export interface Endpoints<
 	 * names one of its optional fields ({@link EndpointPageField}). Only
 	 * endpoints without a body. Its queries cross from server to browser as
 	 * {@link Endpoints.query}'s do, the page params as JSON.
+	 *
+	 * @example
+	 * ```ts
+	 * import { Fetch } from "@monarcode/effetch";
+	 * import * as Schema from "effect/Schema";
+	 *
+	 * import { InfiniteQuery } from "@monarcode/effetch-query";
+	 * import { fromClient } from "@monarcode/effetch-query/effetch";
+	 *
+	 * class Api extends Fetch.Service<Api>()("Api", {
+	 *   baseUrl: "https://api.example.com",
+	 * }) {}
+	 *
+	 * declare module "@monarcode/effetch-query" {
+	 *   interface Register {
+	 *     readonly services: Api;
+	 *   }
+	 * }
+	 *
+	 * const api = fromClient(Api);
+	 * const ActivityPage = Schema.Struct({
+	 *   items: Schema.Array(Schema.String),
+	 *   nextCursor: Schema.NullOr(Schema.String),
+	 * });
+	 *
+	 * // activity({}) loads GET /activity, then GET /activity?cursor=…
+	 * export const activity = api.infiniteQuery(
+	 *   Fetch.endpoint("GET /activity", { output: ActivityPage }),
+	 *   {
+	 *     pageParam: "cursor",
+	 *     initialPageParam: null as string | null,
+	 *     nextPageParam: (lastPage) => lastPage.nextCursor,
+	 *   },
+	 * );
+	 *
+	 * export const loadMore = InfiniteQuery.fetchNextPage(activity({}));
+	 * ```
+	 *
+	 * @since 0.1.0
 	 */
 	readonly infiniteQuery: <
 		const R extends `${HttpMethod.HttpMethod.NoBody} ${string}`,
@@ -850,6 +921,41 @@ export interface Endpoints<
 	 * whose `input` is a `Fetch.multipart` schema sends `body` as
 	 * `multipart/form-data`, typed by the schema: an upload, with
 	 * `Fetch.UploadFile` for each file.
+	 *
+	 * @example
+	 * ```ts
+	 * import { Fetch } from "@monarcode/effetch";
+	 * import * as Schema from "effect/Schema";
+	 *
+	 * import { Mutation } from "@monarcode/effetch-query";
+	 * import { fromClient } from "@monarcode/effetch-query/effetch";
+	 *
+	 * class Api extends Fetch.Service<Api>()("Api", {
+	 *   baseUrl: "https://api.example.com",
+	 * }) {}
+	 *
+	 * declare module "@monarcode/effetch-query" {
+	 *   interface Register {
+	 *     readonly services: Api;
+	 *   }
+	 * }
+	 *
+	 * const api = fromClient(Api);
+	 * const Todo = Schema.Struct({ id: Schema.Finite, title: Schema.String });
+	 *
+	 * // run with { body: { title } }; on success, invalidates every todos query
+	 * export const addTodo = api.mutation(
+	 *   Fetch.endpoint("POST /todos", {
+	 *     input: Schema.Struct({ title: Schema.String }),
+	 *     output: Todo,
+	 *   }),
+	 *   { invalidates: [["todos"]] },
+	 * );
+	 *
+	 * export const addMilk = Mutation.run(addTodo, { body: { title: "Milk" } });
+	 * ```
+	 *
+	 * @since 0.1.0
 	 */
 	readonly mutation: <
 		const R extends string,
