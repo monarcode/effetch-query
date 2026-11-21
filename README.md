@@ -1074,21 +1074,22 @@ query fresh for 30 seconds this way.
 
 `api.query`, `Query.make` and `Query.family` take the following options:
 
-| Option               | Default   | What it does                                                                                            |
-| -------------------- | --------- | ------------------------------------------------------------------------------------------------------- |
-| `staleTime`          | `0`       | How long a value counts as fresh (a `Duration.Input`, such as `"1 minute"`).                            |
-| `gcTime`             | 5 minutes | How long a query not in use keeps its value.                                                            |
-| `retry`              | none      | A `Schedule` to retry failed fetches with.                                                              |
-| `refetchOnMount`     | `true`    | Refetch a stale query when a component starts using it.                                                 |
-| `retryOnMount`       | `true`    | Refetch a failed query when a component starts using it.                                                |
-| `refetchOnFocus`     | `true`    | Refetch stale queries in use when the app comes back into focus.                                        |
-| `refetchOnReconnect` | `true`    | Refetch stale queries in use when the device comes back online.                                         |
-| `refetchInterval`    | none      | Refetch on this interval while the query is in use.                                                     |
-| `reactivityKeys`     | none      | Also refetch when these `Reactivity` keys are invalidated (`effect/reactivity`).                        |
-| `placeholder`        | none      | A value to show until the query has one ([Placeholders](#placeholders)).                                |
-| `live`               | none      | Server pushes that keep the value up to date ([Pushes on a fetched query](#pushes-on-a-fetched-query)). |
-| `schema`             | none      | `Query.make` and `Query.family` only: how the value crosses to the browser.                             |
-| `headers`, `plugins` | none      | `api.query` only: what Effetch's `client.bind` takes, for every call.                                   |
+| Option               | Default   | What it does                                                                                                      |
+| -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `staleTime`          | `0`       | How long a value counts as fresh (a `Duration.Input`, such as `"1 minute"`).                                      |
+| `gcTime`             | 5 minutes | How long a query not in use keeps its value.                                                                      |
+| `retry`              | none      | A `Schedule` to retry failed fetches with.                                                                        |
+| `refetchOnMount`     | `true`    | Refetch a stale query when a component starts using it.                                                           |
+| `retryOnMount`       | `true`    | Refetch a failed query when a component starts using it.                                                          |
+| `refetchOnFocus`     | `true`    | Refetch stale queries in use when the app comes back into focus.                                                  |
+| `refetchOnReconnect` | `true`    | Refetch stale queries in use when the device comes back online.                                                   |
+| `refetchInterval`    | none      | Refetch on this interval while the query is in use.                                                               |
+| `reactivityKeys`     | none      | Also refetch when these `Reactivity` keys are invalidated (`effect/reactivity`).                                  |
+| `entities`           | in sync   | `{ sync: false }` leaves the query out of the client's entity sync ([Keep copies in sync](#keep-copies-in-sync)). |
+| `placeholder`        | none      | A value to show until the query has one ([Placeholders](#placeholders)).                                          |
+| `live`               | none      | Server pushes that keep the value up to date ([Pushes on a fetched query](#pushes-on-a-fetched-query)).           |
+| `schema`             | none      | `Query.make` and `Query.family` only: how the value crosses to the browser.                                       |
+| `headers`, `plugins` | none      | `api.query` only: what Effetch's `client.bind` takes, for every call.                                             |
 
 `schema` is what [Server rendering](#server-rendering) sends the value
 with; an endpoint's `output` is its schema already
@@ -2284,6 +2285,182 @@ on `Query.make`, `Query.family` and infinite queries. So:
 - It isn't found inside `Option`, `Map` or other such types.
 - A value sent from the server is reached once a query reads it.
 
+#### Responses in other shapes
+
+Endpoints often return one record in different shapes: a search row with
+its own field names, a detail wrapped in `data`. Decode each one to the
+entity's schema with `Schema.decodeTo`. An entity is found on the decoded
+side of a schema, so it's found in every query whose schema decodes to
+it, whatever the wire shape:
+
+```ts
+import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+// What GET /search/todos sends for each todo. Only the fields that are
+// read are declared: a response's other fields are ignored.
+const SearchRow = Schema.Struct({
+  todo_id: Schema.Finite,
+  label: Schema.String,
+  completed: Schema.Boolean,
+});
+
+// A search row as a Todo, so the Todos entity finds it.
+export const TodoFromSearchRow = SearchRow.pipe(
+  Schema.decodeTo(
+    Todo,
+    SchemaTransformation.transform({
+      decode: (row) => ({
+        id: row.todo_id,
+        title: row.label,
+        done: row.completed,
+      }),
+      // The mirror of decode, for server rendering.
+      encode: (todo) => ({
+        todo_id: todo.id,
+        label: todo.title,
+        completed: todo.done,
+      }),
+    }),
+  ),
+);
+
+export const searchResults = api.query(
+  Fetch.endpoint("GET /search/todos", {
+    output: Schema.Array(TodoFromSearchRow),
+  }),
+);
+```
+
+`Entity.update(Todos, …)` now writes the search results too, and
+`Entity.get` reads them. Three things make it work:
+
+- **Decode to the entity's own schema.** Import the one `Todo` the entity
+  was made with. Another schema with the same fields isn't the entity.
+- **Decode IDs to one type.** IDs are compared with `Equal.equals`, so a
+  todo whose ID is `"1"` in one response and `1` in another is two todos.
+- **Write `encode` too, if you render on the server.** A query's value is
+  sent to the browser in its wire shape, so its schema must encode the
+  todo back ([Schemas that transform](#schemas-that-transform)). In an app
+  that only runs in the browser, `encode` is never called.
+
+#### Keep copies in sync
+
+A write reaches every copy, but a fetch only updates its own query: a
+todo's detail refetches and shows it done, while the lists still show it
+open until they refetch. Give the client the entities to keep in sync,
+and each fetch writes its copies over the older ones everywhere:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+import { Todos } from "./entities.js";
+
+export const syncedClient = QueryClient.make({
+  layer: ApiClientLive,
+  entities: { sync: [Todos] },
+});
+```
+
+Now when any query's fetch succeeds, each todo in its value is written
+over the older copies with the same ID, in every other cached query whose
+schema holds `Todo`. No other query fetches, and each one written keeps
+its own age, so a stale list still refetches when it's next used.
+
+**An example.** Say an app has a list of the five most recent todos on
+its home screen, a detail screen that opens when a todo is tapped, and a
+page that lists every todo with an infinite query:
+
+1. The home screen fetches the five todos. Nothing else is cached yet.
+2. A tap opens the detail screen. Its placeholder, `Entity.get`, shows the
+   list's copy at once ([Placeholders](#placeholders)). The detail's fetch
+   lands with the todo now done, and the sync writes it over the home
+   list's copy. Back on the home screen, the todo shows as done.
+3. The "all todos" page loads its first page. Its todos are newer than
+   the copies cached so far, so the sync writes them over the detail and
+   the home list. Loading the next page sends only that page's todos; the
+   pages already loaded aren't counted as new.
+
+**The newer copy wins.** A copy is as new as the fetch it came from, by
+when that fetch started:
+
+- A slow response that lands after a newer one doesn't overwrite it, and
+  the query that fetched it shows the newer copy instead. A retry counts
+  from when it started.
+- A write, such as `Entity.set` with a mutation's result, `Query.set` or
+  a `live` push, counts as newer than every fetch already in flight, so
+  none of them overwrites it. A sync doesn't copy a written todo to other
+  queries, though: an entity write already reached every query that held
+  it, and an optimistic one may be rolled back. So after `Entity.set`, a
+  detail fetch that was already in flight shows what it fetched.
+- A value sent from the server ([Server rendering](#server-rendering)) is
+  older than any fetch in the browser.
+- If a mutation's `optimistic` changed a copy that a newer fetch then
+  synced over, and the mutation fails, the rollback puts the synced copy
+  back.
+
+**What syncs, and what doesn't:**
+
+- Only a fetch syncs. Writes, `live` pushes and
+  [stream queries](#a-query-from-a-stream) don't, so a sync never starts
+  another sync.
+- A query that's invalidated and not in use, that shows a failure, that
+  has no value or no schema, or that opted out, is neither read nor
+  written: it's left to its next fetch.
+- A query that doesn't hold a todo doesn't gain it. A sync never adds a
+  row to a list, so invalidate the lists a new todo should join, as with
+  `Entity.set`.
+- A copy equal to the newer one (`Equal.equals`) isn't written, so its
+  readers don't render again.
+- A fetch doesn't write the queries it read through `ctx.result`, so it
+  doesn't start itself again. A query that reads a written query through
+  `ctx.result` refetches, as after any write
+  ([Queries that read other queries](#queries-that-read-other-queries)).
+- An `id` that throws, or a listener that throws as a query is written,
+  is logged with `Effect.logError`. The fetch keeps its value.
+
+**Copies are replaced whole, not merged.** A sync writes the newer todo
+over the older one; it doesn't combine their fields. If some endpoint's
+todos are partial, such as a list whose `decode` fills the fields it
+doesn't send with defaults, a fetch of that list writes its partial todos
+over the full ones in the cached details. Make every decoded `Todo`
+complete, or opt the partial queries out:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+// Served from a search index that lags behind the database.
+export const searchTodos = api.query(
+  Fetch.endpoint("GET /todos/search", { output: Schema.Array(Todo) }),
+  { entities: { sync: false } },
+);
+```
+
+A query that opts out is left out both ways: its fetches write no other
+query, and no other query's fetch writes it. `Entity` writes still reach
+it.
+
+**`Entity.get` placeholders still help.** A sync runs after a fetch, and a
+placeholder fills a detail screen before its first fetch, from the copy
+already cached. Use both.
+
+**Cost.** Each fetch of a query that holds a synced entity reads every
+cached query that holds it, once per synced entity: about one `id` call
+and one lookup per cached copy. For a few lists of tens of rows, that's
+nothing. For an entity held in many large lists, or a query that polls
+often, opt out the queries that don't need it.
+
 ### Run modes
 
 When a component starts a run while its previous run is in progress,
@@ -3284,7 +3461,9 @@ then [Frameworks](#frameworks).
 needs a schema to encode its value on the server and decode it in the
 browser. An Effetch endpoint's `output` is its schema, so endpoint
 queries need nothing more; an endpoint without an `output` isn't sent. A
-query of your own needs a `schema` ([Without Effetch](#without-effetch)).
+query of your own needs a `schema` ([Without Effetch](#without-effetch)). A
+schema that transforms must encode as well as decode
+([Schemas that transform](#schemas-that-transform)).
 
 **Failures stay on the server.** By default a failed query is left out,
 so server errors never reach the page, and the browser fetches it again.
@@ -3376,7 +3555,8 @@ Here's what each part does:
   browser.
 
 **What `dehydrate` sends.** Each query with a schema, encoded with it. A
-value its schema can't encode is left out, and so is a
+value its schema can't encode is left out, with no error
+([Schemas that transform](#schemas-that-transform)), and so is a
 [placeholder](#placeholders), which is never cached. On the
 server, `Query.prefetch` runs a [stream query](#a-query-from-a-stream) to
 its first element, which `dehydrate` sends when the query has a
@@ -3414,6 +3594,81 @@ argument:
 | `queries`  | A target: only the queries it matches are sent, as `Query.invalidate` matches them. `queries: ["todos"]` sends those under `["todos"]`. Default: every query.      |
 | `pending`  | A query still loading: `"promise"` sends a promise of its result ([Streaming](#streaming)); `"omit"` leaves it out, and the browser fetches it. Default: `"omit"`. |
 | `failures` | A failed query: `"include"` sends it with its error; `"omit"` leaves it out. Default: `"omit"`.                                                                    |
+
+#### Schemas that transform
+
+A value crosses to the browser in its wire shape. `dehydrate` encodes it
+with the query's schema, from the decoded value back to what the server
+sent, and the browser decodes it with the same schema. For a plain
+`Schema.Struct` that's nothing to think about. For a schema that
+transforms, such as a `Schema.decodeTo` that maps a response to your own
+type ([Responses in other shapes](#responses-in-other-shapes)), it means
+the transformation must encode as well as decode.
+
+A transformation that can't encode, such as one whose `encode` is
+`SchemaGetter.forbidden`, makes `dehydrate` leave the query out, with no
+error. The page still renders on the server, but the browser has no value
+for that query:
+
+- the browser fetches it again, a second request for data the server
+  already had;
+- `useSuspenseQuery` waits for that fetch while React hydrates;
+- a plain `useQuery` starts out pending in the browser, though the server
+  rendered the data, which can show a loading state or a hydration
+  mismatch.
+
+So write `encode` as the mirror of `decode`. It doesn't have to rebuild
+the whole response: only a wire value that `decode` turns back into the
+same value. Declare only the fields you read in the wire schema, since a
+response's other fields are ignored when decoding, and `encode` then has
+only those to write:
+
+```ts
+import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+
+// The API sends amounts in minor units, under its own names.
+const PaymentWire = Schema.Struct({
+  ref: Schema.String,
+  amount_minor: Schema.Finite,
+});
+
+export const Payment = Schema.Struct({
+  id: Schema.String,
+  amount: Schema.Finite,
+});
+
+export const PaymentFromWire = PaymentWire.pipe(
+  Schema.decodeTo(
+    Payment,
+    SchemaTransformation.transform({
+      decode: (wire) => ({ id: wire.ref, amount: wire.amount_minor / 100 }),
+      encode: (payment) => ({
+        ref: payment.id,
+        amount_minor: Math.round(payment.amount * 100),
+      }),
+    }),
+  ),
+);
+```
+
+The same goes for an entity's copies that a write or a sync put into a
+query: they're sent encoded with that query's own schema.
+
+To check that a query is sent, dehydrate it on its own while you build
+the page:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { todos } from "./todos.js";
+
+declare const client: QueryClient.QueryClient;
+
+// 0 when no todos query is sent: none is cached, or its schema can't
+// encode it, or there's no schema.
+export const sent = QueryClient.dehydrate(client, { queries: todos }).length;
+```
 
 ### Load it in the browser
 
@@ -4010,6 +4265,7 @@ layer's scope closes.
 | `signals`   | Where the client hears that the app regained focus or the device came back online.                                         | `Signals.browser`                                                                |
 | `queries`   | `defaults` for every query, and the `onSuccess`, `onFailure` and `onSettled` hooks.                                        | No defaults, no hooks                                                            |
 | `mutations` | `defaults` (`retry`, `concurrent`) for every mutation, and the `onMutate`, `onSuccess`, `onFailure` and `onSettled` hooks. | No defaults, no hooks                                                            |
+| `entities`  | `sync`: the entities whose cached copies a fetch keeps in sync ([Keep copies in sync](#keep-copies-in-sync)).              | None                                                                             |
 
 If `layer` fails to build, everything that needs it dies with that
 failure.
@@ -4017,7 +4273,7 @@ failure.
 In types, `QueryClient.Options` is one of two shapes. `LayerOptions` gives
 the client a `layer` (and optionally a `memoMap`), which it builds itself.
 `RuntimeOptions` gives it a `runtime` instead. Both extend
-`CommonOptions`: `signals`, `queries` and `mutations`.
+`CommonOptions`: `signals`, `queries`, `mutations` and `entities`.
 
 `QueryClient.OptionalOptions` is the parameter list of `make` and
 `layer`. An app that declares no services in `Register` can leave out
@@ -4315,6 +4571,7 @@ maps TanStack Query's APIs to effetch-query's:
 | `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                    |
 | `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                     |
 | A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                   |
+| `setQueryData` on other queries in a query's `onSuccess`            | `entities: { sync: [Todos] }` on the client ([Keep copies in sync](#keep-copies-in-sync))      |
 | `experimental_streamedQuery`                                        | `Query.stream`, `Query.streamFamily`; `api.query` of an SSE or NDJSON endpoint                 |
 | `setQueryData` from a WebSocket's messages                          | `live` on `api.query`, `Query.make` / `Query.family`                                           |
 | `cancelQueries`, devtools                                           | Not in 0.1                                                                                     |
@@ -4341,6 +4598,7 @@ It exports the following:
 | `Query.family`, `Query.FamilyOptions`, `Query.Family` | Defines a family: one query per argument, each cached on its own.                                           | [3. Define your queries](#3-define-your-queries)                    |
 | `Query.Query`                                         | A cached query: an atom whose value is the query's `AsyncResult`, with a key.                               | [Queries](#queries)                                                 |
 | `Query.Options`                                       | The options every query takes besides `key` and `run`.                                                      | [Query options](#query-options)                                     |
+| `Query.EntitiesOptions`                               | A query's `entities` option: whether the client's entity sync reads and writes it.                          | [Keep copies in sync](#keep-copies-in-sync)                         |
 | `Query.Key`                                           | Identifies a query in the cache.                                                                            | [Keys](#keys)                                                       |
 | `Query.RunContext`                                    | What a query's `run` receives, for reading other queries.                                                   | [Queries that read other queries](#queries-that-read-other-queries) |
 | `Query.Schema`                                        | How a query's value, and optionally its error, is sent from the server to the browser.                      | [Send the cache](#send-the-cache)                                   |
@@ -4413,6 +4671,7 @@ browser and holds the types for your services. It exports the following:
 | `QueryClient.QueriesOptions`, `QueryClient.QueryDefaults`                                                                   | The `queries` group of options, and the defaults it sets for every query.                         | [The client](#the-client)                         |
 | `QueryClient.QuerySucceeded`, `QueryClient.QueryFailed`, `QueryClient.QuerySettled`                                         | What the `queries` hooks receive.                                                                 | [The client](#the-client)                         |
 | `QueryClient.MutationsOptions`, `QueryClient.MutationDefaults`                                                              | The `mutations` group of options, and the defaults it sets for every mutation.                    | [The client](#the-client)                         |
+| `QueryClient.EntitiesOptions`                                                                                               | The `entities` group of options: the entities a fetch keeps in sync across the cache.             | [Keep copies in sync](#keep-copies-in-sync)       |
 | `QueryClient.MutationStarted`, `QueryClient.MutationSucceeded`, `QueryClient.MutationFailed`, `QueryClient.MutationSettled` | What the `mutations` hooks receive.                                                               | [The client](#the-client)                         |
 | `QueryClient.Hook`                                                                                                          | An app-wide hook: it receives an event and runs with your services and the client.                | [The client](#the-client)                         |
 | `QueryClient.Register`, `QueryClient.Services`, `QueryClient.Requirements`                                                  | Declares your services, and reads them back for typing Effects.                                   | [The client](#the-client)                         |

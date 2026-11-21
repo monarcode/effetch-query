@@ -18,6 +18,21 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   more simply. The types they resolve to, at each call, are unchanged.
 - `api.query`, `api.infiniteQuery` and `api.mutation` have examples in
   their hovers.
+- Entity sync: `QueryClient.make({ entities: { sync: [Todos] } })` keeps
+  the cached copies of those entities in sync. When a query's fetch
+  succeeds, each copy in its value goes over the older copies with the
+  same id in every other query that holds the entity, so a details
+  refetch updates the list rows, and a list fetch updates the cached
+  details, with no other fetch. The newer copy wins, by when its fetch
+  started. A write counts as newer than fetches in flight, but only
+  fetched copies are synced to other queries. A query opts out with
+  `entities: { sync: false }` (`Query.EntitiesOptions`). See "Keep copies
+  in sync" in the README.
+- The README explains decoding an endpoint's own response shape to an
+  entity's schema ("Responses in other shapes"), and what server
+  rendering needs from a schema that transforms ("Schemas that
+  transform"): a query whose schema can't encode its value is left out
+  of `dehydrate` with no error, and the browser fetches it again.
 
 ### Fixed
 

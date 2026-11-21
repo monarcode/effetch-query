@@ -5,6 +5,7 @@ import type * as Atom from "effect/reactivity/Atom";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
 import type * as Query from "../Query.js";
+import { oldest, stampQuery } from "./ages.js";
 import type { QuerySettings } from "./defaults.js";
 import { emit } from "./events.js";
 import { isFresh } from "./freshness.js";
@@ -90,7 +91,21 @@ export const setValue = <A, E>(
 	value: A,
 ): Undo => {
 	const mark = pushMark(registry, query);
-	return guardUndo(registry, query, mark, writeValue(registry, query, value));
+	const { stampWritten } = registry.get(ConfigAtom);
+	const before = Option.flatMap(peek(registry, query), AsyncResult.value);
+	const undo = writeValue(registry, query, value);
+	const restoreAges = stampWritten?.(registry, query, before, value);
+	return guardUndo(
+		registry,
+		query,
+		mark,
+		restoreAges === undefined
+			? undo
+			: () => {
+					undo();
+					restoreAges();
+				},
+	);
 };
 
 /**
@@ -202,6 +217,10 @@ export const hydrateValue = <A, E>(
 	seed(registry, fetchAtom(target), result);
 	registry.set(local, { generation: target, written: Option.none() });
 	registry.get(cache);
+	// The server's copies are older than any fetch here.
+	if (registry.get(ConfigAtom).entities.length > 0) {
+		stampQuery(registry.get(StateAtom), query, oldest);
+	}
 };
 
 /** Writes a value computed from the cached one, as `setValue` does, if there is one. */

@@ -12,20 +12,57 @@ import * as Reactivity from "effect/reactivity/Reactivity";
 import type { Query } from "../Query.js";
 import type * as QueryClient from "../QueryClient.js";
 import type { Signals } from "../Signals.js";
+import type { Ages } from "./ages.js";
+import type { EntityDefinition } from "./entity.js";
 import { type Activity, type CacheEvent, makeActivity } from "./events.js";
 import type { PushLog } from "./live.js";
+
+/**
+ * Entity sync after a fetch (DESIGN.md §4.15): writes the fetched copies
+ * over older ones in other queries, and gives back the value with any newer
+ * copy those hold. `start` dates the fetch (`ClientState.clock`), and
+ * `generation` is the fetch atom's. `QueryClient.make` passes it in, so the
+ * query atom doesn't import the entity code.
+ */
+export type SyncFetched = <A>(
+	registry: AtomRegistry.AtomRegistry,
+	query: Query<A, any>,
+	value: A,
+	fetch: { readonly start: number; readonly generation: number },
+) => Effect.Effect<A>;
+
+/**
+ * Dates as new the synced entities' copies a write put in a query, those
+ * not in `before`, for entity sync (DESIGN.md §4.15). Returns how to put
+ * their ages back, for the write's undo.
+ */
+export type StampWritten = (
+	registry: AtomRegistry.AtomRegistry,
+	query: Query<any, any>,
+	before: Option.Option<unknown>,
+	after: unknown,
+) => () => void;
 
 /** What `QueryClient.make` stores for queries and mutations to read at run time. */
 export interface Config {
 	readonly signals: Signals | undefined;
 	readonly queries: QueryClient.QueriesOptions;
 	readonly mutations: QueryClient.MutationsOptions;
+	/** The entities kept in sync, from `entities.sync`. */
+	readonly entities: ReadonlyArray<EntityDefinition<any, any>>;
+	/** Set when `entities` isn't empty. */
+	readonly syncFetched: SyncFetched | undefined;
+	/** Set when `entities` isn't empty. */
+	readonly stampWritten: StampWritten | undefined;
 }
 
 const defaultConfig: Config = {
 	signals: undefined,
 	queries: {},
 	mutations: {},
+	entities: [],
+	syncFetched: undefined,
+	stampWritten: undefined,
 };
 
 /** A client's own mutable state. It lives in the client's registry. */
@@ -86,6 +123,10 @@ export interface ClientState {
 	readonly placeholders: WeakSet<AsyncResult.AsyncResult<any, any>>;
 	/** Each live query's pushes, while a fetch or an undo may need them (see `live.ts`). */
 	readonly pushes: WeakMap<Query<any, any>, PushLog>;
+	/** How new each query's copies of synced entities are (see `ages.ts`). */
+	readonly ages: WeakMap<Query<any, any>, Ages>;
+	/** Orders fetch attempts and writes, for those ages. */
+	clock: number;
 }
 
 export const makeClientState = (): ClientState => ({
@@ -105,6 +146,8 @@ export const makeClientState = (): ClientState => ({
 	runCount: 0,
 	placeholders: new WeakSet(),
 	pushes: new WeakMap(),
+	ages: new WeakMap(),
+	clock: 0,
 });
 
 /** Adds a fiber to the ones `dispose()` interrupts, until it ends. */
@@ -169,6 +212,9 @@ export const initialValues = (input: {
 	readonly memoMap: Layer.MemoMap;
 	readonly state: ClientState;
 	readonly options: QueryClient.CommonOptions;
+	readonly entities: ReadonlyArray<EntityDefinition<any, any>>;
+	readonly syncFetched: SyncFetched;
+	readonly stampWritten: StampWritten;
 }): ReadonlyArray<readonly [Atom.Atom<unknown>, unknown]> => [
 	initialValue(ContextAtom, input.context),
 	initialValue(MemoMapAtom, input.memoMap),
@@ -176,6 +222,10 @@ export const initialValues = (input: {
 		signals: input.options.signals,
 		queries: input.options.queries ?? {},
 		mutations: input.options.mutations ?? {},
+		entities: input.entities,
+		syncFetched: input.entities.length === 0 ? undefined : input.syncFetched,
+		stampWritten:
+			input.entities.length === 0 ? undefined : input.stampWritten,
 	}),
 	initialValue(StateAtom, input.state),
 ];

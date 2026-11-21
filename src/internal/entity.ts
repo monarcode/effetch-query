@@ -7,10 +7,11 @@ import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
 
 import type * as Query from "../Query.js";
+import { now, stampCopies } from "./ages.js";
 import { lastSuccess, patchValue, undoAll } from "./cache.js";
 import type { Undo } from "./optimistic.js";
 import { internals, peek } from "./queryAtom.js";
-import { StateAtom } from "./runtime.js";
+import { ConfigAtom, StateAtom } from "./runtime.js";
 
 /**
  * Where an entity sits in a query's value (DESIGN.md §4.13), found once per
@@ -502,7 +503,7 @@ export interface EntityDefinition<A, Id> {
 	readonly plans: WeakMap<SchemaAST.AST, Plan | null>;
 }
 
-const planIn = (
+export const planIn = (
 	entity: EntityDefinition<any, any>,
 	query: Query.Query<any, any>,
 ): Plan | undefined => {
@@ -522,7 +523,7 @@ const planIn = (
  * Each cached query that holds the entity, with its last success, when that
  * was fetched or written, and whether the query shows a failure over it.
  */
-const holding = (
+export const holding = (
 	registry: AtomRegistry.AtomRegistry,
 	entity: EntityDefinition<any, any>,
 ): ReadonlyArray<{
@@ -577,10 +578,33 @@ export const writeEntity = <A, Id>(
 				: [{ query, next, timestamp }];
 		},
 	);
+	const syncing = registry.get(ConfigAtom).entities.length > 0;
+	const state = registry.get(StateAtom);
 	return undoAll(
 		writes.flatMap(({ query, next, timestamp }) => {
 			const undo = patchValue(registry, query, next, timestamp);
-			return undo === undefined ? [] : [undo];
+			if (undo === undefined) {
+				return [];
+			}
+			if (!syncing) {
+				return [undo];
+			}
+			// So a fetch already in flight doesn't sync an older copy over it.
+			const restoreAges = stampCopies(
+				state,
+				query,
+				[[entity, id]],
+				now(state),
+			);
+			return [
+				Object.assign(
+					() => {
+						undo();
+						restoreAges();
+					},
+					{ release: undo.release },
+				),
+			];
 		}),
 	);
 };

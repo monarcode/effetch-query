@@ -332,6 +332,47 @@ export interface Options<E> extends QueryClient.QueryDefaults<E> {
 	 * none.
 	 */
 	readonly reactivityKeys?: Reactivity.KeysInput | undefined;
+	/**
+	 * How this query takes part in the client's entity sync
+	 * ({@link QueryClient.EntitiesOptions.sync}). Default: it does, if it
+	 * has a `schema`.
+	 */
+	readonly entities?: EntitiesOptions | undefined;
+}
+
+/**
+ * A query's `entities` option ({@link Options}): whether the client's entity
+ * sync ({@link QueryClient.EntitiesOptions.sync}) reads this query's copies
+ * and writes over them.
+ *
+ * @example
+ * ```ts
+ * import * as Effect from "effect/Effect";
+ * import * as Schema from "effect/Schema";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ *
+ * const Summary = Schema.Struct({ id: Schema.String, status: Schema.String });
+ *
+ * // A partial view: its copies neither update nor overwrite the full ones.
+ * export const summaries = Query.make({
+ *   key: ["transactions", "summaries"],
+ *   run: Effect.succeed([{ id: "t1", status: "Pending" }]),
+ *   schema: { success: Schema.Array(Summary) },
+ *   entities: { sync: false },
+ * });
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface EntitiesOptions {
+	/**
+	 * If false, entity sync leaves this query out both ways: a fetch of it
+	 * updates no other query, and no other query's fetch updates it. For a
+	 * deliberately partial view whose copies shouldn't overwrite fuller
+	 * ones. `Entity` writes reach it as before. Default: `true`.
+	 */
+	readonly sync?: boolean | undefined;
 }
 
 /**
