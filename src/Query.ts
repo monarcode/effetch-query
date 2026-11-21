@@ -15,7 +15,10 @@ import { type GroupTypeId, makeGroup } from "./internal/keyIndex.js";
 import * as optimistic from "./internal/optimistic.js";
 import * as internal from "./internal/queryAtom.js";
 import * as targets from "./internal/targets.js";
+import { KeyHoldsTargetError } from "./KeyHoldsTargetError.js";
 import * as QueryClient from "./QueryClient.js";
+
+export { KeyHoldsTargetError };
 
 /**
  * Identifies a query in the cache. Keys are hierarchical arrays: each segment
@@ -174,7 +177,7 @@ export interface Family<Args, A, E> {
  * these (every query one of them matches).
  *
  * An array of queries is a key, not a group, and as a key it would match
- * nothing: `[wallet, transactions]` fails with a `KeyHoldsTargetError`
+ * nothing: `[wallet, transactions]` fails with a {@link KeyHoldsTargetError}
  * defect instead. Combine targets with {@link group}.
  *
  * @example

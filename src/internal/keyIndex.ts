@@ -1,8 +1,8 @@
-import * as Data from "effect/Data";
 import * as Equal from "effect/Equal";
 import * as Predicate from "effect/Predicate";
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
 
+import { KeyHoldsTargetError } from "../KeyHoldsTargetError.js";
 import type {
 	Group,
 	Query,
@@ -36,17 +36,6 @@ export const makeGroup = (targets: ReadonlyArray<QueryTarget>): Group => {
 	}
 	return { [GroupTypeId]: GroupTypeId, targets: Array.from(flat) };
 };
-
-/**
- * Thrown when a key holds a query, a family or a group: targets passed as an
- * array, which as a key would match nothing.
- */
-export class KeyHoldsTargetError extends Data.TaggedError(
-	"KeyHoldsTargetError",
-)<{
-	readonly key: QueryKey;
-	readonly message: string;
-}> {}
 
 const isTargetValue = (segment: unknown): boolean =>
 	isQuery(segment) ||

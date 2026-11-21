@@ -11,7 +11,7 @@ import { Fetch } from "@monarcode/effetch";
 import { FetchTest } from "@monarcode/effetch/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fromClient } from "../src/effetch/index.js";
+import { EndpointQueryError, fromClient } from "../src/effetch/index.js";
 import { InfiniteQuery, Mutation, Query, QueryClient } from "../src/index.js";
 import { disposeClients, gate, makeClient, record } from "./helpers.js";
 import {
@@ -395,8 +395,12 @@ describe("query schemas: the review's regressions", () => {
 		expect(() => dated({ query: { due: new Date("x") } })).toThrow(
 			expect.objectContaining({
 				_tag: "EndpointQueryError",
+				route: "GET /todos/dated",
 				message: expect.stringContaining("GET /todos/dated"),
 			}),
+		);
+		expect(() => dated({ query: { due: new Date("x") } })).toThrow(
+			EndpointQueryError,
 		);
 	});
 

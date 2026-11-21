@@ -2,6 +2,33 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## Unreleased
+
+### Added
+
+- `Query.KeyHoldsTargetError` and, from `@monarcode/effetch-query/effetch`,
+  `EndpointQueryError` are exported, so you can check for them with
+  `instanceof` and name their types. They were thrown before, but only
+  their `_tag` could be matched. Their tags and messages are unchanged,
+  and their fields (`key`; `route` and `cause`) are documented.
+- Named types for what `api.query` takes and gives:
+  `EndpointQueryValue`, `EndpointQueryCallError` and
+  `EndpointQueryOptionsFor`. `api.query`'s declaration uses them in place
+  of inline conditional types, so Go to Definition and its hover read
+  more simply. The types they resolve to, at each call, are unchanged.
+
+### Fixed
+
+- `useRefetch` with a key that holds a query, a family or a group, such as
+  `useRefetch([todos, profile])`, now throws `Query.KeyHoldsTargetError` as
+  it renders, as the README said it fails. Before, its `refetch` did
+  nothing and the error was lost. Pass a `Query.group` instead.
+
+### Changed
+
+- Developed and tested against `effect` 4.1.5 (and `@effect/atom-react`
+  4.1.5). The peer ranges are unchanged.
+
 ## 0.1.0-rc.4
 
 Released alongside `@monarcode/effetch` 0.1.0-rc.4, which it needs: upgrade

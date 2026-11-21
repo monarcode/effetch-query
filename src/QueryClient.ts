@@ -213,7 +213,7 @@ export interface QueryClient {
 	 * those in use refetch at once, the rest the next time they're used.
 	 * Without a target, every query. Resolves at once, without waiting for
 	 * the refetches, and does nothing on a disposed client. Rejects with a
-	 * `KeyHoldsTargetError` for a key that holds queries ({@link Query.Target}).
+	 * {@link Query.KeyHoldsTargetError} for a key that holds queries ({@link Query.Target}).
 	 *
 	 * @see {@link QueryClient.refetch} to wait for them
 	 */
@@ -223,7 +223,7 @@ export interface QueryClient {
 	 * does, and resolves when they've all settled. Without a target, every
 	 * query in use. A query that fails doesn't reject it: each shows its own
 	 * failure. It rejects only with a defect, such as a
-	 * `KeyHoldsTargetError` for a key that holds queries
+	 * {@link Query.KeyHoldsTargetError} for a key that holds queries
 	 * ({@link Query.Target}). On a disposed client, it resolves at once.
 	 */
 	readonly refetch: (target?: Query.Target | undefined) => Promise<void>;

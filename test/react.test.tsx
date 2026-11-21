@@ -872,6 +872,19 @@ describe("useRefetch", () => {
 		expect(refetches.size).toBe(1);
 	});
 
+	it("throws a KeyHoldsTargetError as it renders for a key that holds queries", async () => {
+		const client = await makeClient();
+		const wallet = tracked(["wallet"], (fetch) => Effect.succeed(fetch));
+		const Home = () => {
+			useRefetch([wallet.query]);
+			return null;
+		};
+
+		expect(() => render(withClient(client, <Home />))).toThrow(
+			Query.KeyHoldsTargetError,
+		);
+	});
+
 	it("resolves at once, and isn't refetching, once its client is disposed", async () => {
 		const client = await makeClient();
 		let controls: ReturnType<typeof useRefetch> | undefined;

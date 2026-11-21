@@ -741,7 +741,8 @@ Pass the targets one by one, not as an array. An array of queries is a
 key, not a group, and as a key it would match nothing, so
 `Query.GroupTargets` makes `Query.group([todos, todo])` a type error. Where
 a target is expected, though, `[todos, todo]` compiles, since it's a
-valid key, and fails at run time with a `KeyHoldsTargetError` defect.
+valid key, and fails at run time with a `Query.KeyHoldsTargetError`
+defect.
 Combine targets with `Query.group`.
 
 #### Keys from a query schema
@@ -774,7 +775,7 @@ searchTodos({ query: { due: new Date("2026-11-16"), page: 2 } });
 // keyed ["todos", "search", { due: "2026-11-16T00:00:00.000Z", page: "2" }]
 ```
 
-A call throws an `EndpointQueryError` (its `_tag`) when its query doesn't
+A call throws an `EndpointQueryError` when its query doesn't
 match the schema, when a field encodes to an object or when a field is
 `Redacted`: the key would hold the secret and send it to the browser, so
 send secrets in a header. The schema's encoding can't need services,
@@ -1694,8 +1695,9 @@ export function HomeRefresh() {
 ```
 
 Pass the group, not an array: `useRefetch([todos, profile])` compiles,
-because an array is a key, but a key that holds queries refetches nothing
-and fails with a `KeyHoldsTargetError` defect.
+because an array is a key, but a key that holds queries would refetch
+nothing, so `useRefetch` throws a `Query.KeyHoldsTargetError` as it
+renders.
 
 ### Atoms
 
@@ -2011,7 +2013,7 @@ variables that returns them. A failed run invalidates nothing.
 Each entry of the list is one target. An entry that's an array holding a
 query, a family or a group is a key, and matches nothing:
 `invalidates: [[todos, todo]]` is a mistake. In a list, the run dies with
-a `KeyHoldsTargetError` before it starts. From the function, the change is
+a `Query.KeyHoldsTargetError` before it starts. From the function, the change is
 already saved, so the target is logged and skipped. Write
 `invalidates: [todos, todo]` instead, or `Query.group(todos, todo)` where
 one target is needed ([Targets](#targets)).
@@ -2496,7 +2498,8 @@ export const onRefresh = () => queryClient.refetch(todos);
 ```
 
 Without a target, `invalidate`, `refetch`, `reset` and `clear` act on every
-query. They reject only with a defect, such as a `KeyHoldsTargetError` for
+query. They reject only with a defect, such as a
+`Query.KeyHoldsTargetError` for
 a key that holds queries. On a disposed client, they do nothing. `fetch`
 and `prefetch` take `{ signal }` to stop waiting when it aborts.
 
@@ -4355,6 +4358,7 @@ It exports the following:
 | `Query.clear`                                         | Drops the matching queries' values without fetching.                                                        | [From Effect](#from-effect)                                         |
 | `Query.Target`                                        | What `invalidate`, `refetch`, `reset` and `clear` act on: a query, a family, a key or a group.              | [Targets](#targets)                                                 |
 | `Query.group`, `Query.Group`, `Query.GroupTargets`    | Combines targets into one group, for acting on unrelated queries together; `GroupTargets` is what it takes. | [Targets](#targets)                                                 |
+| `Query.KeyHoldsTargetError`                           | Thrown when a key holds a query, a family or a group (a defect from Effects): pass a `Query.group`.         | [Targets](#targets)                                                 |
 | `Query.TypeId`, `Query.isQuery`                       | The property that marks a query, and a check for whether a value is one.                                    | [Queries](#queries)                                                 |
 
 **`InfiniteQuery`** defines queries whose value is a list of pages. It
@@ -4478,7 +4482,10 @@ mutations. It exports the following:
 | `Endpoints`                                             | Queries and mutations for one Effetch client, made by `fromClient`.                                                        | [Queries from endpoints](#queries-from-endpoints) |
 | `endpoints`                                             | Deprecated: the former name of `fromClient`, which works the same. It goes in 0.2.0.                                       | [Queries from endpoints](#queries-from-endpoints) |
 | `EndpointQuery`, `EndpointQueryOptions`                 | A family of queries with one per call of an endpoint, and its options.                                                     | [Queries from endpoints](#queries-from-endpoints) |
+| `EndpointQueryValue`, `EndpointQueryCallError`          | A query's value and error from an endpoint: its decoded `output`, or a stream's latest element, and the call's errors.     | [Queries from endpoints](#queries-from-endpoints) |
+| `EndpointQueryOptionsFor`                               | The options `api.query` takes for an endpoint: `EndpointStreamOptions` for a stream endpoint, else `EndpointQueryOptions`. | [Queries from endpoints](#queries-from-endpoints) |
 | `EndpointQueryArgs`                                     | What a query from a route takes: the path's params, and a query object.                                                    | [Queries from endpoints](#queries-from-endpoints) |
+| `EndpointQueryError`                                    | Thrown when a call's `query` can't be part of its key: it doesn't match the schema, or holds an object or a `Redacted`.    | [Keys](#keys)                                     |
 | `RegisteredSchema`                                      | A schema whose decoding and encoding need nothing outside your registered services and the client.                         | [Queries from endpoints](#queries-from-endpoints) |
 | `KeyQuerySchema`                                        | A `query` schema an endpoint query can be keyed by: one whose encoding needs no services.                                  | [Keys](#keys)                                     |
 | `ErrorSchema`                                           | The schema a bound endpoint decodes error bodies with: its own, or the client's `defaultError`.                            | [Errors](#errors)                                 |

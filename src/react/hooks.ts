@@ -16,6 +16,7 @@ import {
 	pageState,
 	pagingAtom,
 } from "../internal/infiniteQuery.js";
+import { matcher } from "../internal/keyIndex.js";
 import { makeHandle } from "../internal/mutationHandle.js";
 import { makeQueriesUse } from "../internal/queriesUse.js";
 import { queryState } from "../internal/queryState.js";
@@ -1297,7 +1298,9 @@ export interface UseRefetchResult {
  * {@link Query.Target}'s queries in use, as {@link Query.refetch} does. For a
  * screen made of queries with different keys, pass a {@link Query.group} of
  * them: it's refetching until every one has settled. Throws a
- * `MissingQueryProviderError` outside a `QueryProvider`.
+ * `MissingQueryProviderError` outside a `QueryProvider`, and a
+ * {@link Query.KeyHoldsTargetError} for a key that holds a query, a family
+ * or a group, such as `[todos, profile]`: pass a {@link Query.group}.
  *
  * @example
  * ```ts
@@ -1312,6 +1315,9 @@ export interface UseRefetchResult {
  * @since 0.1.0
  */
 export const useRefetch = (target: Query.Target): UseRefetchResult => {
+	// Checked as it renders, as `useIsFetching` checks its target: inside
+	// the refetch's own fiber, the defect would be lost.
+	matcher(target);
 	const registry = useRegistry();
 	const handle = useHandle(() => makeRefetchHandle(registry), [registry]);
 	const isRefetching = useAtomValue(handle.refetching);
