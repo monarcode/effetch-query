@@ -31,8 +31,9 @@ throws `Query.KeyHoldsTargetError` instead of doing nothing (see Fixed).
   refetch updates the list rows, and a list fetch updates the cached
   details, with no other fetch. The newer copy wins, by when its fetch
   started (each page's own request, for an infinite query's refetch), and
-  loading the next page sends only that page. A write counts as newer than fetches in flight, but only
-  fetched copies are synced to other queries. A query opts out with
+  loading the next page sends only that page. A write counts as newer
+  than fetches in flight, but only fetched copies are synced to other
+  queries. A query opts out with
   `entities: { sync: false }` (`Query.EntitiesOptions`). See "Keep copies
   in sync" in the README.
 - The README explains decoding an endpoint's own response shape to an
