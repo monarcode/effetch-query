@@ -8,6 +8,8 @@ import { getSlugs } from "fumadocs-core/source";
 import { fumadocsMdx } from "fumadocs-mdx/vite";
 import { defineConfig } from "vite";
 
+import { mdxOptions } from "./src/lib/mdx-options.ts";
+
 // Every docs page, so the prerender doesn't depend on the sidebar linking to
 // each one. Read from this file's folder, wherever the build runs from.
 const docsPages: { path: string }[] = [];
@@ -20,7 +22,8 @@ if (docsPages.length === 0)
 
 export default defineConfig({
 	plugins: [
-		fumadocsMdx(),
+		// The pages' MDX options run here, in the build, never in the browser.
+		fumadocsMdx({ globalOptions: { mdxOptions } }),
 		tailwindcss(),
 		tanstackStart({
 			// Static files only: every page is prerendered to HTML at build time,
@@ -32,6 +35,8 @@ export default defineConfig({
 				enabled: true,
 				crawlLinks: true,
 				autoSubfolderIndex: false,
+				// A link to a heading on another page is that page again.
+				filter: ({ path }) => !path.includes("#"),
 			},
 			// Routes no page links to, so the crawler doesn't find them.
 			pages: [

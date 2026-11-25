@@ -2,3 +2,81 @@
 title: Load the cache in the browser
 description: Load the cache the server sent into the browser's client.
 ---
+
+This page finishes the three steps of [Send the
+cache](/docs/server-rendering): the browser render that picks up what the
+server sent.
+
+The examples import `client.ts` from [Getting started](/docs/getting-started), and `todo-list.tsx` from [Send the cache](/docs/server-rendering).
+
+**3. Render the same tree under a `HydrationBoundary`.** Give it what the
+server sent:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import {
+  HydrationBoundary,
+  QueryProvider,
+} from "@monarcode/effetch-query/react";
+import { hydrateRoot } from "react-dom/client";
+
+import { queryClient } from "./client.js";
+import { TodoList } from "./todo-list.js";
+
+const state = JSON.parse(
+  document.getElementById("query-state")?.textContent ?? "[]",
+) as QueryClient.DehydratedState;
+
+const root = document.getElementById("root");
+if (root !== null) {
+  hydrateRoot(
+    root,
+    <QueryProvider client={queryClient}>
+      <HydrationBoundary state={state}>
+        <TodoList />
+      </HydrationBoundary>
+    </QueryProvider>,
+  );
+}
+```
+
+The first render shows the server's values, so it matches the server's
+HTML, and nothing is fetched until they're stale.
+
+A boundary can sit anywhere, such as one per route, given each page's
+state as you navigate. It loads into the client of the nearest
+`QueryProvider`, and throws a `MissingQueryProviderError` without one.
+How it loads depends on what's cached:
+
+- **A query that isn't cached** loads during render, so the children read
+  it in the same pass.
+- **A query already cached** takes the new value only if it's newer. It
+  loads after commit, so a transition that brings new state doesn't change
+  the page it leaves until React shows the new one.
+- **A query the server was still loading** waits for its result instead
+  of fetching ([Stream the cache](/docs/server-rendering/streaming)).
+- **A value its schema can't decode** is dropped, and the query fetches.
+
+Under a `QueryProvider` whose `resetKey` changes, a boundary loads only
+what the server dehydrated after the change, as
+[Sign out and switch accounts](/docs/cache/accounts) explains.
+
+**Without React.** Call `QueryClient.hydrate(client, state)` before
+reading the queries:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { queryClient } from "./client.js";
+
+const state = JSON.parse(
+  document.getElementById("query-state")?.textContent ?? "[]",
+) as QueryClient.DehydratedState;
+
+QueryClient.hydrate(queryClient, state);
+```
+
+`hydrate` follows the same rules: a cached query takes only newer data,
+and a query the server was still loading waits for its result. A value
+its schema can't decode is dropped, and the query fetches. It also loads
+state from Effect's own `Hydration.dehydrate`, for other atoms.

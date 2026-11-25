@@ -2,3 +2,63 @@
 title: Freshness and refetching
 description: When a value is fresh, when it's refetched, and when it's let go.
 ---
+
+A query's value is **fresh** for its `staleTime` after it's fetched, and
+**stale** after that. A stale value is still shown, and refetched in the
+background when:
+
+The examples import `api.ts` and `client.ts` from [Getting started](/docs/getting-started).
+
+- a component starts using the query (`refetchOnMount`);
+- the app comes back into focus (`refetchOnFocus`) or the device comes
+  back online (`refetchOnReconnect`), for queries in use;
+- it's invalidated, or its `refetchInterval` passes.
+
+While it refetches, the query keeps showing its value, with
+`waiting: true`. A query that failed is fetched again when a component
+starts using it (`retryOnMount`), however recent the failure. A query
+invalidated while nothing uses it refetches the next time something does.
+A query not in use is dropped after its `gcTime`.
+
+`refetchInterval` polls only while the query is in use: polling pauses
+when nothing uses it, and resumes when something starts using it. A tick
+that finds a fetch in progress doesn't start another.
+
+**Focus and online come from the client's `signals`.** The default,
+`Signals.browser`, takes focus from the page becoming visible again and
+online from `navigator.onLine`; without a DOM, they never change. React
+Native gives the client its own ([Focus and online signals](/docs/client/signals),
+[React Native](/docs/react/react-native)).
+
+**Refetch on Effect's `Reactivity` keys.** `effect/reactivity`'s
+`Reactivity` service invalidates queries by keys of its own, and Effect's
+SQL clients publish them. A query's `reactivityKeys` refetches it when
+those keys are invalidated, through the client's `Reactivity`:
+
+```ts
+import * as Reactivity from "effect/reactivity/Reactivity";
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+import { queryClient } from "./client.js";
+
+export const archived = Query.make({
+  key: ["todos", "archived"],
+  run: ApiClient.use((client) =>
+    client.get("/todos/archived", { output: Schema.Array(Todo) }),
+  ),
+  reactivityKeys: ["todos"],
+});
+
+// Run through the client, so it reaches the Reactivity the cache listens to.
+export const onTodosSynced = () =>
+  queryClient.runPromise(Reactivity.invalidate(["todos"]));
+```
+
+**Defaults for every query.** The client's `queries.defaults` sets all
+the options in [Query options](/docs/queries/options) but `gcTime` and
+`reactivityKeys`, and a query's own options win. The client in
+[2. Create the query client](/docs/getting-started#2-create-the-query-client) makes every
+query fresh for 30 seconds this way.

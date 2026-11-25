@@ -2,3 +2,41 @@
 title: Stream the cache
 description: Stream queries to the browser as they finish.
 ---
+
+When you [send the cache](/docs/server-rendering) with
+`pending: "promise"`, a query the server is still loading is sent as
+a promise of its result. The browser waits for it instead of fetching, and
+Suspense shows the query when it lands:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+declare const client: QueryClient.QueryClient;
+
+export const state = QueryClient.dehydrate(client, { pending: "promise" });
+```
+
+A promise doesn't survive `JSON.stringify`: use it where your framework
+streams promises to the browser, as React's, TanStack Start's and React
+Router's serializers do. The frameworks in [Frameworks](/docs/frameworks) all
+work this way.
+
+Keep the client until its promises settle. On a server that answers with
+a streamed `Response`, the request's handler returns before the streamed
+results are sent. `QueryClient.disposeAfter(client, response)` wraps the
+response's body so that the client is disposed once the body has been
+sent: when it ends, fails or the reader cancels it (a client that
+disconnects). It suits React Router's middleware, Hono, `Bun.serve` and
+`Deno.serve`, and [React Router](/docs/frameworks/react-router) shows it in use. A few
+things to know about it:
+
+- **Send the response it returns.** One that's discarded is never read,
+  so the client is never disposed.
+- **Only the status, status text and headers are kept,** not a runtime's
+  own options (Cloudflare's `encodeBody`, say). The body goes out as a
+  stream, so a fixed body loses the length the runtime would have sent.
+- **A response with no body** disposes the client at once. A body already
+  read or locked throws, and the client is disposed all the same.
+- **A failed `dispose()` is logged** with `console.error`, not thrown.
+- **The core uses `ReadableStream` and `Response` only when it's called,**
+  so it still loads where they don't exist, such as React Native.

@@ -2,3 +2,15 @@
 title: Limitations
 description: Known limits of Effetch Query 0.1.
 ---
+
+Effetch Query 0.1 has the following limitations:
+
+- `effect/reactivity` is marked unstable in Effect 4, so Effetch Query
+  follows its changes. It's tested against Effect 4.1 and the newest 4.x.
+- No `cancelQueries` and no devtools in 0.1.
+- `gcTime` is per query, not per client: a query's atom is shared by every
+  client.
+
+Every export is documented in its type declarations (`.d.ts`), with a
+description and an example. Hover over a name in your editor, or use "Go
+to Definition", to read it.

@@ -2,3 +2,100 @@
 title: Define a mutation
 description: Define a mutation from an Effetch endpoint or an Effect.
 ---
+
+A query reads data; a mutation changes it. This page shows how to define
+a mutation. The other pages in Mutations cover running one, keeping the
+cache in step with what it changes, showing a change before the server
+confirms it and showing what's saving anywhere in your app.
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+There are two ways to define a mutation, both from
+[5. Change data](/docs/getting-started#5-change-data).
+
+**From an endpoint.** `api.mutation(endpoint, options)` calls an Effetch
+endpoint, whatever its method. Its variables are the call's options
+(`params`, `query`, `body`, `headers`, `plugins`), typed as
+`EndpointVariables`, or nothing when none are required. Its value and
+errors are those the endpoint's query would have. Its options,
+`EndpointMutationOptions`, are a mutation's options without `run`, since
+the endpoint is the run, plus the `headers` and `plugins` that
+`client.bind` takes.
+
+**From an Effect.** `Mutation.make({ run, ...options })` defines a
+mutation from an Effect you write. Its types come from `run`, so annotate
+`run`'s parameter to type the variables. If you give type arguments
+instead, give all three, since the value and error types you leave out
+are `never`. Its options are a `Mutation.MakeOptions`.
+
+Either way, a definition holds no state, and nothing runs until it's used.
+Each use keeps its own state, so two components that run `toggleTodo`
+never share a waiting or failed state. Define mutations at module level,
+as you do queries: a definition made on each render starts a new state
+each time.
+
+**Upload files.** An endpoint whose `input` is wrapped in Effetch's
+`Fetch.multipart` sends its body as `multipart/form-data`, and its
+mutation's `body` is typed by the schema. `Fetch.UploadFile` is a file
+field: a `File` or `Blob`, or in React Native the `{ uri, name, type }` a
+picker gives:
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import { api } from "./todos.js";
+
+const Document = Schema.Struct({ id: Schema.Finite, name: Schema.String });
+
+export const uploadDocument = api.mutation(
+  Fetch.endpoint("POST /documents", {
+    input: Fetch.multipart(
+      Schema.Struct({ file: Fetch.UploadFile, kind: Schema.String }),
+    ),
+    output: Document,
+  }),
+);
+
+export function UploadPassport() {
+  const { run, result } = useMutation(uploadDocument);
+  return (
+    <input
+      type="file"
+      disabled={result.waiting}
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        // Cleared, so picking the same file again uploads it again.
+        event.target.value = "";
+        if (file !== undefined) {
+          void run({ body: { file, kind: "PASSPORT" } });
+        }
+      }}
+    />
+  );
+}
+```
+
+**What a run does.** A run calls its options in this order:
+
+1. `optimistic`, whose cache writes are recorded;
+2. the client's `mutations.onMutate`;
+3. `run`, retried on `retry`;
+4. on success: `onSuccess`, `invalidates`, then the client's
+   `mutations.onSuccess`;
+5. on failure: the optimistic writes are rolled back, then `onFailure`,
+   then the client's `mutations.onFailure`;
+6. `onSettled`, then the client's `mutations.onSettled`.
+
+The callbacks given to one `run` from a component come after all of these
+([Run a mutation](/docs/mutations/run)). The client's `mutations` hooks run on
+every run of every mutation, as [Defaults and app-wide hooks](/docs/client/defaults) shows.
+
+If one of these callbacks dies, the run dies with its defect and the
+steps after it don't happen, except that a run whose `optimistic` dies
+still has its writes rolled back. An interrupted run calls nothing after
+the interruption. If its `run` hadn't succeeded yet, its optimistic writes
+are rolled back, unless the client is being disposed: then there's no
+cache left to put back.

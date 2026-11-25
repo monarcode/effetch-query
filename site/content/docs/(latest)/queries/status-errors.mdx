@@ -2,3 +2,97 @@
 title: Errors by status
 description: Turn an HTTP status into a typed domain error.
 ---
+
+Effetch's `statusErrors` turns error responses into your own errors: a
+status maps to the schema of the error it means, or to a list tried in
+order, where a literal field picks one. Queries and mutations made from
+such an endpoint fail with those errors, typed, so you handle them by
+their tag:
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import * as Effect from "effect/Effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+  message: Schema.String,
+}) {}
+
+class NotYourTodo extends Schema.TaggedError<NotYourTodo>()("NotYourTodo", {
+  code: Schema.Literal("NOT_OWNER"), // only a 403 with this code
+  message: Schema.String,
+}) {}
+
+const findTodo = api.query(
+  Fetch.endpoint("GET /todos/:id", {
+    output: Todo,
+    statusErrors: { 404: TodoNotFound, 403: [NotYourTodo] },
+  }),
+);
+
+// In a loader: a missing todo is no todo.
+export const loadTodo = (id: number) =>
+  Query.fetch(findTodo({ params: { id } })).pipe(
+    Effect.catchTag("TodoNotFound", () => Effect.succeed(undefined)),
+  );
+
+export function TodoTitle({ id }: { readonly id: number }) {
+  return AsyncResult.builder(useQuery(findTodo({ params: { id } })))
+    .onInitial(() => <p>Loading…</p>)
+    .onErrorTag("TodoNotFound", () => <p>This todo was deleted.</p>)
+    .onErrorTag("NotYourTodo", (error) => <p>{error.message}</p>)
+    .onError(() => <p>Couldn't load it.</p>)
+    .onSuccess((todo) => <h1>{todo.title}</h1>)
+    .orNull();
+}
+```
+
+- **A response no schema decodes** (another 403, a body that isn't JSON)
+  fails with the `HttpError` it would without them, so `HttpError` stays
+  in the error type.
+- **The client's `statusErrors`** (declared with the client, as in
+  `Fetch.Service<ApiClient>()("ApiClient", { statusErrors })`) apply to
+  every endpoint, and are typed from the client's service. `fromClient`
+  reads them from the `Fetch.Service` class, so server rendering sends
+  them too. For a client behind a `Context.Service` key, give them to
+  `fromClient` ([A client that isn't a `Fetch.Service` class](/docs/queries/from-client-options#a-client-that-isnt-a-fetchservice-class)).
+- **Server rendering sends them as themselves** with
+  `failures: "include"`: a `TodoNotFound` on the server is a
+  `TodoNotFound` in the browser, with no refetch.
+- **Their schemas, like `output`'s, can only need your registered
+  services.** `RegisteredStatusErrors` is the type of such a map, to
+  check one you define on its own with `satisfies RegisteredStatusErrors`.
+
+**A detail that may not exist.** To show a missing todo as no todo rather
+than a failure, write the query yourself with `Fetch.optional`, which
+turns a `404` into `Option.none()`:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+import { getTodo } from "./todos.js";
+
+export const maybeTodo = Query.family({
+  key: ["todos", "maybe"],
+  run: (id: number) =>
+    ApiClient.use((client) =>
+      Fetch.optional(client.bind(getTodo)({ params: { id } })),
+    ),
+  // For server rendering: an Option of a todo.
+  schema: { success: Schema.Option(Todo), error: Schema.Never },
+});
+// maybeTodo(1): Query<Option<Todo>, …>
+```

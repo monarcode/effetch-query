@@ -2,3 +2,46 @@
 title: Coming from TanStack Query
 description: How TanStack Query's ideas and names map to Effetch Query.
 ---
+
+If you know TanStack Query, most of what you know carries over: the
+vocabulary is the same, and so are many of the names. The following table
+maps TanStack Query's APIs to Effetch Query's:
+
+| TanStack Query                                                      | Effetch Query                                                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `queryOptions({ queryKey, queryFn })`                               | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                            |
+| `useQuery`, `useSuspenseQuery`                                      | Same names; they return an `AsyncResult`                                                         |
+| `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch`  | `useQueryState`: the same fields, with `status` narrowing `data` and `error`                     |
+| `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                                 |
+| `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`            |
+| `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                       |
+| `useMutation`'s `variables`; mutation `scope`                       | `variables`; `concurrent: "queue"` (per `useMutation`)                                           |
+| `useIsFetching`, `useIsMutating`, `useMutationState`                | Same names; `useMutationState(mutation)` lists one mutation's runs in progress                   |
+| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                    |
+| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                              |
+| `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family, a key prefix or a group   |
+| `invalidateQueries` in a mutation's `onSuccess`                     | `invalidates` on the mutation; `fromClient(Api, { invalidates: "route" })` for every endpoint    |
+| `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                               |
+| `useQueryErrorResetBoundary` with an error boundary and `Suspense`  | `QueryBoundary`; with a router's boundary, `useResetQueryFailure`                                |
+| `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                                 |
+| `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                           |
+| `QueryCache({ onError, onSuccess, onSettled })`                     | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                    |
+| `MutationCache({ onMutate, onError, … })`                           | `mutations.onMutate`, `mutations.onFailure`, …                                                   |
+| `select`                                                            | `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it           |
+| `enabled: false`                                                    | `useQuery(null)`                                                                                 |
+| `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                        |
+| `placeholderData` from the cache                                    | `placeholder` on `api.query`, `Query.make` / `Query.family`                                      |
+| `isPlaceholderData`                                                 | `isPlaceholder` on `useQueryState`                                                               |
+| `useQueries`; `subscribed: false`                                   | `useQueries`; `paused: true` on the reading hooks                                                |
+| `retry: 3`                                                          | `retry: Schedule` (default none)                                                                 |
+| `onMutate` returning a rollback context                             | `optimistic`, undone automatically                                                               |
+| `dehydrate`, `hydrate`, `HydrationBoundary`                         | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema`     |
+| `setupRouterSsrQueryIntegration`                                    | `connectQueryClient` (`./react/tanstack-router`)                                                 |
+| `useInfiniteQuery`, `fetchNextPage`                                 | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                           |
+| `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                      |
+| `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                       |
+| A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                     |
+| `setQueryData` on other queries in a query's `onSuccess`            | `entities: { sync: [Todos] }` on the client ([Keep copies in sync](/docs/mutations/entity-sync)) |
+| `experimental_streamedQuery`                                        | `Query.stream`, `Query.streamFamily`; `api.query` of an SSE or NDJSON endpoint                   |
+| `setQueryData` from a WebSocket's messages                          | `live` on `api.query`, `Query.make` / `Query.family`                                             |
+| `cancelQueries`, devtools                                           | Not in 0.1                                                                                       |

@@ -63,7 +63,7 @@ const options = {
 	plugins: [],
 	paths: {
 		...parsed.options.paths,
-		// The README's Next.js recipe; Next isn't a dependency.
+		// The Next.js page's examples; Next isn't a dependency.
 		"next/server": ["./scripts/docs-types/next-server.d.ts"],
 	},
 };

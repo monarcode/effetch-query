@@ -2,3 +2,59 @@
 title: Testing
 description: Test queries, mutations and components with a fresh client.
 ---
+
+Your tests can run every query against a fake backend, with no network
+and no React. Your queries run against whatever `HttpClient` your client's
+layer gets, so in tests, give it `FetchTest.layer` from
+`@monarcode/effetch/test`: a fake backend made from your endpoints, with
+`params`, `body` and the response typed by each endpoint.
+`QueryClient.layer` gives an Effect program a client, disposed when the
+program ends:
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
+import { FetchTest } from "@monarcode/effetch/test";
+
+import { ApiClient } from "./api.js";
+import { getTodo, listTodos, todo } from "./todos.js";
+
+const Backend = FetchTest.layer([
+  FetchTest.respond(getTodo, ({ params }) =>
+    // params are strings, as they are in the URL
+    Effect.succeed({
+      id: Number(params.id),
+      title: "Write tests",
+      done: false,
+    }),
+  ),
+  FetchTest.fail(listTodos, 503),
+]);
+
+const ApiClientTest = ApiClient.layer.pipe(Layer.provide(Backend));
+
+export const test = Query.fetch(todo({ params: { id: 1 } })).pipe(
+  Effect.provide(QueryClient.layer({ layer: ApiClientTest })),
+);
+```
+
+Notice that the fake is provided under the client's own `layer`, as here.
+A class that overrides `layer` to provide its own `HttpClient` ignores one
+given from outside.
+
+**React tests.** Render under a `QueryProvider` with a fresh client, and
+dispose it after each test.
+
+**Time.** To control `staleTime`, `refetchInterval` and `gcTime`, fake
+only the timers. Leave `setImmediate` real, since Effect's scheduler runs
+on it:
+
+```ts
+import { vi } from "vitest";
+
+vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+```

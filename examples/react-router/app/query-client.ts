@@ -24,7 +24,8 @@ const retryNetworkFailures = Schedule.exponential("250 millis").pipe(
  * A query client that calls dummyjson.com with `token`: one per request on
  * the server, and one for the page in the browser. Nothing here is costly to
  * build; an app with a database pool would share it through a
- * `ManagedRuntime` (the README's "Sharing your runtime").
+ * `ManagedRuntime`: see "Sharing your runtime" at
+ * https://effetch-query.pages.dev/docs/client#layer-or-runtime.
  */
 export const makeQueryClient = (
 	token: Effect.Effect<string | undefined>,

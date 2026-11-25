@@ -2,3 +2,139 @@
 title: Queries from a stream
 description: Make a query from a stream, such as a socket's messages.
 ---
+
+A live query stays current while it's read: a stream's elements are its
+value, or server pushes update a fetched value. This page covers streams;
+[Push updates into a query](/docs/queries/pushes) covers pushes. Both run only while
+something reads the query, and stop about a second after the last reader
+leaves. The value stays cached for `gcTime`, and the stream starts again
+for the next reader.
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+`Query.stream` makes a query whose value is a `Stream`'s latest element,
+such as a price feed, and `Query.streamFamily` makes one per argument.
+Until the first element, the query is `Initial` and waiting:
+`useSuspenseQuery` suspends, and `Query.fetch` waits for it. After that,
+each element shows as a `Success` stamped with the time it came.
+
+The following example shows prices from a WebSocket. First, `socket.ts`
+turns a socket's messages into a stream:
+
+```ts socket.ts
+import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+
+export class SocketClosed extends Data.TaggedError("SocketClosed")<{
+  readonly code: number;
+}> {}
+
+// A WebSocket's messages. The socket opens when the stream starts and
+// closes when it stops; a socket the server closes fails the stream.
+export const socketMessages = (url: string) =>
+  Stream.callback<string, SocketClosed>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const socket = new WebSocket(url);
+        socket.onmessage = (event) =>
+          Queue.offerUnsafe(queue, String(event.data));
+        socket.onclose = (event) =>
+          Queue.failCauseUnsafe(
+            queue,
+            Cause.fail(new SocketClosed({ code: event.code })),
+          );
+        return socket;
+      }),
+      (socket) => Effect.sync(() => socket.close()),
+    ),
+  );
+```
+
+Then `prices.ts` defines a stream query per symbol, from those messages:
+
+```ts prices.ts
+import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { socketMessages } from "./socket.js";
+
+const Price = Schema.Struct({ symbol: Schema.String, price: Schema.Finite });
+const decodePrice = Schema.decodeEffect(Schema.fromJsonString(Price));
+
+export const price = Query.streamFamily({
+  key: ["prices"],
+  run: (symbol: string) =>
+    socketMessages(`wss://api.example.com/prices/${symbol}`).pipe(
+      Stream.mapEffect((message) => decodePrice(message)),
+    ),
+  // Subscribes again after a failure, waiting longer each time.
+  retry: Schedule.exponential("1 second"),
+  schema: { success: Price },
+});
+// price("ACME") is the query keyed ["prices", "ACME"]
+```
+
+Read it as any other query, with `useQuery(price("ACME"))` or
+`useSuspenseQuery`. What differs from a fetched query:
+
+- It has no `staleTime`: nothing refetches it when a component starts
+  using it, on focus, on reconnect or on an interval. `Query.refetch`,
+  `Query.invalidate` and `Query.reset` subscribe again; `Query.clear` stops
+  it until it's read again.
+- A failure is retried with `retry`, which starts over once an element comes
+  through. Defects aren't retried. When `retry` is done, the query shows
+  the failure with the last element as its previous success; the next reader
+  subscribes again (`retryOnMount`).
+- A stream that ends keeps its last element. One that ends with none fails
+  with a `NoSuchElementError` defect.
+- `Query.fetch` and `Query.prefetch` return the first element, or the latest
+  while the stream runs.
+- A server render shows only what's cached. `Query.prefetch` on the server
+  runs the stream to its first element, which
+  [`QueryClient.dehydrate`](/docs/server-rendering) sends with a `schema`; the
+  browser shows it, and subscribes again.
+
+A stream query takes the following options:
+
+| Option           | What it does                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `key`            | The query's key. A family's members append their argument.                                                                                                    |
+| `run`            | The stream. For `Query.stream`, a `Stream`, or a function of the run context for a stream that reads other queries; for a family, a function of the argument. |
+| `retry`          | The schedule to subscribe again on after a failure, as `Stream.retry` takes it. Default: the client's `queries.defaults.retry`, or none.                      |
+| `retryOnMount`   | Whether a failed stream subscribes again when something starts using the query. Default: the client's, or `true`.                                             |
+| `gcTime`         | How long the value stays cached once nothing uses the query. Default: 5 minutes.                                                                              |
+| `reactivityKeys` | `Reactivity` keys that subscribe it again when they're invalidated.                                                                                           |
+| `schema`         | How the latest value crosses to the browser in [server rendering](/docs/server-rendering).                                                                    |
+| `placeholder`    | A value to show until the first element ([Show a placeholder](/docs/queries/placeholders)).                                                                   |
+
+**From an endpoint.** An Effetch endpoint defined with `stream: "sse"` or
+`stream: "ndjson"` makes stream queries through `api.query`, keyed by route:
+
+```ts job-progress.ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { api } from "./todos.js";
+
+const Progress = Schema.Struct({ percent: Schema.Finite });
+
+export const jobProgress = api.query(
+  Fetch.endpoint("GET /jobs/:id/events", { output: Progress, stream: "sse" }),
+);
+// jobProgress({ params: { id: "7" } }) holds the latest Fetch.SseEvent.
+// Read its data with useQuery(query, { select: (event) => event.data }).
+```
+
+The value is the latest element as Effetch gives it: a `Fetch.SseEvent` of
+the `output` for SSE, or the `output` itself for NDJSON. The request runs
+while the query is read. Its options are `retry`, `retryOnMount`,
+`gcTime` and `reactivityKeys` as for any stream query, a `placeholder`
+from the call's `params` and `query`, and the `headers` and `plugins` it
+takes for any endpoint.

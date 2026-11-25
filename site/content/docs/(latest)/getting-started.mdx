@@ -2,3 +2,307 @@
 title: Getting started
 description: "Build a small todo app: an Effetch client, a query client, two queries, a component and a mutation."
 ---
+
+This tutorial walks you through a small todo app: an Effetch client, a
+query client, two queries, a component that shows them, and a mutation
+that changes them. The other pages build on the same files, so each
+example names the file it lives in.
+
+## Before you begin
+
+[Install Effetch Query](/docs/installation) with Effetch, Effect and
+React.
+
+## 1. Describe your API
+
+Start with an Effetch client for your API, declared as a service with
+`Fetch.Service`. If you already use Effetch, you have this file:
+
+```ts api.ts
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+export const Todo = Schema.Struct({
+  id: Schema.Finite,
+  title: Schema.String,
+  done: Schema.Boolean,
+});
+export type Todo = typeof Todo.Type;
+
+// What the API sends back when a request fails.
+export const ApiError = Schema.Struct({ message: Schema.String });
+
+export class ApiClient extends Fetch.Service<ApiClient>()("ApiClient", {
+  baseUrl: "https://api.example.com",
+  defaultError: ApiError,
+}) {}
+
+// Sends requests with the browser's `fetch`.
+export const ApiClientLive = ApiClient.layer.pipe(
+  Layer.provide(FetchHttpClient.layer),
+);
+
+// The services your queries and mutations can use.
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: ApiClient;
+  }
+}
+```
+
+The `declare module` block at the end is the one piece of setup that's
+specific to Effetch Query. It tells the library which services your
+queries run with. Write it once, anywhere in your app. From then on:
+
+- a query that uses a service you haven't registered doesn't compile;
+- the client must be given a layer that provides every registered
+  service.
+
+With several services, use a union: `ApiClient | Analytics`.
+
+## 2. Create the query client
+
+The query client holds the cache. Give it the layer that provides your
+services, and it builds the layer the first time a query needs it:
+
+```ts client.ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+export const queryClient = QueryClient.make({
+  layer: ApiClientLive,
+  queries: {
+    // Data counts as fresh for 30 seconds after it's fetched.
+    defaults: { staleTime: "30 seconds" },
+  },
+});
+```
+
+One client is enough for a browser app. On a server, you make one per
+request, as [Server rendering](/docs/server-rendering) shows. Every option the
+client takes is listed in [The client](/docs/client).
+
+## 3. Define your queries
+
+`fromClient` takes your Effetch client and turns its endpoints into
+queries. Calling the result with an endpoint's params gives you one
+cached query per call:
+
+```ts todos.ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
+
+import { ApiClient, Todo } from "./api.js";
+
+// Queries and mutations that call your API through ApiClient. Its
+// defaultError types their errors.
+export const api = fromClient(ApiClient);
+
+export const listTodos = Fetch.endpoint("GET /todos", {
+  output: Schema.Array(Todo),
+});
+export const getTodo = Fetch.endpoint("GET /todos/:id", { output: Todo });
+
+export const todos = api.query(listTodos);
+// todos({ query: { done: false } }) is the query keyed ["todos", { done: false }]
+
+export const todo = api.query(getTodo, { staleTime: "1 minute" });
+// todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
+```
+
+Define queries at module level, as you do your schemas. A query is only a
+description: nothing is fetched until something reads it, and the data
+lives in the client.
+
+**Without endpoints.** You can also call your Effetch client yourself.
+`Query.make` defines one query, and `Query.family` defines one query per
+argument, each from an Effect you write:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+
+export const todos = Query.family({
+  key: ["todos", "list"],
+  run: (filter: { readonly done: boolean }) =>
+    ApiClient.use((client) =>
+      client.get("/todos", { query: filter, output: Schema.Array(Todo) }),
+    ),
+});
+// todos({ done: false }) is the query keyed ["todos", "list", { done: false }]
+
+export const todo = Query.family({
+  key: ["todos", "detail"],
+  run: (id: number) =>
+    ApiClient.use((client) =>
+      client.get("/todos/:id", { params: { id }, output: Todo }),
+    ),
+  staleTime: "1 minute",
+});
+// todo(1) is the query keyed ["todos", "detail", 1]
+```
+
+These work the same as endpoint queries, with the same typed errors. The
+difference is what you write yourself: the key, which an endpoint takes
+from its route, and a `schema` for [server rendering](/docs/server-rendering),
+which an endpoint takes from its `output`.
+
+## 4. Show a query
+
+`useQuery` reads a query in a component. The first time, it fetches. After
+that, it shows the cached value, and refetches in the background when the
+value is stale:
+
+```tsx open-todos.tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+
+export function OpenTodos() {
+  const result = useQuery(todos({ query: { done: false } }));
+
+  return AsyncResult.match(result, {
+    onInitial: () => <p>Loading…</p>,
+    onFailure: () => <p>Couldn't load your todos.</p>,
+    onSuccess: ({ value }) => (
+      <ul>
+        {value.map((todo) => (
+          <li key={todo.id}>{todo.title}</li>
+        ))}
+      </ul>
+    ),
+  });
+}
+```
+
+`AsyncResult.match` gives you one branch per state: `Initial` while the
+first fetch is in progress, then `Success` or `Failure`.
+
+To give your components the client, wrap your app in `QueryProvider`:
+
+```tsx App.tsx
+import { QueryProvider } from "@monarcode/effetch-query/react";
+
+import { queryClient } from "./client.js";
+import { OpenTodos } from "./open-todos.js";
+
+export function App() {
+  return (
+    <QueryProvider client={queryClient}>
+      <OpenTodos />
+    </QueryProvider>
+  );
+}
+```
+
+Two components that show `todos({ query: { done: false } })` share one
+fetch and one cached value.
+
+## 5. Change data
+
+A mutation changes data on the server. Its `invalidates` option names the
+queries that are out of date once it succeeds, and the ones on screen
+refetch:
+
+```ts toggle-todo.ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+export const toggleTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ done: Schema.Boolean }),
+    output: Todo,
+  }),
+  { invalidates: [todos] },
+);
+```
+
+`useMutation` runs it from a component. For an endpoint mutation, the
+variables you pass to `run` are the endpoint's call options:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import type { Todo } from "./api.js";
+import { toggleTodo } from "./toggle-todo.js";
+
+export function ToggleButton({ todo }: { readonly todo: Todo }) {
+  const { result, run } = useMutation(toggleTodo);
+
+  return (
+    <button
+      disabled={result.waiting}
+      onClick={() =>
+        void run({ params: { id: todo.id }, body: { done: !todo.done } })
+      }
+    >
+      {AsyncResult.isFailure(result)
+        ? "Try again"
+        : todo.done
+          ? "Undo"
+          : "Done"}
+    </button>
+  );
+}
+```
+
+**Without endpoints.** `Mutation.make` defines a mutation from an Effect
+you write. Its variables are whatever its `run` takes, here the todo to
+toggle:
+
+```ts
+import { Mutation } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+
+export const toggleTodo = Mutation.make({
+  run: (todo: Todo) =>
+    ApiClient.use((client) =>
+      client.patch("/todos/:id", {
+        params: { id: todo.id },
+        body: { done: !todo.done },
+        output: Todo,
+      }),
+    ),
+  // A key reaches every query under it, endpoint or not.
+  invalidates: [["todos"]],
+});
+// useMutation(toggleTodo).run(todo)
+```
+
+## Where to go next
+
+That's the whole loop: define a query, show it, change the data, and let
+the cache refetch. The other pages go deeper, in the same order:
+
+- [Queries](/docs/queries): keys, errors, freshness and placeholders.
+- [Showing data in React](/docs/react): every way to read a
+  query in a component, with Suspense, selections and paused screens.
+- [Mutations](/docs/mutations): invalidation, optimistic updates, entities and
+  activity.
+- [Working with the cache](/docs/cache): reading and writing
+  the cache from Effect and from plain code, and signing out.
+- [Infinite queries](/docs/queries/infinite) and
+  [Queries from a stream](/docs/queries/streams), for lists that load in pages and values
+  a server pushes.
+- [React Native](/docs/react/react-native), [Server rendering](/docs/server-rendering)
+  and [Frameworks](/docs/frameworks), for your platform.
+- [The client](/docs/client), [Testing](/docs/testing) and the
+  [API reference](/docs/reference), for everything else.

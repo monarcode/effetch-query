@@ -2,3 +2,144 @@
 title: Queries without Effetch
 description: Define queries and mutations from any Effect, without Effetch.
 ---
+
+Any Effect can be a query, so Effetch Query works without Effetch: with
+Effect's own `HttpClient`, a database or local storage. `Query.make`
+defines one query, `Query.family` one per argument, and `Mutation.make` a
+mutation, each with an Effect you write. Register the services they use,
+as in [1. Describe your API](/docs/getting-started#1-describe-your-api), and give the client a
+layer that provides them.
+
+**With Effect's `HttpClient`.** Register `HttpClient` as your service, and
+call it from `run`:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as Schema from "effect/Schema";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
+
+const Todo = Schema.Struct({
+  id: Schema.Finite,
+  title: Schema.String,
+  done: Schema.Boolean,
+});
+
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: HttpClient.HttpClient;
+  }
+}
+
+export const todo = Query.family({
+  key: ["todos", "detail"],
+  run: (id: number) =>
+    HttpClient.get(`https://api.example.com/todos/${id}`).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(Todo)),
+    ),
+  schema: { success: Todo },
+});
+// todo(1): Query<Todo, HttpClientError | SchemaError>
+
+// Sends requests with the browser's `fetch`.
+export const queryClient = QueryClient.make({ layer: FetchHttpClient.layer });
+```
+
+The query's error is whatever its Effect fails with, here Effect's
+`HttpClientError` and `SchemaError`, typed all the way to the component.
+
+**With a service of your own.** A query can use any service you register,
+such as a store that wraps your API. This file defines queries, a query
+that reads another and a mutation with an optimistic update:
+
+```ts
+import * as Context from "effect/Context";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Mutation, Query } from "@monarcode/effetch-query";
+
+const Todo = Schema.Struct({
+  id: Schema.Finite,
+  title: Schema.String,
+  done: Schema.Boolean,
+});
+type Todo = typeof Todo.Type;
+
+class TodoNotFound extends Data.TaggedError("TodoNotFound")<{
+  readonly id: number;
+}> {}
+
+// Any service: an HttpClient wrapper, a database, local storage…
+class TodoStore extends Context.Service<
+  TodoStore,
+  {
+    readonly list: Effect.Effect<ReadonlyArray<Todo>>;
+    readonly get: (id: number) => Effect.Effect<Todo, TodoNotFound>;
+    readonly setDone: (
+      id: number,
+      done: boolean,
+    ) => Effect.Effect<Todo, TodoNotFound>;
+  }
+>()("TodoStore") {}
+
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: TodoStore;
+  }
+}
+
+export const todos = Query.make({
+  key: ["todos", "list"],
+  run: TodoStore.use((store) => store.list),
+  // Only for server rendering: how the value crosses to the browser.
+  schema: { success: Schema.Array(Todo) },
+});
+
+export const todo = Query.family({
+  key: ["todos", "detail"],
+  run: (id: number) => TodoStore.use((store) => store.get(id)),
+  staleTime: "1 minute",
+});
+// todo(1): Query<Todo, TodoNotFound>, keyed ["todos", "detail", 1]
+
+// A query can read another one, and refetches when it changes.
+export const openCount = Query.make({
+  key: ["todos", "open-count"],
+  run: (ctx) =>
+    Effect.map(
+      ctx.result(todos),
+      (list) => list.filter((item) => !item.done).length,
+    ),
+});
+
+export const setDone = Mutation.make({
+  run: ({ id, done }: { readonly id: number; readonly done: boolean }) =>
+    TodoStore.use((store) => store.setDone(id, done)),
+  optimistic: ({ id, done }) =>
+    Query.update(todo(id), (current) => ({ ...current, done })),
+  invalidates: [todos],
+});
+```
+
+The difference from endpoint queries is what you write yourself:
+
+- **Keys are yours to write.** A family's key is its `key` followed by the
+  argument: `todo(1)` is `["todos", "detail", 1]`. Arguments are compared
+  by value, so `todo(1) === todo(1)`.
+- **`run` can read other queries** through `ctx.result`, as `openCount`
+  does ([Queries that read other queries](/docs/queries/dependent)).
+- **To render on the server**, give the query a `schema`. Effetch's
+  endpoints don't need one, since their `output` is it.
+- **`InfiniteQuery.make` and `InfiniteQuery.family`** take a `run` from the
+  page's param, `(args, pageParam) => Effect` for a family, with the
+  [paging options](/docs/queries/infinite). `Query.stream` and
+  `Query.streamFamily` take a `Stream` ([Queries from a stream](/docs/queries/streams)).
+
+Everything else in these docs, hooks, mutations, the cache and server
+rendering, works the same.

@@ -2,3 +2,111 @@
 title: Invalidate after a mutation
 description: Mark the queries a mutation changes as out of date.
 ---
+
+A mutation invalidates nothing unless you say so. There are three ways to
+say it, from the most precise to the most automatic. A mutation can also
+wait for the refetch it causes.
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+**Per mutation.** `invalidates` lists the targets the mutation changes:
+queries, families, keys or groups. `toggleTodo` in
+[5. Change data](/docs/getting-started#5-change-data) invalidates `[todos]`. To pick targets
+from what the server sent back, give a function of the run's value and
+variables that returns them. A failed run invalidates nothing.
+
+Each entry of the list is one target. An entry that's an array holding a
+query, a family or a group is a key, and matches nothing:
+`invalidates: [[todos, todo]]` is a mistake. In a list, the run dies with
+a `Query.KeyHoldsTargetError` before it starts. From the function, the change is
+already saved, so the target is logged and skipped. Write
+`invalidates: [todos, todo]` instead, or `Query.group(todos, todo)` where
+one target is needed ([Targets](/docs/queries/keys#targets)).
+
+**Wait for the refetch.** `invalidates` doesn't wait: it marks the
+queries stale and the run settles, while the ones in use refetch in the
+background. To settle the run only once they have the new data, call
+`Query.refetch` in `onSuccess` instead. It refetches the matching queries
+in use, and completes when they've all settled:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+// The run settles once every todos list in use has the new todo.
+export const createTodo = api.mutation(
+  Fetch.endpoint("POST /todos", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  { onSuccess: () => Query.refetch(todos) },
+);
+```
+
+That matters when the screen shows something until the server's data
+arrives, as [Optimistic updates](/docs/mutations/optimistic) does. A refetch
+reaches only queries in use. The others aren't marked stale, so the next
+time they're used they refetch only if their `staleTime` has passed.
+
+**By route.** Give `fromClient` `invalidates: "route"`, and an endpoint
+mutation that succeeds invalidates its route's queries: those under the
+route's literals before its first param. `PATCH /todos/:id` invalidates
+`["todos"]`, so every todo list and every todo refetches:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { fromClient } from "@monarcode/effetch-query/effetch";
+
+import { ApiClient, Todo } from "./api.js";
+
+const api = fromClient(ApiClient, { invalidates: "route" });
+
+// Invalidates ["todos"] when it succeeds.
+export const renameTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+);
+
+// A mutation's own invalidates replace the route's, and [] turns them off.
+export const markSeen = api.mutation(Fetch.endpoint("POST /todos/:id/seen"), {
+  invalidates: [],
+});
+```
+
+It invalidates more than a write changes, on purpose:
+`DELETE /todos/:id/comments/:cid` refetches every query under `["todos"]`.
+A needless refetch costs a request; a missed one shows stale data. Two
+kinds of route need care:
+
+- A route with no param invalidates its whole path: `POST /todos/reorder`
+  invalidates `["todos", "reorder"]`, which no list is keyed under. Give it
+  `invalidates: [todos]`.
+- A route that starts with a param, such as `/:tenant/todos`, invalidates
+  every query under the `key` given to `fromClient`, or every query
+  without one.
+
+**Everything.** To refetch everything after any mutation succeeds, say it
+once, on the client:
+
+```ts
+import { Query, QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+export const queryClient = QueryClient.make({
+  layer: ApiClientLive,
+  mutations: { onSuccess: () => Query.invalidate([]) },
+});
+```
+
+`[]` is the empty key, which every key starts with. Queries in use refetch
+at once, and the rest when they're next used.

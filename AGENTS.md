@@ -76,9 +76,9 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   when a hook doesn't run, belongs there too. An example that augments
   `Register` (`declare module`) compiles on its own; the rest share one
   program, where `Register` isn't augmented. `tsx` blocks compile as TSX.
-  In the README, a fence can name its block (` ```ts todos.ts `): other
-  blocks import it as `"./todos.js"`, and those blocks share one program
-  with the named files' `Register`.
+  In the README and the docs site's pages, a fence can name its block
+  (` ```ts todos.ts `): other blocks import it as `"./todos.js"`, and those
+  blocks share one program with the named files' `Register`.
 - `src/internal/` isn't public: document only what's non-obvious.
 - Pass `useEffect` (and `useLayoutEffect`) a named function, not an arrow,
   and name its cleanup too:
@@ -118,8 +118,13 @@ follows Vite's and Fumadocs' conventions, as its files do.
   docs check compiles like the README's, by the same rules. Any other
   TypeScript fence (` ```typescript `, `~~~ts`, ` ```ts title="…" `)
   fails the check, so no example skips it, and so does a page outside
-  `(latest)`. Block names (` ```ts todos.ts `) are shared with the README,
-  so a page can't reuse one yet.
+  `(latest)`. Block names (` ```ts todos.ts `) are one namespace across
+  the README and every page: the examples build one app, whose files
+  (`api.ts`, `todos.ts`, …) are defined once, mostly in Getting started,
+  and imported from any page.
+- The guides live on the site, once. The README is an overview that links
+  to them: when a feature changes, update its page, and the README only if
+  its quick start or links change.
 - Link between pages with root-relative paths (`/docs/installation`).
 - `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
   `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
@@ -164,8 +169,8 @@ The maintainer handles commits, pull requests, CI and npm.
 
 Run `pnpm run check` and make sure it passes. It runs lint, the format check,
 typecheck, the docs check (every public export has a description, `@example`
-and `@since`, and every `ts` and `tsx` example in the JSDoc and the README
-compiles),
+and `@since`, and every `ts` and `tsx` example in the JSDoc, the README and the docs site's
+pages compiles),
 the Effect language service diagnostics, the tests (including type tests),
 the build, publint, attw and the tarball smoke test. After changing `site/`,
 also run `pnpm run build:site`.

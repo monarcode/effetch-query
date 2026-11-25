@@ -2,3 +2,52 @@
 title: Pause screens you can't see
 description: Stop hidden screens from refetching.
 ---
+
+Some screens stay mounted while you can't see them: the tabs you aren't
+on, the screens a stack navigator keeps under the one in front, a panel
+that's hidden rather than removed. Their queries stay in use, so they
+refetch on every invalidation and focus, and their components re-render
+out of sight. Pass `paused` while the screen is hidden. Here a React
+Navigation screen pauses while it's not focused:
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+
+// From @react-navigation/native.
+declare function useIsFocused(): boolean;
+
+export function TodoCount() {
+  const isFocused = useIsFocused();
+  const list = useQuery(todos(), { paused: !isFocused });
+
+  return <>{AsyncResult.getOrElse(list, () => []).length} todos</>;
+}
+```
+
+A paused reader keeps showing what it had and doesn't count as a use of
+the query: an invalidation, focus, reconnect or `refetchInterval`
+doesn't refetch it for this component, nor does the component re-render.
+When the screen comes back, the query refetches if it's stale or failed,
+as on a mount, unless another reader fetched it meanwhile and it's
+still fresh.
+
+- **What it shows isn't `waiting`,** since nothing fetches for it. A
+  placeholder stays a placeholder until it resumes.
+- **A query whose readers are all paused isn't in use,** so it's dropped
+  after `gcTime` like any other, though the paused readers still show
+  what they had. A `clear` replaces what they show with what the cache
+  has.
+- **Paused from its first render,** a reader shows what the cache has,
+  without fetching.
+- **`useQueryState`'s `refetch` resolves at once** for a query only paused
+  readers use, since a paused reader isn't a use.
+
+`useQuery`, `useQueryState`, `useQueries` and `useInfiniteQuery` take
+`paused`. `useInfiniteQuery`'s page functions still fetch pages when
+called ([Load more](/docs/queries/infinite#load-more)).

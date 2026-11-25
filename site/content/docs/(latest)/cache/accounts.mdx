@@ -2,3 +2,114 @@
 title: Sign out and switch accounts
 description: Clear one user's cached data on sign-out or an account switch.
 ---
+
+A cache must not outlive the account that filled it. There are two ways to
+drop it: make a client per account, or keep one client and clear it.
+
+The examples import `api.ts` from [Getting started](/docs/getting-started).
+
+A session can end without your sign-out button. The user signs out in
+another tab, a refresh token is refused, or a 401 signs them out. Another
+account can sign in from another tab, and this tab follows it. Your
+button's click handler runs in none of these, so nothing clears the cache:
+the tab refetches the old account's queries with no session, or shows them
+to the new account.
+
+**Make a client per account.** Give `QueryProvider` a `make` instead of a
+`client`, and the account's ID as `resetKey`. It makes a client for each
+account, and disposes the one before. It follows the account, not the
+click, so it handles every way a session ends or changes:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { QueryProvider } from "@monarcode/effetch-query/react";
+import type { ReactNode } from "react";
+
+import { ApiClientLive } from "./api.js";
+
+// The signed-in account's ID, or "signed-out". It changes on every sign-in,
+// sign-out and switch, in every tab.
+declare function useAccountId(): string;
+
+export function Providers({ children }: { readonly children: ReactNode }) {
+  const accountId = useAccountId();
+  return (
+    <QueryProvider
+      make={() => QueryClient.make({ layer: ApiClientLive })}
+      resetKey={accountId}
+    >
+      {children}
+    </QueryProvider>
+  );
+}
+```
+
+The props are an `OwnedQueryProviderProps`. With them:
+
+- **Nothing of the old account shows.** When `resetKey` changes, the tree
+  renders with the new client from that very render, and fetches afresh.
+  The old client is disposed: its cache goes, and its fetches and mutation
+  runs are interrupted.
+- **`make` runs once per `resetKey`**, not on every render, so an inline
+  arrow is fine. Under StrictMode, too, there's one client.
+- **A `HydrationBoundary` inside doesn't carry state across accounts.**
+  Into a new client, it loads only what the server dehydrated after the
+  change (the server's dehydration time against the browser's clock). What
+  came before belongs to the previous account, so the new client fetches
+  it.
+- **It's for the browser and React Native.** Effects don't run in server
+  rendering, so a client made there is never disposed. On the server, keep
+  `client` with one client per request
+  ([Server rendering](/docs/server-rendering)).
+- **Put it above every `Suspense` boundary.** A first render that React
+  throws away before showing it leaves its client undisposed.
+
+With `client`, a `QueryProviderProps`, the provider never disposes the
+client: it's yours. A provider can switch between the two forms, and the
+client it owned is disposed when a `client` replaces it.
+
+**Or keep one client and clear it.** If only your own sign-out button can
+end the session, clearing is simpler. `client.clear()` drops every value
+without fetching, so the screens still showing as you sign out don't
+refetch with no session (and fail with a 401):
+
+```tsx
+import { useQueryClient } from "@monarcode/effetch-query/react";
+
+declare function endSession(): Promise<void>;
+
+export function SignOut() {
+  const queryClient = useQueryClient();
+  return (
+    <button
+      onClick={async () => {
+        await endSession();
+        await queryClient.clear();
+      }}
+    >
+      Sign out
+    </button>
+  );
+}
+```
+
+From Effect, `Query.clear([])` does the same. After a clear:
+
+- **Queries in use show `Initial`** until something asks for them: a
+  component that starts using one, `client.fetch`, `invalidate` or
+  `refetch`. A component already showing one keeps showing `Initial`, or
+  its Suspense fallback.
+- **What depends on a cleared query goes too.** A query that reads a
+  cleared one through `ctx.result` is cleared as well.
+- **Nothing in progress brings it back.** A `client.fetch` waiting on a
+  cleared query is interrupted, and a mutation run in progress doesn't
+  roll its optimistic writes back over the cleared values.
+
+`client.reset()` drops the values too, but fetches those in use again at
+once.
+
+`invalidate` asks for the queries it matches, so it fetches cleared ones
+again. If every mutation invalidates the whole cache
+(`mutations: { onSuccess: () => Query.invalidate([]) }`), one that settles
+after signing out fetches the queries in use with no session. A client
+per account doesn't: disposing it interrupts its mutation runs.

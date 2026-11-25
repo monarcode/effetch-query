@@ -2,3 +2,149 @@
 title: TanStack Router and Start
 description: Use Effetch Query in TanStack Router and TanStack Start.
 ---
+
+This page shows how to use Effetch Query with TanStack Router and
+TanStack Start. It builds on [Server rendering](/docs/server-rendering),
+and the examples use `todos` and `TodoList` from there. TanStack Router has
+an integration of its own; [Next.js](/docs/frameworks/nextjs) and [React
+Router](/docs/frameworks/react-router) need only the core and `./react`.
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started), and `todo-list.tsx` from [Send the cache](/docs/server-rendering).
+
+`connectQueryClient`, from `@monarcode/effetch-query/react/tanstack-router`,
+connects a client to a TanStack Router, and so to TanStack Start, as
+TanStack's `setupRouterSsrQueryIntegration` does for TanStack Query. It
+sends the cache with the page and loads it in the browser before React
+hydrates, with no `HydrationBoundary`.
+
+**1. Install the router.** Install `@tanstack/react-router`, or
+`@tanstack/react-start` for Start.
+
+**2. Connect the client where the router is made.** That's Start's
+`getRouter`, or your server and browser entries. Make the client with the
+router, and connect it to no other:
+
+```tsx router.tsx
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { QueryClient } from "@monarcode/effetch-query";
+import { connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
+import {
+  createRootRouteWithContext,
+  createRoute,
+  createRouter,
+  Outlet,
+} from "@tanstack/react-router";
+
+import { ApiClientLive } from "./api.js";
+import { TodoList } from "./todo-list.js";
+import { todos } from "./todos.js";
+
+const rootRoute = createRootRouteWithContext<{
+  readonly queryClient: QueryClient.QueryClient;
+}>()({ component: Outlet });
+
+const todosRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  // TanStack's `queryClient.query()` (`ensureQueryData`, deprecated since
+  // 5.102): the cached value while it's fresh.
+  loader: ({ context }) => context.queryClient.fetch(todos()),
+  component: TodoList,
+});
+
+// Builds your services once, for every request's client to share.
+const appRuntime = ManagedRuntime.make(ApiClientLive);
+
+// Start calls `getRouter` once per request on the server, and once in the
+// browser, so each request gets its own client.
+export function getRouter() {
+  const queryClient = QueryClient.make({ runtime: appRuntime });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([todosRoute]),
+    context: { queryClient },
+    // Loaders always run, and the queries' staleTime decides what's fetched.
+    defaultPreloadStaleTime: 0,
+  });
+  connectQueryClient({ router, queryClient });
+  return router;
+}
+```
+
+Load data in loaders with `context.queryClient.fetch(query)`, which
+returns the cached value while it's fresh. `defaultPreloadStaleTime: 0`
+lets the queries' `staleTime` decide what's refetched, rather than the
+router's own loader cache. From there, the integration does the rest:
+
+- **On the server**, what the loaders loaded goes with the page, and
+  queries started while rendering stream in as they start, those still
+  loading as promises the browser waits for. A loader can start a
+  prefetch without awaiting it, `void context.queryClient.prefetch(query)`,
+  so the page renders at once and the value follows. The client is
+  disposed when the request ends, so on the server it must be the
+  request's own.
+- **In the browser**, it all loads into the client before React hydrates:
+  no `HydrationBoundary`, and nothing is fetched while it's fresh.
+- **Preloading** a route on hover runs its loader, and `client.fetch`
+  fetches only what's stale.
+- **Only queries with a schema cross** to the browser, as in
+  [Send the cache](/docs/server-rendering).
+
+**3. Redirect from a query.** A query or mutation that dies with the
+router's `redirect()` navigates there. Make the redirect inside the
+Effect, so each run has its own, and use `Effect.die`, so it stays out of
+the error type:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+import { redirect } from "@tanstack/react-router";
+
+import { ApiClient } from "./api.js";
+
+const User = Schema.Struct({ name: Schema.String });
+
+export const viewer = Query.make({
+  key: ["viewer"],
+  run: ApiClient.use((client) => client.get("/me", { output: User })).pipe(
+    Effect.catchTag("HttpError", (error) =>
+      error.status === 401
+        ? Effect.die(redirect({ to: "/login" }))
+        : Effect.fail(error),
+    ),
+  ),
+  schema: { success: User },
+});
+```
+
+If your client maps a 401 to its own error with `statusErrors`
+([Errors by status](/docs/queries/status-errors)), catch that error's tag, as the
+[`tanstack-start`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start) and
+[`react-router`](https://github.com/monarcode/effetch-query/tree/main/examples/react-router) examples do with `Unauthorized`.
+A 401 whose body doesn't decode stays an `HttpError`, so keep that branch
+if your server can send one.
+
+In a loader, `client.fetch` rejects with the redirect and the router
+follows it, on the server too. Load a query that may redirect with
+`fetch`: a fetch that's only prefetched leaves the redirect to its
+readers, which show it as a failure instead. A preload's redirect is
+dropped, as the router drops it.
+
+To guard every page under a layout, fetch the query in the layout route's
+`beforeLoad`, which runs before any page below it loads. What it returns
+joins those pages' context, so `beforeLoad: async ({ context }) => ({ user:
+await context.queryClient.fetch(viewer) })` hands each loader
+`context.user`, as the [`tanstack-start` example](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start)
+does. The pages' loaders wait for it, so give the query a `staleTime`:
+while it's fresh, `fetch` answers from the cache at once.
+
+**Options.** `connectQueryClient` takes the following options besides
+`router` and `queryClient`:
+
+| Option            | What it does                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dehydrate`       | `queries` to send only some queries, `failures: "include"` to send failures, as `QueryClient.dehydrate`. Queries still loading are always sent, as promises. |
+| `handleRedirects` | Default `true`: in the browser, follow a `redirect()` a query or mutation fails or dies with, unless an Effect awaits the fetch (a loader's `client.fetch`). |
+| `wrapQueryClient` | Default `true`: wrap the router's `Wrap` in a `QueryProvider` for the client. With `false`, render your own.                                                 |

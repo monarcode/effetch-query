@@ -2,3 +2,84 @@
 title: Use the cache from Effect
 description: Read, write and invalidate cached values from Effect code.
 ---
+
+Components aren't the only code that needs the cache: a router loader
+fetches before a screen shows, a mutation writes what it changed and a
+sign-out drops everything. This page shows how to read and write the
+cache from Effect. [Use the cache outside Effect](/docs/cache/outside-effect)
+covers plain code, and [Sign out and switch
+accounts](/docs/cache/accounts) covers dropping it when the account changes.
+
+The examples import `client.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+Everything the cache does is an Effect. Inside queries and mutations the
+client is already there; elsewhere, such as a router loader or an event
+handler, run the Effect with `queryClient.runPromise`, or call the
+client's own method for it ([Use the cache outside Effect](/docs/cache/outside-effect)):
+
+```ts
+import * as Effect from "effect/Effect";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { queryClient } from "./client.js";
+import { todo, todos } from "./todos.js";
+
+const openTodo = (id: number) =>
+  Effect.gen(function* () {
+    // The cached value if it's fresh, otherwise a fetch.
+    const current = yield* Query.fetch(todo({ params: { id } }));
+    // Warm the cache for the next screen. It waits for that fetch, but
+    // never fails.
+    yield* Query.prefetch(todos({ query: { done: current.done } }));
+    return current;
+  });
+
+export const loadTodo = (id: number) => queryClient.runPromise(openTodo(id));
+
+export const refreshEverything = () => queryClient.invalidate(["todos"]);
+```
+
+`Query.fetch` fails as the query does, with its typed error, so
+`loadTodo` rejects when the todo can't load. `Query.prefetch` never fails:
+a failure shows in the query's result instead.
+
+**Targets.** The functions that act on many queries at once take a
+target: a query, a family, a key or a group of them, as
+[Targets](/docs/queries/keys#targets) explains.
+
+The following table lists the cache functions:
+
+| Function                   | What it does                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `Query.fetch(query)`       | The value if fresh, otherwise a fetch. Joins a fetch in progress. Fails as the query does. |
+| `Query.prefetch(query)`    | Fetches if not fresh, and ignores the result. Never fails.                                 |
+| `Query.get(query)`         | The cached value as an `Option`. Never fetches.                                            |
+| `Query.set(query, value)`  | Writes a value, which counts as freshly fetched.                                           |
+| `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                           |
+| `Query.update(family, f)`  | Writes `f(value, args)` to every cached query of a family, such as `todos`.                |
+| `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                |
+| `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                          |
+| `Query.reset(target)`      | Drops the values; queries in use fetch again.                                              |
+| `Query.clear(target)`      | Drops the values without fetching; queries in use show `Initial` until something asks.     |
+| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.       |
+
+A few details matter when you write to the cache:
+
+- **A written value shows until the next fetch settles.** It stays while
+  that fetch is in progress, and if the fetch fails, it stays as the
+  query's last value. A query that isn't cached yet is cached with it,
+  without fetching. The client's `queries` hooks don't run for a write.
+- **`Query.update` on a family writes only what's cached.** It writes the
+  family's own queries that have a value, and creates none. Writes don't
+  take a group, since one value can't fit queries of different types.
+- **`Query.get` keeps the last value.** A query whose last fetch failed
+  still returns the value it had before.
+- **In use means subscribed.** A query is in use while something
+  subscribes to it, or to an atom or query that depends on it: a component
+  that shows it, or a query in use that reads it through `ctx.result`
+  ([Queries that read other queries](/docs/queries/dependent)).
+  A dependent that's only cached doesn't count.
+
+In a mutation's `optimistic`, `Query.set` and `Query.update` writes are
+undone if the run fails ([Optimistic updates](/docs/mutations/optimistic)).

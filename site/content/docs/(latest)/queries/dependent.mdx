@@ -2,3 +2,68 @@
 title: Queries that read other queries
 description: Build a query from the value of another query.
 ---
+
+A query's `run` can read other queries. `Query.make` can take `run` as a
+function of a `Query.RunContext`, and `Query.family` passes one as the
+second argument of its `run`. Its `ctx.result(query)` returns the other
+query's value, and makes this query depend on it:
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+- it waits while the other query has no value yet;
+- it fails as the other query does, with its typed error;
+- when the other query's value changes, this one refetches.
+
+That makes dependent queries, where one request needs what another
+returned. Here the todos load once the session says whose they are:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+import { api } from "./todos.js";
+
+export const session = api.query(
+  Fetch.endpoint("GET /session", {
+    output: Schema.Struct({ userId: Schema.Finite }),
+  }),
+);
+
+export const myTodos = Query.make({
+  key: ["todos", "mine"],
+  run: (ctx) =>
+    Effect.gen(function* () {
+      // Waits for the session, and refetches when it changes.
+      const { userId } = yield* ctx.result(session());
+      return yield* ApiClient.use((client) =>
+        client.get("/todos", {
+          query: { owner: userId },
+          output: Schema.Array(Todo),
+        }),
+      );
+    }),
+});
+```
+
+A few things follow from the dependency:
+
+- **It keeps the other query in use.** While something uses `myTodos`,
+  `session()` counts as in use too, so focus and invalidation refetch it
+  as they would a query on screen. A dependent query that nothing uses
+  doesn't count.
+- **Clearing one clears its readers.** `Query.clear` on `session()`
+  clears `myTodos` too, since its value came from it. When `myTodos` is
+  asked for again, it asks for the session
+  ([Sign out and switch accounts](/docs/cache/accounts)).
+- **It waits for real values.** A placeholder isn't a value: a query
+  reading one through `ctx.result` waits for the fetch
+  ([Show a placeholder](/docs/queries/placeholders)).
+
+Endpoint queries have no `run` to write, so a query that reads one is a
+`Query.make` or `Query.family` of your own, as here. To derive a value in
+one component without a query of its own, use `select`
+([Select part of a value](/docs/react/select)).

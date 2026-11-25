@@ -16,7 +16,7 @@
 		"server-state",
 		"tanstack-query"
 	],
-	"homepage": "https://github.com/monarcode/effetch-query#readme",
+	"homepage": "https://effetch-query.pages.dev/docs",
 	"bugs": {
 		"url": "https://github.com/monarcode/effetch-query/issues"
 	},

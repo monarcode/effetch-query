@@ -2,3 +2,60 @@
 title: React Native
 description: Refetch when a React Native app returns to the foreground or comes back online.
 ---
+
+Queries, mutations and hooks work in React Native as they do on the web.
+The one difference is where the client hears that the app came back into
+focus or back online. React Native has no browser focus or online events,
+so give the client its own with `reactNativeSignals`:
+
+The examples import `api.ts` from [Getting started](/docs/getting-started).
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+import { reactNativeSignals } from "@monarcode/effetch-query/react-native";
+import NetInfo from "@react-native-community/netinfo";
+import { AppState } from "react-native";
+
+import { ApiClientLive } from "./api.js";
+
+export const queryClient = QueryClient.make({
+  layer: ApiClientLive,
+  signals: reactNativeSignals({ AppState, NetInfo }),
+});
+```
+
+Focus is the app coming back to the foreground: `AppState` changing to
+`"active"` from anything else. Online follows NetInfo's `isConnected`,
+where `null` (NetInfo doesn't know yet) counts as online. Without these
+signals, the client uses the browser's, which never change without a DOM,
+so nothing would refetch on focus or reconnect.
+
+A few things to know:
+
+- **You pass React Native in.** The package doesn't depend on
+  `react-native` or NetInfo. `reactNativeSignals` takes anything that fits
+  `AppStateLike` and `NetInfoLike`, so a test can pass stand-ins, such as
+  an app that's always in the foreground.
+- **Listeners start when they're needed.** Each client starts its own
+  listeners when one of its queries first needs them, and stops them once
+  no cached query does or the client is disposed, so one set of signals
+  can serve several clients.
+- **Screens under the one in front stay mounted.** A stack navigator keeps
+  them, so their queries stay in use: they refetch on every invalidation
+  and focus, and re-render out of sight. Pause them while they're hidden,
+  as [Pause screens you can't see](/docs/react/pause) shows with
+  React Navigation's `useIsFocused`.
+- **Infinite lists load from `FlatList`.** Call `fetchNextPage` from its
+  `onEndReached` ([Load more](/docs/queries/infinite#load-more)).
+
+For another platform, build the signals yourself: a `Signals.Signals` is a
+`focus` atom that changes each time the app regains focus, and an `online`
+atom that says whether the device is online. Pass it as the client's
+`signals` option ([Focus and online signals](/docs/client/signals)).
+
+**Families on older Hermes.** On a Hermes older than its 2026 releases,
+`FinalizationRegistry` is missing, so a family keeps a small definition
+(about 2 KB) for every argument it has seen, for the app's lifetime.
+Cached values are still dropped after `gcTime`; this matters only for a
+family with many thousands of arguments in one session, such as one keyed
+by free-text search.

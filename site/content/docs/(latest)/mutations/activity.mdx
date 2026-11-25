@@ -2,3 +2,57 @@
 title: Show activity
 description: Show a global indicator while queries or mutations run.
 ---
+
+A mutation's state belongs to the component that runs it. To show what's
+saving anywhere in the app, read the client's activity instead.
+
+The examples import `toggle-todo.ts` from [Getting started](/docs/getting-started).
+
+**Runs of one mutation.** `useMutationState` lists a mutation's runs in
+progress, oldest first, with their variables, whichever component or
+Effect started them:
+
+```tsx
+import { useMutationState } from "@monarcode/effetch-query/react";
+
+import { toggleTodo } from "./toggle-todo.js";
+
+export function SavingNotice() {
+  const saving = useMutationState(toggleTodo);
+
+  return saving.length === 0 ? null : (
+    <p role="status">
+      Saving {saving.map((run) => `#${run.variables.params.id}`).join(", ")}
+    </p>
+  );
+}
+```
+
+Each entry is a `UseMutationStateRun`, with the `variables` the run was
+started with and its `result`, a waiting `Initial`. A run is listed from
+when it starts until it settles, however it ends. A run `"queue"` holds
+back is listed while it waits.
+
+**Counts.** `useIsFetching` counts the queries fetching on the provider's
+client, and `useIsMutating` the mutation runs in progress. Together they
+drive an app-wide progress bar:
+
+```tsx
+import { useIsFetching, useIsMutating } from "@monarcode/effetch-query/react";
+
+export function ProgressBar() {
+  const busy = useIsFetching() + useIsMutating() > 0;
+
+  return <div role="progressbar" aria-label="Loading" hidden={!busy} />;
+}
+```
+
+Both count background refetches, and runs that any component or
+`Mutation.run` started. Pass a target to count fewer:
+`useIsFetching(["todos"])` counts the todos queries, and
+`useIsMutating(toggleTodo)` the runs of one mutation.
+
+A server render counts nothing in progress, and so does the first render
+as the page hydrates, so the markup matches; the counts show right after.
+All three hooks throw a `MissingQueryProviderError` outside a
+`QueryProvider`.

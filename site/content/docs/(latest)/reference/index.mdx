@@ -2,3 +2,203 @@
 title: Entry points
 description: What each entry point exports, and where it's explained.
 ---
+
+This page lists every export of every entry point, with what it is and
+the page that explains it. Each export's type
+declarations carry its full documentation, with an example, so your
+editor's hover and "Go to Definition" show it too.
+
+## `@monarcode/effetch-query`
+
+The core entry point has no framework in it, so it works in React, React
+Native and code with no UI at all. It exports six
+namespaces, and two names at the top level.
+
+**`Query`** defines queries, and reads and writes the cache from Effect.
+It exports the following:
+
+| Export                                                | What it is                                                                                                  | Explained in                                                          |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `Query.make`, `Query.MakeOptions`                     | Defines a query with no arguments, and its options.                                                         | [3. Define your queries](/docs/getting-started#3-define-your-queries) |
+| `Query.family`, `Query.FamilyOptions`, `Query.Family` | Defines a family: one query per argument, each cached on its own.                                           | [3. Define your queries](/docs/getting-started#3-define-your-queries) |
+| `Query.Query`                                         | A cached query: an atom whose value is the query's `AsyncResult`, with a key.                               | [Queries](/docs/queries)                                              |
+| `Query.Options`                                       | The options every query takes besides `key` and `run`.                                                      | [Query options](/docs/queries/options)                                |
+| `Query.EntitiesOptions`                               | A query's `entities` option: whether the client's entity sync reads and writes it.                          | [Keep copies in sync](/docs/mutations/entity-sync)                    |
+| `Query.Key`                                           | Identifies a query in the cache.                                                                            | [Query keys](/docs/queries/keys)                                      |
+| `Query.RunContext`                                    | What a query's `run` receives, for reading other queries.                                                   | [Queries that read other queries](/docs/queries/dependent)            |
+| `Query.Schema`                                        | How a query's value, and optionally its error, is sent from the server to the browser.                      | [Send the cache](/docs/server-rendering)                              |
+| `Query.stream`, `Query.MakeStreamOptions`             | Defines a query whose value is the latest element of a `Stream`, and its options.                           | [Queries from a stream](/docs/queries/streams)                        |
+| `Query.streamFamily`, `Query.StreamFamilyOptions`     | Defines a family of stream queries: one per argument, each with its own stream.                             | [Queries from a stream](/docs/queries/streams)                        |
+| `Query.StreamOptions`                                 | The options every stream query takes besides `key` and `run`.                                               | [Queries from a stream](/docs/queries/streams)                        |
+| `Query.fetch`                                         | Returns a query's value: the cached one if it's fresh, otherwise the result of a fetch.                     | [Use the cache from Effect](/docs/cache)                              |
+| `Query.prefetch`                                      | Fetches a query unless its value is fresh, and never fails: it warms the cache.                             | [Use the cache from Effect](/docs/cache)                              |
+| `Query.get`                                           | Returns a query's cached value, if it has one.                                                              | [Use the cache from Effect](/docs/cache)                              |
+| `Query.set`                                           | Writes a query's value.                                                                                     | [Use the cache from Effect](/docs/cache)                              |
+| `Query.update`                                        | Writes a value computed from a query's cached one, undone in a mutation's `optimistic` as `Query.set` is.   | [Use the cache from Effect](/docs/cache)                              |
+| `Query.invalidate`                                    | Marks the matching queries stale.                                                                           | [Use the cache from Effect](/docs/cache)                              |
+| `Query.refetch`                                       | Refetches the matching queries that are in use, and completes when they have all settled.                   | [Use the cache from Effect](/docs/cache)                              |
+| `Query.reset`                                         | Puts the matching queries back to `Initial`, dropping their values.                                         | [Use the cache from Effect](/docs/cache)                              |
+| `Query.clear`                                         | Drops the matching queries' values without fetching.                                                        | [Use the cache from Effect](/docs/cache)                              |
+| `Query.Target`                                        | What `invalidate`, `refetch`, `reset` and `clear` act on: a query, a family, a key or a group.              | [Targets](/docs/queries/keys#targets)                                 |
+| `Query.group`, `Query.Group`, `Query.GroupTargets`    | Combines targets into one group, for acting on unrelated queries together; `GroupTargets` is what it takes. | [Targets](/docs/queries/keys#targets)                                 |
+| `Query.KeyHoldsTargetError`                           | Thrown when a key holds a query, a family or a group (a defect from Effects): pass a `Query.group`.         | [Targets](/docs/queries/keys#targets)                                 |
+| `Query.TypeId`, `Query.isQuery`                       | The property that marks a query, and a check for whether a value is one.                                    | [Queries](/docs/queries)                                              |
+
+**`InfiniteQuery`** defines queries whose value is a list of pages. It
+exports the following:
+
+| Export                                                                        | What it is                                                                                     | Explained in                                  |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `InfiniteQuery.make`, `InfiniteQuery.MakeOptions`                             | Defines an infinite query with no arguments, and its options.                                  | [Infinite queries](/docs/queries/infinite)    |
+| `InfiniteQuery.family`, `InfiniteQuery.FamilyOptions`, `InfiniteQuery.Family` | Defines a family: one infinite query per argument, each with its own pages.                    | [Infinite queries](/docs/queries/infinite)    |
+| `InfiniteQuery.InfiniteQuery`                                                 | A query whose value is a list of pages, for "load more" lists and infinite scroll.             | [Infinite queries](/docs/queries/infinite)    |
+| `InfiniteQuery.InfiniteData`                                                  | What an infinite query holds: the pages loaded so far, in order, with each one's param.        | [Infinite queries](/docs/queries/infinite)    |
+| `InfiniteQuery.PageOptions`, `InfiniteQuery.PageParamFunction`                | How an infinite query finds its pages: `nextPageParam` and `previousPageParam`.                | [Infinite queries](/docs/queries/infinite)    |
+| `InfiniteQuery.fetchNextPage`                                                 | Fetches the page after the last one and appends it, dropping the first page past `maxPages`.   | [Load more](/docs/queries/infinite#load-more) |
+| `InfiniteQuery.fetchPreviousPage`                                             | Fetches the page before the first one and prepends it, dropping the last page past `maxPages`. | [Load more](/docs/queries/infinite#load-more) |
+| `InfiniteQuery.Schema`                                                        | How an infinite query's pages are sent from the server to the browser.                         | [Send the cache](/docs/server-rendering)      |
+| `InfiniteQuery.TypeId`, `InfiniteQuery.isInfiniteQuery`                       | The property that marks an infinite query, and a check for whether a value is one.             | [Infinite queries](/docs/queries/infinite)    |
+
+**`Mutation`** defines mutations and runs them from Effect. It exports the
+following:
+
+| Export                                   | What it is                                                                                       | Explained in                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| `Mutation.make`                          | Defines a mutation.                                                                              | [Define a mutation](/docs/mutations)        |
+| `Mutation.MakeOptions`                   | Options for `Mutation.make`.                                                                     | [Mutation options](/docs/mutations/options) |
+| `Mutation.Mutation`                      | A mutation's definition: what a run does with its variables, and what it succeeds or fails with. | [Define a mutation](/docs/mutations)        |
+| `Mutation.run`                           | Runs a mutation from Effect code, and succeeds or fails as its `run` did.                        | [Run a mutation](/docs/mutations/run)       |
+| `Mutation.TypeId`, `Mutation.isMutation` | The property that marks a mutation, and a check for whether a value is one.                      | [Define a mutation](/docs/mutations)        |
+
+**`Entity`** updates one record across every cached query that holds it.
+It exports the following:
+
+| Export                              | What it is                                                                                               | Explained in                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `Entity.make`, `Entity.MakeOptions` | Defines an entity: a schema, and how to get one's id.                                                    | [Entities](/docs/mutations/entities) |
+| `Entity.Entity`                     | A record that many queries hold, such as a todo in a list, in a search page and in its own detail query. | [Entities](/docs/mutations/entities) |
+| `Entity.update`                     | Writes a value computed from the entity with an id into every cached query that holds it.                | [Entities](/docs/mutations/entities) |
+| `Entity.set`                        | Writes an entity over every cached copy with the same id, such as a mutation's result.                   | [Entities](/docs/mutations/entities) |
+| `Entity.remove`                     | Drops the entity with an id from every cached query that holds it, where its schema allows.              | [Entities](/docs/mutations/entities) |
+| `Entity.get`                        | Reads the entity with an id from the cached queries that hold it, or `Option.none()`.                    | [Entities](/docs/mutations/entities) |
+| `Entity.TypeId`, `Entity.isEntity`  | The property that marks an entity, and a check for whether a value is one.                               | [Entities](/docs/mutations/entities) |
+
+**`QueryClient`** creates the client, sends its cache between server and
+browser and holds the types for your services. It exports the following:
+
+| Export                                                                                                                      | What it is                                                                                        | Explained in                                                    |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `QueryClient.make`                                                                                                          | Creates a client.                                                                                 | [The client](/docs/client)                                      |
+| `QueryClient.layer`                                                                                                         | Creates a client as a layer, for Effect programs and tests without React.                         | [Testing](/docs/testing)                                        |
+| `QueryClient.QueryClient`                                                                                                   | A client: a query cache with its own registry, and your services. Also the service inside Effect. | [The client](/docs/client)                                      |
+| `QueryClient.Options`, `QueryClient.LayerOptions`, `QueryClient.RuntimeOptions`, `QueryClient.CommonOptions`                | The options of `make` and `layer`: a layer or a runtime, with the options every client takes.     | [The client](/docs/client)                                      |
+| `QueryClient.OptionalOptions`                                                                                               | The parameters of `make` and `layer`, which can be left out when `Register` declares no services. | [The client](/docs/client)                                      |
+| `QueryClient.QueriesOptions`, `QueryClient.QueryDefaults`                                                                   | The `queries` group of options, and the defaults it sets for every query.                         | [Defaults and app-wide hooks](/docs/client/defaults)            |
+| `QueryClient.QuerySucceeded`, `QueryClient.QueryFailed`, `QueryClient.QuerySettled`                                         | What the `queries` hooks receive.                                                                 | [Defaults and app-wide hooks](/docs/client/defaults)            |
+| `QueryClient.MutationsOptions`, `QueryClient.MutationDefaults`                                                              | The `mutations` group of options, and the defaults it sets for every mutation.                    | [Defaults and app-wide hooks](/docs/client/defaults)            |
+| `QueryClient.EntitiesOptions`                                                                                               | The `entities` group of options: the entities a fetch keeps in sync across the cache.             | [Keep copies in sync](/docs/mutations/entity-sync)              |
+| `QueryClient.MutationStarted`, `QueryClient.MutationSucceeded`, `QueryClient.MutationFailed`, `QueryClient.MutationSettled` | What the `mutations` hooks receive.                                                               | [Defaults and app-wide hooks](/docs/client/defaults)            |
+| `QueryClient.Hook`                                                                                                          | An app-wide hook: it receives an event and runs with your services and the client.                | [Defaults and app-wide hooks](/docs/client/defaults)            |
+| `QueryClient.Register`, `QueryClient.Services`, `QueryClient.Requirements`                                                  | Declares your services, and reads them back for typing Effects.                                   | [The client](/docs/client)                                      |
+| `QueryClient.get`                                                                                                           | Returns a query's cached value in a client, if it has one, outside Effect.                        | [Use the cache outside Effect](/docs/cache/outside-effect)      |
+| `QueryClient.dehydrate`, `QueryClient.DehydrateOptions`, `QueryClient.DehydratedState`                                      | Reads a client's cache to send to the browser, its options and the state it returns.              | [Send the cache](/docs/server-rendering)                        |
+| `QueryClient.hydrate`                                                                                                       | Loads a cache `dehydrate` sent into a client.                                                     | [Load the cache in the browser](/docs/server-rendering/hydrate) |
+| `QueryClient.NonJsonKeyError`, `QueryClient.DuplicateQueryKeyError`                                                         | Thrown when a key sent to the browser isn't JSON, and when two sent queries have one key.         | [Send the cache](/docs/server-rendering)                        |
+| `QueryClient.disposeAfter`                                                                                                  | Returns a `Response` whose body disposes the client once it has been sent.                        | [Client members](/docs/client/members)                          |
+
+**`Signals`** tells a client when the app regains focus or the device
+comes back online. It exports the following:
+
+| Export            | What it is                                                                                    | Explained in                                     |
+| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `Signals.Signals` | Where a client hears that the app regained focus or the device came back online.              | [Focus and online signals](/docs/client/signals) |
+| `Signals.browser` | The default: focus is the page becoming visible again, and online follows `navigator.onLine`. | [Focus and online signals](/docs/client/signals) |
+| `Signals.none`    | Signals that never change: no query refetches on focus or reconnect.                          | [Focus and online signals](/docs/client/signals) |
+
+**At the top level**, the core exports the following two names:
+
+| Export         | What it is                                                                                                                        | Explained in                                                      |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `Register`     | Declares the services your queries and mutations run with; the same interface as `QueryClient.Register`.                          | [1. Describe your API](/docs/getting-started#1-describe-your-api) |
+| `QueryFailure` | Thrown to the nearest error boundary when a suspense reader's query fails with nothing to show; `QueryFailure.is` checks for one. | [Suspense and error boundaries](/docs/react/suspense)             |
+
+## `@monarcode/effetch-query/react`
+
+The React entry point has the provider, the hooks and the boundaries. It
+exports the following:
+
+| Export                                                                 | What it is                                                                                                             | Explained in                                                    |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `QueryProvider`, `QueryProviderProps`                                  | Makes a client available to the hooks below it; given a client you own, it never disposes it.                          | [4. Show a query](/docs/getting-started#4-show-a-query)         |
+| `OwnedQueryProviderProps`                                              | Props for a provider that owns its client: it makes one with `make`, a fresh one each time `resetKey` changes.         | [Sign out and switch accounts](/docs/cache/accounts)            |
+| `useQueryClient`                                                       | Returns the client of the nearest `QueryProvider`, for running Effects from event handlers.                            | [Showing data in React](/docs/react)                            |
+| `MissingQueryProviderError`                                            | Thrown by the hooks and `HydrationBoundary` outside a `QueryProvider`.                                                 | [Showing data in React](/docs/react)                            |
+| `useQuery`                                                             | Reads a query and keeps it up to date while the component is mounted.                                                  | [Read a query](/docs/react)                                     |
+| `UseQueryOptions`                                                      | Options for `useInfiniteQuery`, and the base of the options `useQuery` and `useQueryState` take (`paused` among them). | [Pause screens you can't see](/docs/react/pause)                |
+| `UseQuerySelectOptions`                                                | Options for `useQuery` and `useQueryState`: those of `UseQueryOptions`, and `select`.                                  | [Select part of a value](/docs/react/select)                    |
+| `useQueryState`, `UseQueryStateResult`                                 | Reads a query as `useQuery` does, and returns its result as an object of fields, told apart by `status`.               | [Read a query as an object](/docs/react/as-object)              |
+| `UseQueryStatePending`, `UseQueryStateSuccess`, `UseQueryStateFailure` | The three shapes `useQueryState` returns: no value yet, a value and a failure.                                         | [Read a query as an object](/docs/react/as-object)              |
+| `useQueries`, `UseQueriesOptions`                                      | Reads a list of queries whose length can change between renders, and its options.                                      | [Read many queries](/docs/react/many)                           |
+| `UseQueriesResult`, `UseQueriesEntry`                                  | What `useQueries` returns (a result per query, in order) and its result for one entry.                                 | [Read many queries](/docs/react/many)                           |
+| `useSuspenseQuery`, `UseSuspenseQueryOptions`                          | Reads a query through React Suspense, and its options.                                                                 | [Suspense and error boundaries](/docs/react/suspense)           |
+| `QueryBoundary`, `QueryBoundaryProps`, `QueryBoundaryFailureProps`     | Shows `pending` while the queries below suspend, and `failure` when one fails with nothing to show.                    | [Suspense and error boundaries](/docs/react/suspense)           |
+| `useResetQueryFailure`                                                 | Returns a function for an error boundary that refetches the query inside a `QueryFailure`.                             | [Suspense and error boundaries](/docs/react/suspense)           |
+| `QueryFailure`                                                         | The same class as the core's, re-exported for error boundaries.                                                        | [Suspense and error boundaries](/docs/react/suspense)           |
+| `useRefetch`, `UseRefetchResult`                                       | Refetches queries on demand, with a flag that is true only while this component's own refetch is in progress.          | [Refetch on demand](/docs/react/refetch)                        |
+| `useInfiniteQuery`, `UseInfiniteQueryResult`                           | Reads an infinite query as `useQuery` does, with controls to fetch a page at either end.                               | [Load more](/docs/queries/infinite#load-more)                   |
+| `useSuspenseInfiniteQuery`, `UseSuspenseInfiniteQueryResult`           | Reads an infinite query through React Suspense, with the same page controls.                                           | [Load more](/docs/queries/infinite#load-more)                   |
+| `InfinitePageControls`                                                 | The page controls the infinite query hooks return beside the result.                                                   | [Load more](/docs/queries/infinite#load-more)                   |
+| `useMutation`, `UseMutationResult`                                     | Uses a mutation in this component, with state of its own.                                                              | [Run a mutation](/docs/mutations/run)                           |
+| `UseMutationRunOptions`                                                | Callbacks for one run of `useMutation`, which its `run` takes.                                                         | [Run a mutation](/docs/mutations/run)                           |
+| `useMutationState`, `UseMutationStateRun`                              | Lists the runs of a mutation in progress on this client, whichever component or Effect started them.                   | [Show activity](/docs/mutations/activity)                       |
+| `useIsFetching`                                                        | Counts the queries with a fetch in progress on this client.                                                            | [Show activity](/docs/mutations/activity)                       |
+| `useIsMutating`                                                        | Counts the mutation runs in progress on this client.                                                                   | [Show activity](/docs/mutations/activity)                       |
+| `HydrationBoundary`, `HydrationBoundaryProps`                          | Loads a cache the server sent into the nearest provider's client, so the tree below shows it without fetching.         | [Load the cache in the browser](/docs/server-rendering/hydrate) |
+
+## `@monarcode/effetch-query/effetch`
+
+The Effetch entry point turns Effetch endpoints into queries and
+mutations. It exports the following:
+
+| Export                                                  | What it is                                                                                                                 | Explained in                                    |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `fromClient`, `EndpointsOptions`                        | Turns `Fetch.endpoint` definitions into queries and mutations that call them through your Effetch client, and its options. | [Queries from endpoints](/docs/queries)         |
+| `Endpoints`                                             | Queries and mutations for one Effetch client, made by `fromClient`.                                                        | [Queries from endpoints](/docs/queries)         |
+| `endpoints`                                             | Deprecated: the former name of `fromClient`, which works the same. It goes in 0.2.0.                                       | [Queries from endpoints](/docs/queries)         |
+| `EndpointQuery`, `EndpointQueryOptions`                 | A family of queries with one per call of an endpoint, and its options.                                                     | [Queries from endpoints](/docs/queries)         |
+| `EndpointQueryValue`, `EndpointQueryCallError`          | A query's value and error from an endpoint: its decoded `output`, or a stream's latest element, and the call's errors.     | [Queries from endpoints](/docs/queries)         |
+| `EndpointQueryOptionsFor`                               | The options `api.query` takes for an endpoint: `EndpointStreamOptions` for a stream endpoint, else `EndpointQueryOptions`. | [Queries from endpoints](/docs/queries)         |
+| `EndpointQueryArgs`                                     | What a query from a route takes: the path's params, and a query object.                                                    | [Queries from endpoints](/docs/queries)         |
+| `EndpointQueryError`                                    | Thrown when a call's `query` can't be part of its key: it doesn't match the schema, or holds an object or a `Redacted`.    | [Query keys](/docs/queries/keys)                |
+| `RegisteredSchema`                                      | A schema whose decoding and encoding need nothing outside your registered services and the client.                         | [Queries from endpoints](/docs/queries)         |
+| `KeyQuerySchema`                                        | A `query` schema an endpoint query can be keyed by: one whose encoding needs no services.                                  | [Query keys](/docs/queries/keys)                |
+| `ErrorSchema`                                           | The schema a bound endpoint decodes error bodies with: its own, or the client's `defaultError`.                            | [Query errors](/docs/queries/errors)            |
+| `RegisteredStatusErrors`                                | A `statusErrors` map whose schemas need nothing outside your registered services.                                          | [Errors by status](/docs/queries/status-errors) |
+| `EndpointStreamOptions`                                 | Options for a query of a stream endpoint (`stream: "sse"` or `"ndjson"`).                                                  | [Queries from a stream](/docs/queries/streams)  |
+| `EndpointInfiniteQuery`, `EndpointInfiniteQueryOptions` | A family of infinite queries with one per call of an endpoint, and its options.                                            | [Infinite queries](/docs/queries/infinite)      |
+| `EndpointPageField`                                     | The query fields an infinite query's `pageParam` can name.                                                                 | [Infinite queries](/docs/queries/infinite)      |
+| `EndpointMutationOptions`                               | Options for a mutation of an endpoint: a mutation's options without `run`, which is the endpoint.                          | [Define a mutation](/docs/mutations)            |
+| `EndpointVariables`                                     | What a mutation from a route takes when run: the endpoint's call options.                                                  | [Define a mutation](/docs/mutations)            |
+
+## `@monarcode/effetch-query/react-native`
+
+The React Native entry point builds a client's signals from React Native's
+own modules, which you pass in. It exports the following:
+
+| Export                      | What it is                                                                                                  | Explained in                             |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `reactNativeSignals`        | Makes signals for React Native: focus is the app coming back to the foreground, and online follows NetInfo. | [React Native](/docs/react/react-native) |
+| `ReactNativeSignalsOptions` | What `reactNativeSignals` listens to: `AppState` and `NetInfo`.                                             | [React Native](/docs/react/react-native) |
+| `AppStateLike`              | The part of React Native's `AppState` that `reactNativeSignals` uses.                                       | [React Native](/docs/react/react-native) |
+| `NetInfoLike`               | The part of NetInfo (`@react-native-community/netinfo`) that `reactNativeSignals` uses.                     | [React Native](/docs/react/react-native) |
+
+## `@monarcode/effetch-query/react/tanstack-router`
+
+The TanStack Router entry point connects a client to a router, and so to
+TanStack Start. It exports the following:
+
+| Export                      | What it is                                                                                                 | Explained in                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `connectQueryClient`        | Connects a query client to a TanStack Router, as `setupRouterSsrQueryIntegration` does for TanStack Query. | [TanStack Router and Start](/docs/frameworks/tanstack-start) |
+| `ConnectQueryClientOptions` | Options for `connectQueryClient`.                                                                          | [TanStack Router and Start](/docs/frameworks/tanstack-start) |
+| `ConnectDehydrateOptions`   | Which queries `connectQueryClient` sends from the server.                                                  | [TanStack Router and Start](/docs/frameworks/tanstack-start) |

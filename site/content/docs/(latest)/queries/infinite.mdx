@@ -2,3 +2,225 @@
 title: Infinite queries
 description: Page through a list, and load more pages on demand.
 ---
+
+An infinite query loads a list one page at a time, for "load more" buttons
+and infinite scroll. Its value is every page loaded so far, with the param
+each was fetched with, as an `InfiniteQuery.InfiniteData`:
+`{ pages, pageParams }`. After this page, you can page through an
+endpoint or any Effect, and show the pages in a component.
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+**From an endpoint.** `api.infiniteQuery` pages through an Effetch endpoint.
+`pageParam` names the query field each page's param is sent in:
+
+```ts activity.ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { api } from "./todos.js";
+
+const ActivityPage = Schema.Struct({
+  events: Schema.Array(
+    Schema.Struct({ id: Schema.String, text: Schema.String }),
+  ),
+  nextCursor: Schema.NullOr(Schema.String),
+});
+
+export const activity = api.infiniteQuery(
+  Fetch.endpoint("GET /activity", { output: ActivityPage }),
+  {
+    // Sent as ?cursor=…, and left out of the key.
+    pageParam: "cursor",
+    initialPageParam: null as string | null,
+    // null or undefined: there's no next page.
+    nextPageParam: (lastPage) => lastPage.nextCursor,
+  },
+);
+// activity({ query: { team: "web" } }) loads its first page from
+// GET /activity?team=web, and the next from ?team=web&cursor=…
+```
+
+The page field is set on every page's request, over any value the call
+gives for it, and left out of the key, so every page belongs to one query.
+The param must be a value a query field takes, such as a string or a
+number. If the endpoint has a `query` schema, `pageParam` names one of its
+optional fields whose type takes the param, so a call can leave it out.
+
+**Without endpoints.** `InfiniteQuery.make` defines one infinite query, and
+`InfiniteQuery.family` one per argument. Their `run` fetches one page from
+its param; a family's takes the member's argument first. This one loads
+todos by offset, in both directions:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { InfiniteQuery } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+
+const TodosPage = Schema.Struct({
+  todos: Schema.Array(Todo),
+  skip: Schema.Finite,
+  limit: Schema.Finite,
+  total: Schema.Finite,
+});
+
+export const todoPages = InfiniteQuery.family({
+  key: ["todos", "pages"],
+  initialPageParam: 0,
+  // The member's argument, then the page's param.
+  run: (limit: number, skip) =>
+    ApiClient.use((client) =>
+      client.get("/todos", { query: { limit, skip }, output: TodosPage }),
+    ),
+  nextPageParam: (last) =>
+    last.skip + last.limit < last.total ? last.skip + last.limit : undefined,
+  // Lets the list load pages before the first, and reload dropped ones.
+  previousPageParam: (first) =>
+    first.skip > 0 ? Math.max(0, first.skip - first.limit) : undefined,
+  maxPages: 10,
+  // Only for server rendering: how each page crosses to the browser.
+  schema: { page: TodosPage },
+});
+// todoPages(20) is the infinite query keyed ["todos", "pages", 20]
+```
+
+`nextPageParam` and `previousPageParam` are `InfiniteQuery.PageParamFunction`s:
+they get a page, every page, that page's param and every param, and return
+`undefined` or `null` when there's no page in that direction. An endpoint
+with an `output` makes infinite queries that cross to the browser with no
+`schema` to write, as `api.query`'s do; with `make` and `family`, give `schema` a `page` schema,
+and an `error` schema to send failures too. The page params go as they
+are, so they must be JSON values (strings, numbers, booleans, `null`)
+unless `schema.pageParam` gives their schema.
+
+**How pages load.** The first fetch loads one page, from
+`initialPageParam`. `fetchNextPage` (from
+[`useInfiniteQuery`](#load-more), or `InfiniteQuery.fetchNextPage` in
+Effect code) adds the next one, and `fetchPreviousPage` adds the one
+before the first:
+
+- On the last page, it returns the pages without fetching. Without
+  `previousPageParam`, there's never a previous page.
+- A page that fails keeps the loaded pages: the result is a `Failure` whose
+  `previousSuccess` still holds them.
+- Past `maxPages`, a page is dropped from the far end: the first when a
+  next page loads, the last when a previous page does.
+- While the next page is loading, another `fetchNextPage` joins that fetch.
+  While any other fetch of the query is in progress, it waits for it, then
+  fetches its page.
+- A write made while a page loads stays: the page is added to the data
+  shown when it lands.
+- A refetch (after an invalidation, on focus, or when a component starts
+  using the query while it's stale) fetches as many pages as are loaded,
+  one after the other, each from the page before it, so a list that
+  changed underneath doesn't show duplicates or gaps.
+
+In Effect code, `InfiniteQuery.fetchNextPage` and
+`InfiniteQuery.fetchPreviousPage` return the updated
+`{ pages, pageParams }`, and fail with the query's error if the page
+fails:
+
+```ts
+import * as Effect from "effect/Effect";
+
+import { InfiniteQuery } from "@monarcode/effetch-query";
+
+import { activity } from "./activity.js";
+
+export const loadMore = Effect.map(
+  InfiniteQuery.fetchNextPage(activity({ query: { team: "web" } })),
+  (data) => data.pages.flatMap((page) => page.events),
+);
+```
+
+An infinite query **is** a query: invalidation,
+[the cache functions](/docs/cache) and the client's defaults
+work on it as on any other. To change its pages in an
+[optimistic update](/docs/mutations/optimistic), `Query.update` the whole
+`{ pages, pageParams }` value; on a family, `Query.update` writes every
+cached member. [Entities](/docs/mutations/entities) find a record in every loaded page.
+
+An infinite query takes the following options. The paging ones, from
+`initialPageParam` to `maxPages`, are its `InfiniteQuery.PageOptions`:
+
+| Option              | What it does                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `pageParam`         | The query field each page's param is sent in (Effetch only).                                                                         |
+| `initialPageParam`  | The first page's param.                                                                                                              |
+| `nextPageParam`     | `(lastPage, pages, lastPageParam, pageParams) => param`: the next page's param, or `undefined` / `null` for none.                    |
+| `previousPageParam` | The same, from the first page, for `fetchPreviousPage`. Without it, there's no previous page.                                        |
+| `maxPages`          | The most pages to keep. Past it, a page is dropped from the far end; give `previousPageParam` too, so it can load again.             |
+| `schema`            | `{ page, pageParam?, error? }`: how the pages cross to the browser in [server rendering](/docs/server-rendering) (`make`, `family`). |
+| Query options       | As in [Query options](/docs/queries/options), such as `staleTime` and `refetchOnFocus`. `retry` applies to each page.                |
+
+Infinite queries don't take `placeholder` or `live`.
+
+## Load more
+
+`useInfiniteQuery` reads an infinite query, with controls for the next and
+previous pages. `useSuspenseInfiniteQuery` suspends only until the first
+page:
+
+```tsx
+import { useSuspenseInfiniteQuery } from "@monarcode/effetch-query/react";
+
+import { activity } from "./activity.js";
+
+export function ActivityFeed() {
+  const { result, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useSuspenseInfiniteQuery(activity({ query: { team: "web" } }));
+
+  return (
+    <>
+      <ul>
+        {result.value.pages
+          .flatMap((page) => page.events)
+          .map((event) => (
+            <li key={event.id}>{event.text}</li>
+          ))}
+      </ul>
+      {hasNextPage ? (
+        <button
+          disabled={isFetchingNextPage}
+          onClick={() => void fetchNextPage()}
+        >
+          {isFetchingNextPage ? "Loading…" : "Load more"}
+        </button>
+      ) : null}
+    </>
+  );
+}
+```
+
+The loaded pages stay on screen while the next one loads.
+`fetchNextPage` never rejects: a page that fails shows in `result`. In
+React Native, call it from `FlatList`'s `onEndReached`.
+
+Both hooks return `result` beside the following page controls:
+
+| Control                  | What it is                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `fetchNextPage`          | Fetches the page after the last one. Resolves when it settles, and never rejects. |
+| `fetchPreviousPage`      | Fetches the page before the first one, in the same way.                           |
+| `hasNextPage`            | Whether `nextPageParam` gives a param for the shown pages.                        |
+| `hasPreviousPage`        | Whether `previousPageParam` gives a param for the shown pages.                    |
+| `isFetchingNextPage`     | Whether a next page is being fetched, as opposed to a refetch of every page.      |
+| `isFetchingPreviousPage` | Whether a previous page is being fetched.                                         |
+
+While a page loads, `result` stays a waiting `Success`, so
+`isFetchingNextPage` is how you tell a page fetch from a background
+refetch of every page.
+
+**Without Suspense.** `useInfiniteQuery`'s `result` is an `AsyncResult`, as
+[`useQuery`](/docs/react) returns, and it fetches when `useQuery` does.
+Pass `null` to read nothing. It takes `useQuery`'s `keepPrevious` and
+`paused` options ([Pause screens you can't see](/docs/react/pause));
+a paused reader's page functions still fetch pages when called.
+
+**With Suspense.** A page that fails after the first isn't thrown, since
+there are pages to show. Only a failure with no pages before it reaches
+the error boundary, as a `QueryFailure`
+([Suspense and error boundaries](/docs/react/suspense)).

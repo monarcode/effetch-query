@@ -123,7 +123,7 @@ async function accountLoader({ context }: LoaderFunctionArgs) {
 	return requestClient(context).runPromise(Query.fetch(viewer));
 }
 
-/** The README's `entry.server.tsx` change, around a web-streams render. */
+/** The React Router page's `entry.server.tsx` change, around a web-streams render. */
 const handleRequest = async (
 	request: Request,
 	status: number,
@@ -213,7 +213,7 @@ const handler = createRequestHandler(build, "production");
 
 const get = (url: string) => handler(new Request(`http://localhost${url}`));
 
-describe("the README's React Router recipe", () => {
+describe("the docs' React Router recipe", () => {
 	it("renders a loader's queries with the request's client, and disposes it once the body is sent", async () => {
 		const response = await get("/todos");
 		const [client] = clients;
@@ -275,12 +275,15 @@ describe("the README's React Router recipe", () => {
 		expect(clients).toHaveLength(0);
 	});
 
-	it("is the README's code", () => {
-		const readme = readFileSync(
-			path.join(import.meta.dirname, "../README.md"),
+	it("is the React Router page's code", () => {
+		const page = readFileSync(
+			path.join(
+				import.meta.dirname,
+				"../site/content/docs/(latest)/frameworks/react-router.mdx",
+			),
 			"utf8",
 		);
-		const block = /```ts query-context\.ts\n([\s\S]*?)```/.exec(readme)?.[1];
+		const block = /```ts query-context\.ts\n([\s\S]*?)```/.exec(page)?.[1];
 		const recipe = readFileSync(
 			path.join(import.meta.dirname, "react-router-recipe.ts"),
 			"utf8",

@@ -2,3 +2,80 @@
 title: Read a query
 description: Show a query's result in a component with useQuery.
 ---
+
+This page shows how to read a query in a component with `useQuery`. The
+other pages in React cover reading it as an object of fields, through
+Suspense, a part of it or several at once, pausing screens you can't see,
+refetching on demand and using the cache with your own atoms.
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+Every hook here comes from `@monarcode/effetch-query/react`, and reads the
+client of the nearest `QueryProvider`
+([4. Show a query](/docs/getting-started#4-show-a-query)). Outside one, they throw a
+`MissingQueryProviderError`. To use the client itself in a component, such
+as to run an Effect from an event handler, `useQueryClient()` returns it.
+
+`useQuery` returns the query's `AsyncResult`. Match on it to show each
+state, with the error typed as the query defines it:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoTitle({ id }: { readonly id: number | null }) {
+  // null reads nothing and fetches nothing (TanStack's `enabled: false`).
+  const result = useQuery(id === null ? null : todo({ params: { id } }), {
+    // Keep showing the last todo while the next one loads.
+    keepPrevious: true,
+  });
+
+  return AsyncResult.matchWithError(result, {
+    onInitial: () => <p>Loading…</p>,
+    onError: (error) =>
+      error._tag === "HttpError" && error.status === 404 ? (
+        <p>There's no todo {id}.</p>
+      ) : (
+        <p>Couldn't load the todo: {error.message}</p>
+      ),
+    onDefect: () => <p>Something went wrong.</p>,
+    onSuccess: ({ value, waiting }) => (
+      <h1 style={{ opacity: waiting ? 0.5 : 1 }}>{value.title}</h1>
+    ),
+  });
+}
+```
+
+When the component mounts, and when its query changes, `useQuery`
+refetches the query if it's stale (`refetchOnMount`) or failed
+(`retryOnMount`). While the component is mounted, the query refetches on
+focus, reconnect and `refetchInterval` as its options say
+([Freshness and refetching](/docs/queries/freshness)).
+
+**A first load and a refetch look different.** `waiting` is true while
+the query fetches. A first load shows as a waiting `Initial`, and a
+background refetch as a `Success` or `Failure` that keeps showing what it
+had, so `AsyncResult.isInitial(result)` tells them apart. To handle a
+load and a refetch alike, use `AsyncResult.matchWithWaiting` or the
+builder's `onInitialOrWaiting`.
+
+**`keepPrevious` shows the last value while the next loads.** When the
+query changes to one with no value yet, such as the next todo, the hook
+shows the last success it showed, as a waiting `Success`, instead of
+`Initial`: TanStack's `placeholderData: keepPreviousData`. A failure
+shows as it is. `useQueryState`'s `isPlaceholder` is true for that value
+([Read a query as an object](/docs/react/as-object)).
+
+**`null` reads nothing.** `useQuery(null)` returns an `Initial` that isn't
+waiting, and fetches nothing: TanStack's `enabled: false`. Pass `null`
+until you have what the query needs, as the example does with `id`.
+
+In a server render, `useQuery` reads only the cache and never starts a
+fetch; `useSuspenseQuery` does fetch there
+([Suspense and error boundaries](/docs/react/suspense)).
+
+Rather than checking statuses, an endpoint can turn them into errors of
+your own ([Errors by status](/docs/queries/status-errors)).
