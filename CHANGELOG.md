@@ -14,7 +14,7 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   namespace and entry point, is generated from the JSDoc. Each page is
   also served as Markdown, `llms.txt` and `llms-full.txt` list them for
   LLMs and agents, and older release lines will stay readable from a
-  version dropdown.
+  version dropdown. Each release moves the live docs to its commit.
 
 ### Changed
 

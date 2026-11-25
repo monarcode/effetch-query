@@ -158,8 +158,9 @@ follows Vite's and Fumadocs' conventions, as its files do.
   the current line's pages. Full URLs use `SITE_URL`: the live site, or a
   Cloudflare preview's own address. `npx wrangler pages dev site/dist/client`
   serves a build the way Cloudflare does, headers included.
-- The live docs deploy from the `site` branch; `main` and pull requests
-  deploy as previews. Don't push `site` yourself.
+- The live docs deploy from the `site` branch, which the Release workflow
+  moves to each released commit; `main` and pull requests deploy as
+  previews. Don't push `site` yourself.
 - `pnpm run check` doesn't build the site. After changing `site/`, run
   `pnpm run build:site`, which builds the package, then prerenders the site
   into `site/dist/client`. `pnpm --dir site run dev` serves it while you
