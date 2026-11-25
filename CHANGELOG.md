@@ -6,10 +6,21 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ### Added
 
-- A documentation site in `site/`: Fumadocs on TanStack Start, prerendered
-  to static files, with Introduction and Installation pages, search and a
-  404 page. The docs check compiles its pages' examples too, and CI builds
-  it.
+- A documentation site at https://effetch-query.pages.dev, built from
+  `site/` (Fumadocs on TanStack Start, prerendered to static files). Every
+  guide moved there from the README, one page per task, with search. The
+  docs check compiles the pages' examples too, and CI builds the site.
+  Every example has type hovers, and the API reference, a page per
+  namespace and entry point, is generated from the JSDoc. Each page is
+  also served as Markdown, `llms.txt` and `llms-full.txt` list them for
+  LLMs and agents, and older release lines will stay readable from a
+  version dropdown. Each release moves the live docs to its commit.
+
+### Changed
+
+- The README is now an overview: the pitch, install, a quick start and
+  links to the site's guides. `homepage` in `package.json` points to the
+  site.
 
 ## 0.1.0-rc.5
 

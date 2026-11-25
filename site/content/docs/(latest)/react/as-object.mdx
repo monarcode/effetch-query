@@ -2,3 +2,60 @@
 title: Read a query as an object
 description: Read a query's data, error and loading flags as fields.
 ---
+
+`useQueryState` reads a query as `useQuery` does, with the same options,
+and returns TanStack Query's shape: `status`, `data`, `error`,
+`isFetching` and `refetch`. Check `status` first; it narrows `data` and
+`error`:
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import { useQueryState } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoTitle({ id }: { readonly id: number }) {
+  const state = useQueryState(todo({ params: { id } }));
+
+  if (state.status === "pending") {
+    return <p>Loading…</p>;
+  }
+  if (state.status === "failure") {
+    return (
+      <button onClick={() => void state.refetch()}>
+        Couldn't load the todo: try again
+      </button>
+    );
+  }
+  return (
+    <h1 style={{ opacity: state.isFetching ? 0.5 : 1 }}>{state.data.title}</h1>
+  );
+}
+```
+
+The fields are:
+
+- `status`: `"pending"`, `"success"` or `"failure"`, with `isPending`,
+  `isSuccess` and `isFailure` to match. A query is pending before its
+  first fetch settles, after a `clear` and when it's `null`.
+- `data`: the value. A failed refetch keeps the last value as `data`.
+- `error`: the typed error, or `undefined` for a defect, which `cause`
+  holds with the rest of the failure.
+- `isFetching`: true while a fetch runs, the first one or a refetch.
+- `isPlaceholder`: true while `data` is a placeholder, or the value
+  `keepPrevious` keeps, rather than the query's own value
+  ([Show a placeholder](/docs/queries/placeholders)). Use it to dim the data, or to turn off
+  what needs the real value, such as editing it.
+- `refetch`: refetches the query, and resolves when it settles. It never
+  rejects, and keeps its identity while the query stays the same.
+- `result`: the `AsyncResult` the fields come from, for
+  `AsyncResult.builder`.
+
+The object's type is `UseQueryStateResult`, a union of three shapes told
+apart by `status`. The object keeps its identity while nothing in it
+changes.
+
+`error` is a union of every error the query can fail with. To handle each
+by its `_tag`, match on `useQuery`'s result
+([Read a query](/docs/react)) or on `state.result`.

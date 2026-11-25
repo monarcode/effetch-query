@@ -2,3 +2,79 @@
 title: Schemas that transform
 description: Send cached values whose schemas transform, such as dates.
 ---
+
+When you [send the cache](/docs/server-rendering), a value crosses to the
+browser in its wire shape. `dehydrate` encodes it
+with the query's schema, from the decoded value back to what the server
+sent, and the browser decodes it with the same schema. For a plain
+`Schema.Struct` that's nothing to think about. For a schema that
+transforms, such as a `Schema.decodeTo` that maps a response to your own
+type ([Responses in other shapes](/docs/mutations/entities#responses-in-other-shapes)), it means
+the transformation must encode as well as decode.
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+A transformation that can't encode, such as one whose `encode` is
+`SchemaGetter.forbidden`, makes `dehydrate` leave the query out, with no
+error. The page still renders on the server, but the browser has no value
+for that query:
+
+- the browser fetches it again, a second request for data the server
+  already had;
+- `useSuspenseQuery` waits for that fetch while React hydrates;
+- a plain `useQuery` starts out pending in the browser, though the server
+  rendered the data, which can show a loading state or a hydration
+  mismatch.
+
+So write `encode` as the mirror of `decode`. It doesn't have to rebuild
+the whole response: only a wire value that `decode` turns back into the
+same value. Declare only the fields you read in the wire schema, since a
+response's other fields are ignored when decoding, and `encode` then has
+only those to write:
+
+```ts
+import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+
+// The API sends amounts in minor units, under its own names.
+const PaymentWire = Schema.Struct({
+  ref: Schema.String,
+  amount_minor: Schema.Finite,
+});
+
+export const Payment = Schema.Struct({
+  id: Schema.String,
+  amount: Schema.Finite,
+});
+
+export const PaymentFromWire = PaymentWire.pipe(
+  Schema.decodeTo(
+    Payment,
+    SchemaTransformation.transform({
+      decode: (wire) => ({ id: wire.ref, amount: wire.amount_minor / 100 }),
+      encode: (payment) => ({
+        ref: payment.id,
+        amount_minor: Math.round(payment.amount * 100),
+      }),
+    }),
+  ),
+);
+```
+
+The same goes for an entity's copies that a write or a sync put into a
+query: they're sent encoded with that query's own schema.
+
+To check that a query is sent, dehydrate it on its own while you build
+the page:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { todos } from "./todos.js";
+
+declare const client: QueryClient.QueryClient;
+
+// 0 when no todos query is sent: none is cached, or its schema can't
+// encode it, or there's no schema.
+export const sent = QueryClient.dehydrate(client, { queries: todos }).length;
+```

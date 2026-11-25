@@ -1,4 +1,4 @@
 {
 	"title": "Frameworks",
-	"pages": ["tanstack-start", "nextjs", "react-router"]
+	"pages": ["index", "tanstack-start", "nextjs", "react-router"]
 }

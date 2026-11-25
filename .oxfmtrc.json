@@ -25,7 +25,8 @@
 		"build",
 		".react-router",
 		"routeTree.gen.ts",
-		".tanstack"
+		".tanstack",
+		"site/versions"
 	],
 	"sortImports": {
 		"customGroups": [

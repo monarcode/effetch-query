@@ -2,3 +2,90 @@
 title: fromClient options
 description: The options fromClient takes, and how to use a client that isn't a Fetch.Service class.
 ---
+
+`fromClient` takes your client's service and, optionally, a few options
+that apply to every query and mutation it makes. Most apps need none of
+them; `fromClient(ApiClient)` is enough. Each option is for one situation:
+
+| Option                         | Use it when                                                                                                                  | Default                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `key`                          | You call two backends with the same paths, and their keys would clash ([Query keys](/docs/queries/keys)).                    | No prefix                           |
+| `invalidates: "route"`         | Every mutation should invalidate its own route's queries when it succeeds.                                                   | Only what each mutation names       |
+| `defaultError`, `statusErrors` | Your client isn't a `Fetch.Service` class, and you render on the server ([below](#a-client-that-isnt-a-fetchservice-class)). | Read from the `Fetch.Service` class |
+
+`invalidates: "route"` is explained in
+[Invalidate after a mutation](/docs/mutations/invalidate).
+
+## A client that isn't a `Fetch.Service` class
+
+This part matters only if you render on the server, and you made your
+Effetch client by hand instead of declaring it with `Fetch.Service`.
+
+**Why it's needed.** When a query fails on the server, Effetch Query can
+send the error to the browser, so the browser shows the same error
+instead of fetching again ([Server rendering](/docs/server-rendering)). To
+send an error, it needs the schemas the client decodes errors with: its
+`defaultError` and its `statusErrors`. A `Fetch.Service` class carries
+them, so `fromClient` reads them from it. A client made with `Fetch.make`
+and provided through a `Context.Service` key doesn't: its config is only
+there once its layer is built, which is after your queries are defined.
+
+**What to do.** Keep the client's config in one object. Make the client
+from it, and give `fromClient` the same object:
+
+```ts
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { fromClient } from "@monarcode/effetch-query/effetch";
+
+class SessionExpired extends Schema.TaggedError<SessionExpired>()(
+  "SessionExpired",
+  { message: Schema.String },
+) {}
+
+const config = {
+  baseUrl: "https://billing.example.com",
+  defaultError: Schema.Struct({ message: Schema.String }),
+  statusErrors: { 401: SessionExpired },
+};
+
+export const makeBillingClient = Fetch.make(config);
+
+export class BillingClient extends Context.Service<
+  BillingClient,
+  Effect.Success<typeof makeBillingClient>
+>()("BillingClient") {}
+
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: BillingClient;
+  }
+}
+
+// Reads defaultError and statusErrors, and ignores the rest.
+export const billing = fromClient(BillingClient, {
+  key: ["billing"],
+  ...config,
+});
+
+export const invoices = billing.query(
+  Fetch.endpoint("GET /invoices", { output: Schema.Array(Schema.String) }),
+);
+// invoices() is the query keyed ["billing", "invoices"]
+export const refreshBilling = Query.refetch(["billing"]);
+```
+
+The example also uses `key: ["billing"]`, so its queries can't clash with
+another backend's, and `Query.refetch(["billing"])` reaches all of them.
+
+**If you leave them out,** nothing changes in the browser: the client
+still decodes your errors, and they're still typed. A query that failed
+on the server just isn't sent, so the browser fetches it again.
+
+**On a `Fetch.Service` class,** the same two options override what the
+class was declared with. You need that only when the class's `layer`
+builds its client from a different config.

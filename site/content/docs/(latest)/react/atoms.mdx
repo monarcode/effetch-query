@@ -2,3 +2,45 @@
 title: Atoms
 description: Use queries as effect/reactivity atoms.
 ---
+
+Queries are atoms from `effect/reactivity`, and `QueryProvider` shares the
+client's registry with `@effect/atom-react`. For a value several
+components share, derive an atom with `Atom.map`:
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
+
+import { todos } from "./todos.js";
+
+const openTitles = Atom.map(
+  todos({ query: { done: false } }),
+  AsyncResult.map((list) => list.map((todo) => todo.title)),
+);
+
+export function OpenTitles() {
+  const result = useAtomValue(openTitles);
+  return <p>{AsyncResult.getOrElse(result, () => []).join(", ")}</p>;
+}
+```
+
+`useAtomValue` only reads: a component that reads a derived atom doesn't
+refetch the query on mount (`refetchOnMount`) or after a failure
+(`retryOnMount`). Read the query with `useQuery` in the same tree, or use
+`select` for one component
+([Select part of a value](/docs/react/select)).
+
+**The registry is the client's.** `client.registry` is the
+`AtomRegistry` that holds the cache, the one `QueryProvider` gives
+atom-react, so your own atoms and atom-react's hooks share it. Don't
+`reset` or `dispose` it: dispose the client
+([Client members](/docs/client/members)).
+
+**Write with `Query.set`, not an atom write.** A query is a writable atom,
+but on a query that isn't cached, a plain write (`registry.set` or
+`useAtomSet`) is kept and the query still fetches when it's first read.
+`Query.set` caches the value without fetching
+([Working with the cache](/docs/cache)).

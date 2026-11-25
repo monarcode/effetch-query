@@ -2,3 +2,138 @@
 title: Run a mutation
 description: Run a mutation from a component, and react to its result.
 ---
+
+`useMutation` gives each component its own state for a mutation. This
+checkbox toggles a todo, and clears a failure after three seconds:
+
+The examples import `api.ts`, `client.ts` and `toggle-todo.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import * as Exit from "effect/Exit";
+
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import type { Todo } from "./api.js";
+import { toggleTodo } from "./toggle-todo.js";
+
+export function DoneCheckbox({ todo }: { readonly todo: Todo }) {
+  const { result, run, reset } = useMutation(toggleTodo);
+
+  return (
+    <input
+      type="checkbox"
+      checked={todo.done}
+      disabled={result.waiting}
+      onChange={async (event) => {
+        const exit = await run({
+          params: { id: todo.id },
+          body: { done: event.target.checked },
+        });
+        if (Exit.isFailure(exit)) {
+          setTimeout(reset, 3000);
+        }
+      }}
+    />
+  );
+}
+```
+
+`useMutation` returns a `UseMutationResult`:
+
+- `result`, the `AsyncResult` of this component's latest run: `Initial`
+  before the first run and after `reset`;
+- `variables`, the variables of the run `result` shows, or `undefined`
+  before the first run and after `reset`;
+- `run(variables, options?)`, which starts a run and returns a `Promise` of
+  its `Exit`;
+- `reset()`, which puts `result` back to `Initial`. Runs in progress carry
+  on.
+
+`run` never rejects: check the `Exit` it resolves with. A run carries on if
+the component unmounts, so the mutation's `onSuccess` and `invalidates`
+still happen. The mutation's `concurrent` decides how the component's runs
+overlap ([Run modes](/docs/mutations/run-modes)): with `false`, a run that a newer one
+replaces resolves with an interrupted `Exit`. On a disposed client, the run
+never starts and resolves with a died `Exit`. Outside a `QueryProvider`,
+`useMutation` throws a `MissingQueryProviderError`.
+
+**Callbacks for one run.** `run` also takes callbacks for one run, a
+`UseMutationRunOptions`, as TanStack's `mutate(variables, { onSuccess })`
+does:
+
+```tsx
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import type { Todo } from "./api.js";
+import { toggleTodo } from "./toggle-todo.js";
+
+export function MarkDone({
+  todo,
+  onDone,
+}: {
+  readonly todo: Todo;
+  readonly onDone: () => void;
+}) {
+  const { result, run } = useMutation(toggleTodo);
+
+  return (
+    <button
+      type="button"
+      disabled={result.waiting}
+      onClick={() =>
+        run(
+          { params: { id: todo.id }, body: { done: true } },
+          { onSuccess: onDone },
+        )
+      }
+    >
+      Done
+    </button>
+  );
+}
+```
+
+`onSuccess`, `onFailure` and `onSettled` run after the mutation's own
+callbacks, its `invalidates` and the client's hooks, before code awaiting
+`run` carries on. They belong to this screen, so they're dropped if,
+before the run settles, `reset` is called, a newer run starts or the
+component unmounts. They're dropped for a run that was interrupted or
+never started, too. The run completes all the same. A callback that throws
+is logged with `console.error`; the ones after it still run, and `run`
+still resolves.
+
+So use them for what matters only to this screen, such as filling in a
+form field or navigating, and the mutation's own `onSuccess` for what must
+always happen. A lookup that you `reset` when its input changes never
+fills in the answer for the old input. A lookup that only reads can also
+be a query keyed by its input, read with
+`useQuery(input === "" ? null : lookup(input))`.
+
+**From Effect.** `Mutation.run(mutation, variables)` runs a mutation from
+Effect code, with the same steps, and succeeds or fails as its `run` did.
+A mutation whose `run` takes no variables runs without them. Here a bulk
+action marks several todos done, one after another:
+
+```ts
+import * as Effect from "effect/Effect";
+
+import { Mutation } from "@monarcode/effetch-query";
+
+import { queryClient } from "./client.js";
+import { toggleTodo } from "./toggle-todo.js";
+
+const markAllDone = (ids: ReadonlyArray<number>) =>
+  Effect.forEach(
+    ids,
+    (id) => Mutation.run(toggleTodo, { params: { id }, body: { done: true } }),
+    { discard: true },
+  );
+
+// From an event handler, through the client.
+export const onMarkAllDone = (ids: ReadonlyArray<number>) =>
+  queryClient.runPromise(markAllDone(ids));
+```
+
+Each `Mutation.run` is a run of its own: `concurrent` applies to one use's
+runs, so calls never interrupt each other. Runs started this way count in
+`useIsMutating` and `useMutationState` ([Show activity](/docs/mutations/activity)).

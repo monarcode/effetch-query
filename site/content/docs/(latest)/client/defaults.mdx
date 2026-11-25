@@ -2,3 +2,78 @@
 title: Defaults and app-wide hooks
 description: Set defaults and hooks for every query and mutation of a client.
 ---
+
+`queries.defaults` sets options for every query, and `mutations.defaults`
+for every mutation. A query's or mutation's own options override them.
+Each default, and its value when you don't set it, is as follows:
+
+The examples import `api.ts` from [Getting started](/docs/getting-started).
+
+| Default                               | What it does                                                        | When unset         |
+| ------------------------------------- | ------------------------------------------------------------------- | ------------------ |
+| `queries.defaults.staleTime`          | How long a success counts as fresh.                                 | `0`, stale at once |
+| `queries.defaults.retry`              | Retries a failed fetch on this `Schedule`. Defects aren't retried.  | No retries         |
+| `queries.defaults.refetchOnMount`     | Refetches a stale query when a component starts using it.           | `true`             |
+| `queries.defaults.retryOnMount`       | Refetches a failed query when a component starts using it.          | `true`             |
+| `queries.defaults.refetchOnFocus`     | Refetches a stale query in use when the app regains focus.          | `true`             |
+| `queries.defaults.refetchOnReconnect` | Refetches a stale query in use when the device reconnects.          | `true`             |
+| `queries.defaults.refetchInterval`    | Refetches a query in use at this interval.                          | No polling         |
+| `mutations.defaults.retry`            | Retries a failed run on this `Schedule`. Defects aren't retried.    | No retries         |
+| `mutations.defaults.concurrent`       | How one use's runs overlap: `true`, `false`, `"queue"` or `"drop"`. | `true`             |
+
+[Query options](/docs/queries/options) explains each query option, and
+[Run modes](/docs/mutations/run-modes) explains `concurrent`. In types, the two groups
+are `QueryClient.QueryDefaults` and `QueryClient.MutationDefaults`.
+
+**App-wide hooks** run for every query or mutation, with your services:
+for logging, error reporting or signing out when a session expires. This
+client sets query defaults and logs every failure:
+
+```ts
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+export const queryClient = QueryClient.make({
+  layer: ApiClientLive,
+  queries: {
+    defaults: { staleTime: "30 seconds", refetchOnFocus: false },
+    onFailure: ({ key, cause }) =>
+      Effect.logWarning("Query failed", key, Cause.pretty(cause)),
+  },
+  mutations: {
+    // Runs after the mutation's own onFailure.
+    onFailure: ({ cause }) =>
+      Effect.logError("Mutation failed", Cause.pretty(cause)),
+  },
+});
+```
+
+Each runs once per fetch or run, after `retry`. Interruptions, such as a
+component unmounting mid-fetch, never reach them.
+
+Each hook receives an event, and runs at a set point, as follows:
+
+| Hook                  | When it runs                                                                                   | Receives                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `queries.onSuccess`   | Once per successful fetch; not for `Query.set`.                                                | `QuerySucceeded`: `key`, `value`                      |
+| `queries.onFailure`   | Once per failed fetch, after `retry`.                                                          | `QueryFailed`: `key`, `cause`                         |
+| `queries.onSettled`   | Once per fetch that succeeds or fails, after `onSuccess` or `onFailure`.                       | `QuerySettled`: `key`, `exit`                         |
+| `mutations.onMutate`  | Before each run's `run`, after its optimistic writes.                                          | `MutationStarted`: `mutation`, `variables`            |
+| `mutations.onSuccess` | After each successful run, after its own `onSuccess` and `invalidates`.                        | `MutationSucceeded`: `mutation`, `variables`, `value` |
+| `mutations.onFailure` | After each failed run, once its optimistic writes are rolled back and its own `onFailure` ran. | `MutationFailed`: `mutation`, `variables`, `cause`    |
+| `mutations.onSettled` | After each run that succeeds or fails, after its own `onSettled`.                              | `MutationSettled`: `mutation`, `variables`, `exit`    |
+
+A mutation event's `mutation` is the mutation's definition, so you can
+compare it with yours. The event types live in the `QueryClient`
+namespace, as do `QueriesOptions` and `MutationsOptions`, the types of the
+two groups.
+
+A hook is a `QueryClient.Hook<Event>`: an Effect that can't fail, so
+handle errors inside it. A hook that dies is logged, and the others still
+run. Query hooks run in a fiber of their own, after the query shows its
+result, so a slow hook doesn't hold the query up. Mutation hooks are part
+of the run: it completes after them.

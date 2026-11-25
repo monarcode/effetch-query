@@ -1,0 +1,57 @@
+---
+title: "@monarcode/effetch-query/react-native"
+description: "Every export of the React Native entry point: focus and online signals from React Native's modules."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`@monarcode/effetch-query/react-native` builds a client's signals from React Native's own modules, which you pass in. Import what you use:
+
+```ts
+import { reactNativeSignals } from "@monarcode/effetch-query/react-native";
+```
+
+Its exports follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## React Native [#react-native]
+
+Guide: [React Native](/docs/react/react-native).
+
+### reactNativeSignals [#reactnativesignals]
+
+Makes signals for React Native: focus is the app coming back to the foreground (`AppState` changing to `"active"` from anything else), and online follows NetInfo's `isConnected`, where `null` (not known yet) counts as online. Pass them as the `signals` option of `QueryClient.make`, in place of the default [`Signals.browser`](/docs/reference/signals#browser), which never changes without a DOM. The parameters are [`AppStateLike`](#appstatelike) and [`NetInfoLike`](#netinfolike).
+
+Each client starts its own listeners when one of its queries first needs them, and stops them once no cached query does or the client is disposed, so one set of signals can serve several clients.
+
+### AppStateLike [#appstatelike]
+
+The part of React Native's `AppState` that [`reactNativeSignals`](#reactnativesignals) uses. `AppState` from `react-native` satisfies it, so this package never imports `react-native`.
+
+### NetInfoLike [#netinfolike]
+
+The part of NetInfo (`@react-native-community/netinfo`) that [`reactNativeSignals`](#reactnativesignals) uses. Its default export satisfies it, so this package never imports it.
+
+### ReactNativeSignalsOptions [#reactnativesignalsoptions]
+
+What [`reactNativeSignals`](#reactnativesignals) listens to.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react-native/index.d.ts"
+  name="ReactNativeSignalsOptions"
+/>
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
+- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
+- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.

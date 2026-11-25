@@ -76,9 +76,9 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   when a hook doesn't run, belongs there too. An example that augments
   `Register` (`declare module`) compiles on its own; the rest share one
   program, where `Register` isn't augmented. `tsx` blocks compile as TSX.
-  In the README, a fence can name its block (` ```ts todos.ts `): other
-  blocks import it as `"./todos.js"`, and those blocks share one program
-  with the named files' `Register`.
+  In the README and the docs site's pages, a fence can name its block
+  (` ```ts todos.ts `): other blocks import it as `"./todos.js"`, and those
+  blocks share one program with the named files' `Register`.
 - `src/internal/` isn't public: document only what's non-obvious.
 - Pass `useEffect` (and `useLayoutEffect`) a named function, not an arrow,
   and name its cleanup too:
@@ -118,17 +118,54 @@ follows Vite's and Fumadocs' conventions, as its files do.
   docs check compiles like the README's, by the same rules. Any other
   TypeScript fence (` ```typescript `, `~~~ts`, ` ```ts title="…" `)
   fails the check, so no example skips it, and so does a page outside
-  `(latest)`. Block names (` ```ts todos.ts `) are shared with the README,
-  so a page can't reuse one yet.
-- Link between pages with root-relative paths (`/docs/installation`).
+  `(latest)`. Block names (` ```ts todos.ts `) are one namespace across
+  the README and every page: the examples build one app, whose files
+  (`api.ts`, `todos.ts`, …) are defined once, mostly in Getting started,
+  and imported from any page.
+- Every example on a page gets Twoslash type hovers, read from the built
+  package in `dist`, and a type error in one fails the site's build. A
+  block is compiled as the docs check compiles it, with the named files it
+  imports (and those that augment `Register`) as hidden files before it:
+  `scripts/docs-examples.mjs` holds that logic for both, so they can't
+  disagree. `no-twoslash` in a block's meta turns its hovers off; the docs
+  check still compiles it.
+- The API reference pages in `reference/` (all but `index.mdx` and
+  `limitations.mdx`) are generated from the JSDoc by
+  `scripts/reference-docs.mjs`. Don't edit them: after changing a public
+  export or its docs, run `pnpm run docs:reference`. A new export needs a
+  group in that script, and the docs check fails until it has one and the
+  pages match.
+- Older release lines in `site/content/docs/<line>/` are snapshots of
+  released docs, with that release's types in `site/versions/<line>/`.
+  Don't edit them, and don't update them when the API changes: the docs
+  check and Twoslash skip them. `pnpm run docs:snapshot <line>` writes one;
+  its header comment says when and how.
+- Each page is also served as Markdown (`/docs/<page>.md`), and
+  `/llms.txt` and `/llms-full.txt` list the current line's pages. Link
+  between pages with root-relative paths, which the Markdown turns into
+  full URLs.
+- The guides live on the site, once. The README is an overview that links
+  to them: when a feature changes, update its page, and the README only if
+  its quick start or links change.
 - `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
   `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
   apart, or the browser bundle takes the loader and every Lucide icon.
 - Pages prerender to flat files (`docs/installation.html`), which
-  Cloudflare Pages serves at `/docs/installation`.
+  Cloudflare Pages serves at `/docs/installation`. A page's head comes
+  from `pageHead` in `site/src/lib/shared.ts`: its canonical URL, link
+  preview, Markdown alternate and structured data. `robots.txt` and
+  `sitemap.xml` are routes too, and the sitemap lists the home page and
+  the current line's pages. Full URLs use `SITE_URL`: the live site, or a
+  Cloudflare preview's own address. `npx wrangler pages dev site/dist/client`
+  serves a build the way Cloudflare does, headers included.
+- The live docs deploy from the `site` branch, which the Release workflow
+  moves to each released commit; `main` and pull requests deploy as
+  previews. Don't push `site` yourself.
 - `pnpm run check` doesn't build the site. After changing `site/`, run
-  `pnpm run build:site`, which prerenders it into `site/dist/client`.
-  `pnpm --dir site run dev` serves it while you write.
+  `pnpm run build:site`, which builds the package, then prerenders the site
+  into `site/dist/client`. `pnpm --dir site run dev` serves it while you
+  write, once `pnpm run build` has built `dist`, which the hovers and type
+  tables read.
 
 ## Testing
 
@@ -164,8 +201,8 @@ The maintainer handles commits, pull requests, CI and npm.
 
 Run `pnpm run check` and make sure it passes. It runs lint, the format check,
 typecheck, the docs check (every public export has a description, `@example`
-and `@since`, and every `ts` and `tsx` example in the JSDoc and the README
-compiles),
+and `@since`, and every `ts` and `tsx` example in the JSDoc, the README and the docs site's
+pages compiles),
 the Effect language service diagnostics, the tests (including type tests),
 the build, publint, attw and the tarball smoke test. After changing `site/`,
 also run `pnpm run build:site`.

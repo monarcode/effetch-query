@@ -2,3 +2,99 @@
 title: Suspense and error boundaries
 description: Let Suspense show loading and error boundaries show failures.
 ---
+
+`useSuspenseQuery` suspends until the query has a value, then returns its
+`Success`, which stays `waiting` while it refetches. A failure with
+nothing to show is thrown to the nearest error boundary as a
+`QueryFailure`, which carries the query and its `Cause`.
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+`QueryBoundary` handles both: it shows `pending` while the queries inside
+suspend, and calls `failure` when one of them throws a `QueryFailure`.
+`retry` refetches the failed query and shows the children again:
+
+```tsx
+import {
+  QueryBoundary,
+  useSuspenseQuery,
+} from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+function TodoDetail({ id }: { readonly id: number }) {
+  const { value } = useSuspenseQuery(todo({ params: { id } }));
+  return <h1>{value.title}</h1>;
+}
+
+export function TodoScreen({ id }: { readonly id: number }) {
+  return (
+    <QueryBoundary
+      key={id}
+      pending={<p>Loading…</p>}
+      failure={({ error, retry }) => (
+        <button onClick={retry}>{String(error)}: try again</button>
+      )}
+    >
+      <TodoDetail id={id} />
+    </QueryBoundary>
+  );
+}
+```
+
+Any other error goes on to the next error boundary up. A refetch that
+fails after a success keeps showing that success.
+
+The boundary shows `failure` until `retry` is called, or until the failed
+query succeeds some other way, such as a refetch on reconnect. `retry`
+refetches the query that failed: give each part of a screen that can fail
+on its own a boundary of its own. To show other content after a failure,
+such as the next todo, give the boundary a `key` (`key={id}`), so React
+makes a new one.
+
+A few things are particular to suspense readers:
+
+- **A value under a second old isn't refetched on mount,** as in TanStack
+  Query, so the value a component suspended on isn't fetched again as it
+  mounts. An older stale value is shown and refetched in the background.
+- **A failure stays thrown** until something refetches the query. A
+  suspense reader never starts using the failed query, so `retryOnMount`
+  doesn't retry it: `retry` or `useResetQueryFailure` does.
+- **In a server render, it fetches** a query the cache doesn't have, and
+  suspends on the fetch, for streaming ([Stream the cache](/docs/server-rendering/streaming)).
+
+`failure` gets the failure as `error`, squashed to one value for display,
+with its `cause` and `retry`. A `QueryFailure` has the same `error` and
+`cause`, with the `query` that failed. `QueryFailure.is` tells it from
+other errors, and it's exported by both `@monarcode/effetch-query` and
+`/react`. Code outside React never sees one: there, a query's failure
+keeps its own error type.
+
+Where a router owns the error boundary, such as TanStack Router's
+`errorComponent` or a React Router `ErrorBoundary` export, call
+`useResetQueryFailure` there. Given the caught error, it refetches the
+query inside a `QueryFailure`, and ignores any other error; then reset the
+router's boundary:
+
+```tsx
+import {
+  QueryFailure,
+  useResetQueryFailure,
+} from "@monarcode/effetch-query/react";
+import type { ErrorComponentProps } from "@tanstack/react-router";
+
+export function TodoFailed({ error, reset }: ErrorComponentProps) {
+  const resetFailure = useResetQueryFailure();
+  const shown = QueryFailure.is(error) ? error.error : error;
+  return (
+    <button
+      onClick={() => {
+        resetFailure(error);
+        reset();
+      }}
+    >
+      {String(shown)}: try again
+    </button>
+  );
+}
+```

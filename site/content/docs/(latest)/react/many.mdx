@@ -2,3 +2,48 @@
 title: Read many queries
 description: Read several queries in one component.
 ---
+
+`useQueries` reads a list of queries whose length changes, such as one
+per selected item, and returns their results in the same order. Combine
+them with `AsyncResult.all`:
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQueries } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function SelectedTitles({
+  ids,
+}: {
+  readonly ids: ReadonlyArray<number>;
+}) {
+  const all = AsyncResult.all(
+    useQueries(ids.map((id) => todo({ params: { id } }))),
+  );
+
+  return AsyncResult.builder(all)
+    .onSuccess((todos) => (
+      <ul>
+        {todos.map((item) => (
+          <li key={item.id}>{item.title}</li>
+        ))}
+      </ul>
+    ))
+    .onFailure(() => <p>Couldn't load them</p>)
+    .orElse(() => <p>Loading…</p>);
+}
+```
+
+Each query gets the mount policy as it joins the list, and a `null` entry
+reads `Initial`. A query listed twice is read once, and shows in both
+places. A tuple of queries gives a tuple of results, each typed by its
+query. The array keeps its identity while every result does, so it can be
+a dependency of `useMemo`.
+
+Its options (`UseQueriesOptions`) take only `paused`
+([Pause screens you can't see](/docs/react/pause)). As with
+`useQuery`, a server render reads only the cache.

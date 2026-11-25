@@ -2,3 +2,56 @@
 title: Query errors
 description: How a query's errors stay typed, from the call to the component.
 ---
+
+A query's error type is part of its type: `Query<A, E>`. A failed query's
+result is a `Failure` with the full `Cause`, so you can tell three things
+apart:
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+- **the query's errors,** typed as `E`: an Effetch `HttpError` or
+  `NetworkError`, your own errors by status or the errors your Effect
+  fails with;
+- **defects,** such as a bug that throws;
+- **interruptions,** such as a fetch replaced by a refetch.
+
+In a component, match on the typed errors by their `_tag` with
+`AsyncResult.builder`'s `onErrorTag`, or by kind with
+`AsyncResult.matchWithError` ([Read a query](/docs/react)). In Effect,
+`Query.fetch` fails with the query's error, so `Effect.catchTag` handles
+it ([Use the cache from Effect](/docs/cache)).
+
+**The client's `defaultError` types the body of an `HttpError`.** In
+[1. Describe your API](/docs/getting-started#1-describe-your-api), `ApiClient` declares
+`ApiError`, so every endpoint's `HttpError` is
+`HttpError.With<{ message: string }>`. An endpoint with an `error` schema
+of its own uses that one instead (`ErrorSchema` is that choice, as a
+type), and `todo.error` holds the schema an endpoint query decodes its
+error bodies with.
+
+**Retry with a `Schedule`.** A query doesn't retry by default, where
+TanStack Query retries three times: Effetch has a retry plugin, and a
+query shouldn't retry what the client already retried. To retry at the
+query, give it a `retry` schedule:
+
+```ts
+import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { api } from "./todos.js";
+
+export const stats = api.query(
+  Fetch.endpoint("GET /stats", {
+    output: Schema.Struct({ open: Schema.Finite, done: Schema.Finite }),
+  }),
+  // Two more tries before the failure shows.
+  { retry: Schedule.recurs(2) },
+);
+```
+
+The schedule gets each failure, and defects aren't retried. The client's
+`queries.defaults.retry` sets one for every query
+([Defaults and app-wide hooks](/docs/client/defaults)), and the client's `onFailure` hook runs once
+per fetch, after `retry`.

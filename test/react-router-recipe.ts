@@ -1,4 +1,4 @@
-// The README's React Router recipe (`query-context.ts`), with the suite's
+// The React Router page's recipe (`query-context.ts`), with the suite's
 // services: `react-router.test.tsx` runs it, and checks it still matches.
 import * as ManagedRuntime from "effect/ManagedRuntime";
 

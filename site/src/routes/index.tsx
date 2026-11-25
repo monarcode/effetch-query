@@ -2,17 +2,20 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { HomeLayout } from "fumadocs-ui/layouts/home";
 
 import { baseOptions } from "@/lib/layout.shared";
-import { pageMeta } from "@/lib/shared";
+import { pageHead, websiteJsonLd } from "@/lib/shared";
 
 const TAGLINE = "Server state for Effect apps, inspired by TanStack Query.";
 
 export const Route = createFileRoute("/")({
-	head: () => ({
-		meta: pageMeta(
-			"Effetch Query: server state for Effect",
-			"Effectful queries and mutations for Effect 4, inspired by TanStack Query. Cached, kept fresh, typed end to end, and made to pair with Effetch.",
-		),
-	}),
+	head: () =>
+		pageHead({
+			title: "Effetch Query: server state for Effect",
+			description:
+				"Effectful queries and mutations for Effect 4, inspired by TanStack Query. Cached, kept fresh, typed end to end, and made to pair with Effetch.",
+			path: "/",
+			type: "website",
+			jsonLd: [websiteJsonLd()],
+		}),
 	component: Home,
 });
 

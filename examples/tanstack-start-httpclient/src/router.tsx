@@ -35,7 +35,8 @@ export interface RouterOptions {
  * Start calls this once per request on the server, and once in the browser,
  * so each request gets its own query client, with that request's token.
  * Nothing here is costly to build; an app with a database pool would share
- * it through a `ManagedRuntime` (the README's "Sharing your runtime").
+ * it through a `ManagedRuntime`: see "Sharing your runtime" at
+ * https://effetch-query.pages.dev/docs/client#layer-or-runtime.
  */
 export function getRouter({
 	http = FetchHttpClient.layer,

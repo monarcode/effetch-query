@@ -2,3 +2,79 @@
 title: Refetch on demand
 description: Refetch a query from an event, such as a button or pull-to-refresh.
 ---
+
+A query's `waiting` is true for background refetches too, which shouldn't
+show a spinner. `useRefetch` refetches on demand, with a flag for its own
+refetch only:
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+```tsx
+import { useRefetch } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+
+export function RefreshButton() {
+  const { refetch, isRefetching } = useRefetch(todos);
+  return (
+    <button disabled={isRefetching} onClick={() => void refetch()}>
+      {isRefetching ? "Refreshing…" : "Refresh"}
+    </button>
+  );
+}
+// React Native: <FlatList refreshing={isRefetching} onRefresh={refetch} … />
+```
+
+`useRefetch` takes a target ([Targets](/docs/queries/keys#targets)) and refetches its queries in
+use, as `Query.refetch` does. It returns a `UseRefetchResult`:
+
+- `refetch` resolves when the queries have settled, and never rejects. It
+  keeps its identity across renders, and uses the target of the latest
+  render, so a key array written inline is fine.
+- `isRefetching` is true only while one of this component's refetches is
+  in progress. Focus, reconnect and polling don't set it.
+
+That makes it the hook for pull to refresh: in React Native, pass
+`isRefetching` and `refetch` to `FlatList`'s `refreshing` and `onRefresh`.
+
+A screen that shows queries from several features, each with its own key,
+refreshes them together with `Query.group`. Define the group once: it's a
+target like any other, so a mutation can invalidate it too. Here the home
+screen refreshes the todos and the profile together:
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useRefetch } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+const profile = api.query(
+  Fetch.endpoint("GET /me", { output: Schema.Struct({ name: Schema.String }) }),
+);
+
+// Everything the home screen shows. The spinner stops once all of it has settled.
+export const home = Query.group(todos, profile);
+
+export const archiveDone = api.mutation(
+  Fetch.endpoint("POST /todos/archive", { output: Schema.Array(Todo) }),
+  { invalidates: [home] },
+);
+
+export function HomeRefresh() {
+  const { refetch, isRefetching } = useRefetch(home);
+  return (
+    <button disabled={isRefetching} onClick={() => void refetch()}>
+      Refresh
+    </button>
+  );
+}
+```
+
+Pass the group, not an array: `useRefetch([todos, profile])` compiles,
+because an array is a key, but a key that holds queries would refetch
+nothing, so `useRefetch` throws a `Query.KeyHoldsTargetError` as it
+renders.

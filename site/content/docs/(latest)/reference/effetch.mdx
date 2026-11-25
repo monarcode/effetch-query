@@ -1,0 +1,177 @@
+---
+title: "@monarcode/effetch-query/effetch"
+description: "Every export of the Effetch entry point: queries and mutations from Effetch endpoints."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`@monarcode/effetch-query/effetch` turns Effetch endpoints into queries and mutations. Import what you use:
+
+```ts
+import {
+  EndpointQueryError,
+  fromClient,
+} from "@monarcode/effetch-query/effetch";
+```
+
+Its exports follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## Queries from endpoints [#queries-from-endpoints]
+
+Guide: [Queries from endpoints](/docs/queries).
+
+### fromClient [#fromclient]
+
+Turns `Fetch.endpoint` definitions into queries and mutations that call them through your Effetch client: give it the client's service, a `Fetch.Service` class or a `Context.Service` key. Use it at module level, next to the definitions: the client is only reached when a query fetches or a mutation runs, from your services (so the service must be in `Register["services"]`). Returns an [`Endpoints`](#endpoints-type), whose `query`, `infiniteQuery` and `mutation` make them.
+
+The adapter adds no behaviour of its own: a query is a [`Query.family`](/docs/reference/query#family) member keyed by its route, and a mutation is a [`Mutation.make`](/docs/reference/mutation#make) whose `run` calls the endpoint, and that invalidates its route with `EndpointsOptions.invalidates`. From a `Fetch.Service` class it reads the `defaultError` and `statusErrors` the client is made with, to send errors to the browser; from a `Context.Service` key, give them in the options ([`EndpointsOptions`](#endpointsoptions)). The definitions of a `Fetch.Endpoints` class (`TodoApi.definitions`) work as any other. It needs `@monarcode/effetch` 0.1, from `0.1.0-rc.4`.
+
+### endpoints [#endpoints]
+
+**Deprecated.** Use [`fromClient`](#fromclient): rename the import and the call.
+
+The former name of [`fromClient`](#fromclient), which works the same: it takes the same client and options, and returns the same [`Endpoints`](#endpoints-type). It stays for the 0.1 releases and goes in 0.2.0.
+
+### EndpointQuery [#endpointquery]
+
+A family of queries, one per call of an Effetch endpoint, made by `Endpoints.query`. Call it with the endpoint's `params` and `query` to get the query for that call. Its key is the route's path with the params filled in, then the query object: `GET /todos/:id` called with `{ params: { id: 1 } }` is `["todos", 1]`.
+
+### EndpointQueryArgs [#endpointqueryargs]
+
+What a query from route `R` takes: the path's params, and a query object. They make its key, so `headers` and `plugins` are given once, in [`EndpointQueryOptions`](#endpointqueryoptions), instead.
+
+- `Q`: the type of `query`, checked with `Fetch.QueryOf`, so a value typed with an `interface` is accepted too. Default: `Fetch.QueryInput`.
+- `QS`: the endpoint's `query` schema, if it has one: `query` is then the schema's type, required when the schema has required fields.
+
+### EndpointQueryCallError [#endpointquerycallerror]
+
+The error of a query `Endpoints.query` makes from an endpoint: the `Fetch.CallError` of its call, from its `output` schema `O`, its error body schema `EB` ([`ErrorSchema`](#errorschema)), the client's plugins `Ps`, its status errors `SE` and its stream format `St`. A stream endpoint's elements are decoded as they come, so its `DecodeError` isn't for the whole `output`.
+
+### EndpointQueryOptions [#endpointqueryoptions]
+
+Options for `Endpoints.query`: a query's options ([`Query.Options`](/docs/reference/query#options)), a `placeholder`, `live` updates, and the headers and plugin overrides `client.bind` takes (`Fetch.BindOptions`). `A` is the query's value and `Args` the call's `params` and `query` ([`EndpointQueryArgs`](#endpointqueryargs)), which type `placeholder` and `live`; `api.query` sets both from the endpoint.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointQueryOptions"
+/>
+
+### EndpointQueryOptionsFor [#endpointqueryoptionsfor]
+
+The options `Endpoints.query` takes for an endpoint: those of a stream query ([`EndpointStreamOptions`](#endpointstreamoptions)) for a stream endpoint, whose stream format `St` is `"sse"` or `"ndjson"`, else those of a fetched one ([`EndpointQueryOptions`](#endpointqueryoptions)). `E` is the query's error ([`EndpointQueryCallError`](#endpointquerycallerror)), `A` its value ([`EndpointQueryValue`](#endpointqueryvalue)), `R` the endpoint's route and `QS` its `query` schema, which type `placeholder` and `live`.
+
+### EndpointQueryValue [#endpointqueryvalue]
+
+The value of a query `Endpoints.query` makes from an endpoint, from its `output` schema `O` and its stream format `St`: the decoded `output` (the raw `HttpClientResponse` without one), or for a stream endpoint (`stream: "sse"` or `"ndjson"`) its latest element, a `Fetch.SseEvent` of the `output` for SSE.
+
+### Endpoints [#endpoints-type]
+
+Queries and mutations for one Effetch client, made by [`fromClient`](#fromclient).
+
+### EndpointsOptions [#endpointsoptions]
+
+Options for [`fromClient`](#fromclient).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointsOptions"
+/>
+
+### RegisteredSchema [#registeredschema]
+
+A schema whose decoding and encoding need nothing outside your registered services (`Register["services"]`) and the client. The adapter accepts only these, so an endpoint whose schema needs another service is a compile error where its query or mutation is defined (`Endpoints.query`, `Endpoints.mutation`).
+
+## Query keys [#query-keys]
+
+Guide: [Query keys](/docs/queries/keys).
+
+### EndpointQueryError [#endpointqueryerror]
+
+Thrown when a call's `query` can't be part of its key: it doesn't match the endpoint's `query` schema, a field encodes to an object, or a field is `Redacted`, whose secret the key would hold and send to the browser. Send a secret in a header instead. It's thrown when the query is made, such as `todos({ query })` in a component, before anything is fetched.
+
+### KeyQuerySchema [#keyqueryschema]
+
+A `query` schema an endpoint query can be keyed by: one whose encoding needs no services, since a key is encoded when the family is called, outside any Effect. `Endpoints.mutation` takes any query schema whose services are registered.
+
+## Query errors [#query-errors]
+
+Guide: [Query errors](/docs/queries/errors).
+
+### ErrorSchema [#errorschema]
+
+The error schema a bound endpoint decodes error bodies with: its own, or the client's `defaultError` (see `EndpointsOptions.defaultError`).
+
+## Errors by status [#errors-by-status]
+
+Guide: [Errors by status](/docs/queries/status-errors).
+
+### RegisteredStatusErrors [#registeredstatuserrors]
+
+A `statusErrors` map (`Fetch.StatusErrorMap`) whose schemas need nothing outside your registered services, as [`RegisteredSchema`](#registeredschema). The adapter accepts only these, on the client and on each endpoint: its queries and mutations decode the errors, and its queries send them to the browser (the client's only when [`fromClient`](#fromclient) has them, see `EndpointsOptions.statusErrors`).
+
+## Queries from a stream [#queries-from-a-stream]
+
+Guide: [Queries from a stream](/docs/queries/streams).
+
+### EndpointStreamOptions [#endpointstreamoptions]
+
+Options for `Endpoints.query` with a stream endpoint (`stream: "sse"` or `"ndjson"`): a stream query's options ([`Query.StreamOptions`](/docs/reference/query#streamoptions)), a `placeholder`, and the headers and plugin overrides `client.bind` takes (`Fetch.BindOptions`). `A` is the value, one element of the stream, and `Args` the call's arguments.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointStreamOptions"
+/>
+
+## Infinite queries [#infinite-queries]
+
+Guide: [Infinite queries](/docs/queries/infinite).
+
+### EndpointInfiniteQuery [#endpointinfinitequery]
+
+A family of infinite queries, one per call of an Effetch endpoint, made by `Endpoints.infiniteQuery`. Call it with the endpoint's `params` and `query` to get the [`InfiniteQuery.InfiniteQuery`](/docs/reference/infinite-query#infinitequery) for that call; a page field given there is ignored. Keys and matching are as for [`EndpointQuery`](#endpointquery).
+
+### EndpointInfiniteQueryOptions [#endpointinfinitequeryoptions]
+
+Options for `Endpoints.infiniteQuery`: an infinite query's page options ([`InfiniteQuery.PageOptions`](/docs/reference/infinite-query#pageoptions)) and query options ([`Query.Options`](/docs/reference/query#options)), the query field each page's param is sent in, and the headers and plugin overrides `client.bind` takes (`Fetch.BindOptions`).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointInfiniteQueryOptions"
+/>
+
+### EndpointPageField [#endpointpagefield]
+
+The query fields an infinite query's `EndpointInfiniteQueryOptions.pageParam` can name. The param `P` must be a `Fetch.QueryValue`, such as a string or a number, so pages cross to the browser as JSON. Without a `query` schema (`QS` is `undefined`), any field. With one, the schema's optional fields whose type takes `P` (`undefined` aside, for a first page with no cursor): optional, so a call can leave it out.
+
+## Define a mutation [#define-a-mutation]
+
+Guide: [Define a mutation](/docs/mutations).
+
+### EndpointMutationOptions [#endpointmutationoptions]
+
+Options for `Endpoints.mutation`: a mutation's options ([`Mutation.MakeOptions`](/docs/reference/mutation#makeoptions)) without `run`, which is the endpoint, and the headers and plugin overrides `client.bind` takes (`Fetch.BindOptions`).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointMutationOptions"
+/>
+
+### EndpointVariables [#endpointvariables]
+
+What a mutation from route `R` takes when run: the endpoint's call options (`params`, `query`, `body`, `headers`, `plugins`), or nothing when none are required. The variables of `Endpoints.mutation`.
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
+- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
+- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.

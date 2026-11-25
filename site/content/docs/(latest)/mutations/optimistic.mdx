@@ -2,3 +2,105 @@
 title: Optimistic updates
 description: Write a change to the cache before the server confirms it, and undo it on failure.
 ---
+
+An optimistic update shows the change before the server confirms it.
+There are two ways to do it: in the component that runs the mutation, or
+in the cache, where every screen sees it.
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started), and `entities.ts` from [Entities](/docs/mutations/entities).
+
+**In the component.** While a run is in progress, `useMutation`'s
+`variables` hold what it sends, so the component can show the change
+itself and leave the cache alone. Here a new todo shows, faded, until the
+list has it. The mutation refetches the lists in `onSuccess`, so the run
+is in progress until they have the todo
+([Invalidate after a mutation](/docs/mutations/invalidate)):
+
+```tsx
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useMutation } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+const addTodo = api.mutation(
+  Fetch.endpoint("POST /todos", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  // Refetches the lists and waits, so the run settles once they have it.
+  { onSuccess: () => Query.refetch(todos) },
+);
+
+export function AddTodo({ title }: { readonly title: string }) {
+  const { result, variables, run } = useMutation(addTodo);
+
+  return (
+    <>
+      {result.waiting && variables !== undefined ? (
+        <li style={{ opacity: 0.5 }}>{variables.body.title}</li>
+      ) : null}
+      <li>
+        <button type="button" onClick={() => void run({ body: { title } })}>
+          Add
+        </button>
+      </li>
+    </>
+  );
+}
+```
+
+If the run fails, the faded todo goes, and there's nothing to undo. Only
+this component sees it: another can list the runs in progress with
+`useMutationState` ([Show activity](/docs/mutations/activity)).
+
+**In the cache.** To show the change everywhere the data is cached, write
+the cache in `optimistic`. If the request fails, every write it made is
+undone, newest first. This `toggleTodo` flips the todo at once, in its own
+query and in every cached list, through the `Todos` entity
+([Entities](/docs/mutations/entities)):
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Entity } from "@monarcode/effetch-query";
+
+import { Todo } from "./api.js";
+import { Todos } from "./entities.js";
+import { api, todos } from "./todos.js";
+
+export const toggleTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ done: Schema.Boolean }),
+    output: Todo,
+  }),
+  {
+    // Every cached copy: its own query, and each list, whatever its filter.
+    optimistic: ({ params, body }) =>
+      Entity.update(Todos, Number(params.id), (todo) => ({
+        ...todo,
+        done: body.done,
+      })),
+    // The server's version replaces the guess.
+    onSuccess: (saved) => Entity.set(Todos, saved),
+    invalidates: [todos],
+  },
+);
+```
+
+Without an entity, write each query yourself: `Query.update(todo({ params }), f)`
+for the detail and `Query.update(todos, f)` for every cached list
+([Use the cache from Effect](/docs/cache)).
+
+A written value shows until the next fetch of that query settles, so the
+old value never flashes back while the refetch runs. Two limits:
+
+- Only writes made while `optimistic` runs are undone: not those of a fiber
+  it forks that write after it's done, nor those of a mutation it runs.
+- A fetch of the same query already in progress still settles over the
+  optimistic value, and there's no way to cancel it: the query then shows
+  what that fetch returned.

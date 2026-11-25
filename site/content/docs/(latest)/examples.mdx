@@ -2,3 +2,21 @@
 title: Examples
 description: Complete apps that use Effetch Query, on GitHub.
 ---
+
+The [`examples/`](https://github.com/monarcode/effetch-query/tree/main/examples) folder has complete programs, typechecked with
+the package. `effect-only` and the full apps are also tested, in
+[`test/examples/`](https://github.com/monarcode/effetch-query/tree/main/test/examples). There are five:
+
+- [`effect-only.ts`](https://github.com/monarcode/effetch-query/blob/main/examples/effect-only/effect-only.ts): queries, a live
+  query, the cache and mutations from Effect code, with no UI.
+- [`basic/`](https://github.com/monarcode/effetch-query/tree/main/examples/basic): the smallest React app, with dummyjson.com's
+  todos and an optimistic toggle.
+- [`tanstack-start/`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start): a full TanStack Start app on
+  Effetch endpoints: sign-in, a user's todos, a list with "Load more", a
+  streamed detail page and a missing one.
+- [`tanstack-start-httpclient/`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start-httpclient): the
+  same app on Effect's `HttpClient`, without Effetch.
+- [`react-router/`](https://github.com/monarcode/effetch-query/tree/main/examples/react-router): the same app in React Router's
+  framework mode, on Effetch endpoints.
+
+[The examples README](https://github.com/monarcode/effetch-query/blob/main/examples/README.md) walks through each one.

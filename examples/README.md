@@ -102,7 +102,7 @@ How they work:
   query (`client.clear()`). That covers the app's own button, which is all
   these apps handle: a session that ends elsewhere, such as in another tab
   or when the token expires, leaves the cache to the next account.
-  [Sign out and switch accounts](../README.md#sign-out-and-switch-accounts)
+  [Sign out and switch accounts](https://effetch-query.pages.dev/docs/cache/accounts)
   explains when to make a client per account instead.
 - **Typed errors.** A 401 is an `Unauthorized`, which `viewer` catches by
   its tag, and a missing todo a `TodoNotFound`, whose page offers no "Try

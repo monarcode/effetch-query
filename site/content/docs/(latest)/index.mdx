@@ -24,6 +24,38 @@ works with any Effect too.
   notes](https://github.com/monarcode/effetch-query/blob/main/CHANGELOG.md).
 </Callout>
 
+## Why Effetch Query
+
+Effetch Query started in real frontend projects built with Effect and
+Effetch. Their API calls were Effects, with typed errors, services and
+retries. Their UI used TanStack Query, the standard way to cache server
+data in React. Joining the two meant writing a bridge: run each Effect into
+a promise, hand the promise to TanStack Query, and turn its errors back
+into something the UI could match on.
+
+That bridge was where the trouble lived. Past the promise, errors lost
+their Effect types, a query couldn't use the app's layers, and stopping an
+Effect that was no longer needed took wiring of its own. Effetch had made
+each call effectful; what was still missing was a cache built on Effect.
+
+Effetch Query is that cache. Instead of patching TanStack Query, it brings
+the parts of it that make apps feel fast into Effect itself: one fetch
+shared by every component, fresh data in the background, optimistic
+updates and invalidation by key.
+
+**With thanks to TanStack Query.** Effetch Query owes its model, its
+vocabulary and many of its defaults to
+[TanStack Query](https://tanstack.com/query). If you know it, you'll feel
+at home here, and [Coming from TanStack Query](/docs/coming-from-tanstack-query)
+maps one to the other. TanStack Query is the industry standard for data
+fetching, and the right choice for most apps. Effetch Query is an
+alternative for people building their apps with Effect, who want their
+server state to be Effect as well.
+
+Want to keep TanStack Query and still write your frontend with Effect?
+Watch [tanstack-effect-bridge](https://github.com/monarcode/tanstack-effect-bridge),
+our next project.
+
 ## How it works
 
 Six ideas carry the whole library:
@@ -171,7 +203,7 @@ function Todos() {
 ## What's next
 
 - [Install Effetch Query](/docs/installation).
-- Build the same app one piece at a time in the README's [Getting
-  started](https://github.com/monarcode/effetch-query#getting-started).
+- Build the same app one piece at a time in [Getting
+  started](/docs/getting-started).
 - Already know TanStack Query? See [Coming from TanStack
-  Query](https://github.com/monarcode/effetch-query#coming-from-tanstack-query).
+  Query](/docs/coming-from-tanstack-query).

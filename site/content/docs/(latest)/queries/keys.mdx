@@ -2,3 +2,119 @@
 title: Query keys
 description: How a key finds a cached value, targets a group of queries, and comes from a query schema.
 ---
+
+A key is an array that identifies a query in the cache, such as
+`["todos", 1]`. Keys are hierarchical: invalidating `["todos"]` reaches
+every key that starts with it, so the broadest part comes first. Parts
+are compared by value (`Equal.equals`), so `{ done: false }` matches
+`{ done: false }`.
+
+The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+
+Keep keys to JSON values (strings, numbers, booleans, `null`, arrays and
+plain objects): with server rendering, they're sent to the browser.
+
+**A family's key is a prefix.** Each member's key is the family's `key`
+with its argument added: `Query.family({ key: ["todos", "detail"] })`
+called with `1` is `["todos", "detail", 1]`. An endpoint family's key is
+its route's path up to the first param, so `todo.key` is `["todos"]`.
+
+**A prefix for each backend.** An endpoint's key has no method, scheme or
+host. For a second backend with the same paths,
+`fromClient(Client, { key: ["billing"] })` puts a prefix before every key
+it makes, as [`fromClient` options](/docs/queries/from-client-options)
+shows.
+
+## Targets
+
+`Query.invalidate`, `Query.refetch`, `Query.reset`, `Query.clear`, a
+mutation's `invalidates` and `useRefetch` take a **target**, which says
+which queries to act on. A target is one of these:
+
+- a query, such as `todo({ params: { id: 1 } })`: that key only;
+- a family, such as `todos`: every query whose key starts with the
+  family's, except that an endpoint family matches only its own queries;
+- a key, such as `["todos"]`: every query whose key starts with it, so
+  `[]` matches every query;
+- a group, made with `Query.group`: every query one of its targets
+  matches.
+
+A group combines targets that share no key, such as the queries one
+screen shows. It matches each query once, and is a target like any other:
+
+```ts
+import { Query } from "@monarcode/effetch-query";
+
+import { todo, todos } from "./todos.js";
+
+// The two todos endpoints, and nothing else under ["todos"].
+export const todoEndpoints = Query.group(todos, todo);
+
+export const refreshTodos = Query.refetch(todoEndpoints);
+```
+
+`Query.group` returns a `Query.Group`, whose `targets` lists what it
+combines; a group passed to it is flattened into it. Writes don't take a
+group, since one value can't fit queries of different types: `Query.set`
+and `Query.update` take one query or family.
+
+Pass the targets one by one, not as an array. An array of queries is a
+key, not a group, and as a key it would match nothing, so
+`Query.GroupTargets` makes `Query.group([todos, todo])` a type error. Where
+a target is expected, though, `[todos, todo]` compiles, since it's a
+valid key, and fails at run time with a `Query.KeyHoldsTargetError`
+defect.
+Combine targets with `Query.group`.
+
+## Keys from a query schema
+
+**An endpoint with a `query` schema** (Effetch's `query` option on
+`Fetch.endpoint`) is keyed by its query as it's sent: each value encoded
+to a string, as in the URL. A `Date` is its ISO string, `2` is `"2"`, and
+a field renamed with `Schema.encodeKeys` has its sent name. So equal
+requests share a query, and the key is JSON for server rendering:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+export const searchTodos = api.query(
+  Fetch.endpoint("GET /todos/search", {
+    output: Schema.Array(Todo),
+    query: Schema.Struct({
+      due: Schema.Date,
+      page: Schema.optional(Schema.Finite),
+    }),
+  }),
+);
+
+searchTodos({ query: { due: new Date("2026-11-16"), page: 2 } });
+// keyed ["todos", "search", { due: "2026-11-16T00:00:00.000Z", page: "2" }]
+```
+
+A call throws an `EndpointQueryError` when its query doesn't
+match the schema, when a field encodes to an object or when a field is
+`Redacted`: the key would hold the secret and send it to the browser, so
+send secrets in a header. The schema's encoding can't need services,
+since the key is made when you call `searchTodos`, outside any Effect.
+`KeyQuerySchema` is the type of such a schema, to check one with
+`satisfies KeyQuerySchema`. For an infinite query, `pageParam` names one
+of the schema's optional fields ([Infinite queries](/docs/queries/infinite)).
+
+## Keys on the server
+
+Two errors come from keys, and both are thrown by `QueryClient.dehydrate`
+as the server sends the cache ([Send the cache](/docs/server-rendering)):
+
+- **`QueryClient.NonJsonKeyError`** when a query it sends has a key that
+  isn't JSON, one that holds a `Date`, a class instance, `undefined` in an array, `NaN` or
+  `Infinity`, a function, a `bigint` or a symbol. Its `segment` is the
+  first such value.
+- **`QueryClient.DuplicateQueryKeyError`** when two cached queries it
+  sends have one key, such as two `api.query` of one endpoint. The
+  browser finds a query by its key, so it couldn't tell them apart. Give
+  one of them another key, or a prefix.

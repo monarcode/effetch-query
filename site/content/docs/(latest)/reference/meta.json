@@ -1,4 +1,18 @@
 {
 	"title": "Reference",
-	"pages": ["index", "limitations"]
+	"pages": [
+		"index",
+		"core",
+		"query",
+		"infinite-query",
+		"mutation",
+		"entity",
+		"query-client",
+		"signals",
+		"react",
+		"effetch",
+		"react-native",
+		"tanstack-router",
+		"limitations"
+	]
 }

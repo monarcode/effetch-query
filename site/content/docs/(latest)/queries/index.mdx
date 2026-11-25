@@ -2,3 +2,66 @@
 title: Queries from endpoints
 description: Turn Effetch endpoints into cached queries with fromClient.
 ---
+
+A query is an Effect with a key, and the client keeps what it returns.
+This page shows how `fromClient` turns Effetch endpoints into queries.
+The other pages in Queries cover how keys work, how one query reads
+another, what a failure holds, when a value is refetched and every option
+a query takes.
+
+The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+`api.query`, `api.infiniteQuery` and `api.mutation` add no behaviour of
+their own: they call your endpoint through your Effetch client, and take a
+query's or mutation's options. What `api.query` returns is a family: call
+it with the endpoint's `params` and `query` to get the query for that
+call.
+
+- **Keys come from the route:** the path with its params filled in, then
+  the query object. `GET /todos/:id` with `{ params: { id: 1 } }` is
+  `["todos", 1]`, so invalidating `["todos"]` reaches every todos
+  endpoint.
+- **Errors are typed from the endpoint and the client:** `todo`'s error is
+  `NetworkError | DecodeError | HttpError.With<{ message: string }>`, with
+  your plugins' errors if you use any, and your own errors by status
+  ([Errors by status](/docs/queries/status-errors)).
+- **`query` takes endpoints without a body** (`GET`, `HEAD`, `OPTIONS`,
+  `TRACE`). Everything else is a `mutation`, whose variables are the
+  call's options ([Mutations](/docs/mutations)).
+- **As a target, an endpoint query matches its own queries only:**
+  `Query.invalidate(todo)` reaches every `todo({ params })`, not
+  `GET /todos` or `GET /todos/:id/comments` ([Query keys](/docs/queries/keys)).
+- **Server rendering needs nothing extra** when the endpoint has an
+  `output`: it's the schema the value crosses to the browser with
+  ([Server rendering](/docs/server-rendering)).
+- **`headers` and `plugins` are options of the query,** as with Effetch's
+  `client.bind`, not arguments of each call: the call's arguments make the
+  key, and a header shouldn't.
+
+The argument a call takes is an `EndpointQueryArgs`: the route's `params`,
+and a `query` object, typed by the endpoint's `query` schema if it has
+one. Here it is on its own, for a helper that builds one:
+
+```ts
+import type { EndpointQueryArgs } from "@monarcode/effetch-query/effetch";
+
+import { todo } from "./todos.js";
+
+export const firstTodoArgs: EndpointQueryArgs<"GET /todos/:id"> = {
+  params: { id: 1 },
+};
+
+export const firstTodo = todo(firstTodoArgs);
+// the query keyed ["todos", 1]
+```
+
+**Calls that send the same request share a query.** What isn't sent
+doesn't count, so `params` the path doesn't name and arrays left empty
+are ignored, as are `null` and `undefined` query values and array items.
+Without a `query`
+schema, values are otherwise compared as given, so `{ page: 1 }` and
+`{ page: "1" }` are two queries. With one, they're compared as they're
+sent ([Query keys](/docs/queries/keys)).
+
+Make one `api.query` per endpoint: two of the same route would share keys
+but not their cache.

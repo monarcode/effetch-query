@@ -1,0 +1,67 @@
+---
+title: "@monarcode/effetch-query"
+description: "The core entry point: its namespaces, and the two names it exports at the top level."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`@monarcode/effetch-query` is the core entry point. It has no framework in it, so it works in React, React Native and code with no UI at all. It exports six namespaces, each with a page of its own, and two names at the top level. Import what you use:
+
+```ts
+import {
+  Entity,
+  InfiniteQuery,
+  Mutation,
+  Query,
+  QueryClient,
+  QueryFailure,
+  Signals,
+  type Register,
+} from "@monarcode/effetch-query";
+```
+
+## Namespaces [#namespaces]
+
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+
+Its two top-level names follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## Register your services [#register-your-services]
+
+Guide: [Register your services](/docs/getting-started#1-describe-your-api).
+
+### Register [#register]
+
+Declares the services your queries and mutations run with. Augment it once, next to your composition root, and every definition, client hook and `QueryClient.runPromise` is typed against it:
+
+- [`QueryClient.make`](/docs/reference/query-client#make) requires a layer or a runtime that provides these services.
+- An Effect that needs a service outside them doesn't compile.
+
+## Suspense and error boundaries [#suspense-and-error-boundaries]
+
+Guide: [Suspense and error boundaries](/docs/react/suspense).
+
+### QueryFailure [#queryfailure]
+
+Thrown by `useSuspenseQuery` and `useSuspenseInfiniteQuery` (from `@monarcode/effetch-query/react`) to the nearest error boundary when a query fails with no earlier value to show (a failed refetch keeps showing the last success instead), or when a reader's `select` throws. It carries the query, so the boundary can refetch it with `useResetQueryFailure`, and the full `Cause`. Tell it from other errors with `QueryFailure.is`. Code outside React never sees it: there, a query's failure keeps its own error type.
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
+- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
+- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
+- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
