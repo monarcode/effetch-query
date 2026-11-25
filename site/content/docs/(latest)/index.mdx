@@ -1,0 +1,177 @@
+---
+title: Introduction
+description: Server state for Effect apps, inspired by TanStack Query.
+---
+
+Most of what an app shows comes from a server: a list of todos, a profile,
+the price of something. Effetch Query loads that data once, shares it
+between every component that shows it, keeps it fresh in the background,
+and updates it when you change something.
+
+Everything in it is Effect. A query is an Effect that runs with your app's
+services, its errors stay typed all the way to the component, and the
+cache itself is something your Effect programs can read and write. It
+works in React, React Native and code with no UI at all.
+
+It's the companion to [Effetch](https://effetch.pages.dev), the typed HTTP
+client for Effect: Effetch makes the call, Effetch Query caches it. It
+works with any Effect too.
+
+<Callout title="Release candidate">
+  The API is frozen for `0.1.0`: the `0.1.0-rc.N` releases fix bugs and only
+  ever add to it. Each needs the matching Effetch release candidate, so upgrade
+  the two together. See the [release
+  notes](https://github.com/monarcode/effetch-query/blob/main/CHANGELOG.md).
+</Callout>
+
+## How it works
+
+Six ideas carry the whole library:
+
+**A query is an Effect with a key.** You describe how to load something,
+such as `GET /todos/1`, and give it a key, such as `["todos", 1]`. The key
+is how the cache finds the value again, and how you refer to it later,
+say to refetch every query under `["todos"]`. With Effetch, an endpoint's
+route gives you the key, so you rarely write one.
+
+**The query client holds the cache.** Queries hold no data themselves.
+Values live in a query client, which runs queries with your app's
+services and keeps what they return. A browser app has one client; a
+server makes one per request.
+
+**Values are fresh, then stale.** A value counts as fresh for the query's
+`staleTime` after it's fetched, and stale after that. A stale value is
+still shown, and refetched in the background when a component starts
+using the query, when the app comes back into focus, or when you say it's
+out of date. A query that nothing uses keeps its value for its `gcTime`,
+then lets it go.
+
+**A result says where a query is.** Reading a query gives an
+`AsyncResult` from Effect:
+
+- `Initial`, before there's a value;
+- `Success`, with the value;
+- `Failure`, with the full `Cause`, so you can tell a 404 from a network
+  error from a bug.
+
+Each also has a `waiting` flag, true while a fetch is in progress. A
+background refetch shows the old value with `waiting: true`, so a
+component can keep showing it and add a spinner.
+
+**A mutation changes data, and says what's out of date.** A mutation runs
+an Effect that changes something on the server, such as toggling a todo.
+When it succeeds, it invalidates the queries it names, and the ones on
+screen refetch. It can also write to the cache straight away, an
+optimistic update, and that write is undone if the mutation fails.
+
+**Your services are typed.** You tell Effetch Query once which services
+your app provides, such as your API client. Queries and mutations can use
+them, a query that needs anything else doesn't compile, and a client made
+without a layer that provides them doesn't compile either.
+
+React only subscribes to all of this: the cache is built on Effect's own
+reactivity (`effect/reactivity` atoms), so the same queries work in
+components, in route loaders, on the server, and in plain Effect code.
+
+## At a glance
+
+Here's a whole React app in one file. It lists the todos from an API and
+toggles one when you click it:
+
+```tsx
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as Layer from "effect/Layer";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { QueryClient } from "@monarcode/effetch-query";
+import { fromClient } from "@monarcode/effetch-query/effetch";
+import {
+  QueryProvider,
+  useMutation,
+  useQuery,
+} from "@monarcode/effetch-query/react";
+
+const Todo = Schema.Struct({
+  id: Schema.Finite,
+  title: Schema.String,
+  done: Schema.Boolean,
+});
+
+// Your Effetch client, as a service.
+class ApiClient extends Fetch.Service<ApiClient>()("ApiClient", {
+  baseUrl: "https://api.example.com",
+}) {}
+
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: ApiClient;
+  }
+}
+
+const api = fromClient(ApiClient);
+
+// A cached query for each call of the endpoint.
+const todos = api.query(
+  Fetch.endpoint("GET /todos", { output: Schema.Array(Todo) }),
+  { staleTime: "1 minute" },
+);
+
+// A mutation that refetches the todos once it succeeds.
+const toggleTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ done: Schema.Boolean }),
+    output: Todo,
+  }),
+  { invalidates: [todos] },
+);
+
+// The cache, which runs queries with your services.
+const queryClient = QueryClient.make({
+  layer: ApiClient.layer.pipe(Layer.provide(FetchHttpClient.layer)),
+});
+
+export function App() {
+  return (
+    <QueryProvider client={queryClient}>
+      <Todos />
+    </QueryProvider>
+  );
+}
+
+function Todos() {
+  const result = useQuery(todos());
+  const toggle = useMutation(toggleTodo);
+
+  return AsyncResult.match(result, {
+    onInitial: () => <p>Loading…</p>,
+    onFailure: () => <p>Couldn't load your todos.</p>,
+    onSuccess: ({ value }) => (
+      <ul>
+        {value.map((todo) => (
+          <li
+            key={todo.id}
+            onClick={() =>
+              void toggle.run({
+                params: { id: todo.id },
+                body: { done: !todo.done },
+              })
+            }
+          >
+            {todo.done ? "✓" : "○"} {todo.title}
+          </li>
+        ))}
+      </ul>
+    ),
+  });
+}
+```
+
+## What's next
+
+- [Install Effetch Query](/docs/installation).
+- Build the same app one piece at a time in the README's [Getting
+  started](https://github.com/monarcode/effetch-query#getting-started).
+- Already know TanStack Query? See [Coming from TanStack
+  Query](https://github.com/monarcode/effetch-query#coming-from-tanstack-query).

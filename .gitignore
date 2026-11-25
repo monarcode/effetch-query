@@ -12,3 +12,10 @@ build/
 .idea
 
 .docs
+
+# The docs site's generated files
+site/src/routeTree.gen.ts
+site/.impeccable
+
+# Cloudflare's local Pages server
+.wrangler

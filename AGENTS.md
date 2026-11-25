@@ -101,6 +101,35 @@ Cached queries, mutations and invalidation, built on `effect/reactivity` and
   TypeScript 6: TypeScript 7 ships no compiler API, which `check-docs.mjs`, `editor-check.mjs` and
   the Effect language service need.
 
+## The docs site
+
+`site/` is the documentation site: Fumadocs on TanStack Start, prerendered
+to static files. It's a package in the pnpm workspace and isn't published,
+so rules 4 and 5 (runtime targets, server safety) don't apply to it. Nor
+do the library's `.js` import extensions and tagged errors: the site
+follows Vite's and Fumadocs' conventions, as its files do.
+
+- Fumadocs and TanStack Start change between versions too. Before using one
+  of their APIs, read its `.d.ts` in `site/node_modules`.
+- Pages live in `site/content/docs/(latest)/`, and each folder's
+  `meta.json` orders the sidebar. Pages are `.mdx` only: the site and the
+  docs check read no other files.
+- Every ` ```ts ` and ` ```tsx ` block in a page is an example, which the
+  docs check compiles like the README's, by the same rules. Any other
+  TypeScript fence (` ```typescript `, `~~~ts`, ` ```ts title="…" `)
+  fails the check, so no example skips it, and so does a page outside
+  `(latest)`. Block names (` ```ts todos.ts `) are shared with the README,
+  so a page can't reuse one yet.
+- Link between pages with root-relative paths (`/docs/installation`).
+- `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
+  `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
+  apart, or the browser bundle takes the loader and every Lucide icon.
+- Pages prerender to flat files (`docs/installation.html`), which
+  Cloudflare Pages serves at `/docs/installation`.
+- `pnpm run check` doesn't build the site. After changing `site/`, run
+  `pnpm run build:site`, which prerenders it into `site/dist/client`.
+  `pnpm --dir site run dev` serves it while you write.
+
 ## Testing
 
 - Control time with vitest's fake timers, faking only the timers:
@@ -138,4 +167,5 @@ typecheck, the docs check (every public export has a description, `@example`
 and `@since`, and every `ts` and `tsx` example in the JSDoc and the README
 compiles),
 the Effect language service diagnostics, the tests (including type tests),
-the build, publint, attw and the tarball smoke test.
+the build, publint, attw and the tarball smoke test. After changing `site/`,
+also run `pnpm run build:site`.

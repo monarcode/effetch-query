@@ -1,0 +1,4 @@
+{
+	"title": "Server rendering",
+	"pages": ["index", "transforming-schemas", "hydrate", "streaming"]
+}

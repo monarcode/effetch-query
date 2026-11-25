@@ -1,0 +1,14 @@
+{
+	"title": "Mutations",
+	"pages": [
+		"index",
+		"run",
+		"invalidate",
+		"optimistic",
+		"entities",
+		"entity-sync",
+		"run-modes",
+		"activity",
+		"options"
+	]
+}
