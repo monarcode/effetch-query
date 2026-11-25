@@ -1,0 +1,62 @@
+---
+title: Installation
+description: Add Effetch Query to a project, with Effetch, Effect and React.
+---
+
+This page shows how to install Effetch Query and the packages it works
+with. After it, you can define your first query.
+
+## Before you begin
+
+You need:
+
+- `effect` 4.1 or later, which is a peer dependency;
+- an ESM project, since the package is ESM only;
+- one of the supported runtimes: browsers, React Native (Hermes), Node 20
+  or later, Bun or Deno.
+
+## Install the package
+
+To install Effetch Query with Effetch and Effect, run the following
+command:
+
+```bash
+pnpm add @monarcode/effetch-query @monarcode/effetch effect
+```
+
+With Effetch, Effetch Query needs Effetch `0.1.0-rc.4` or later in 0.1,
+which you import as `import { Fetch } from "@monarcode/effetch"`. Effetch
+is optional: see the README's [Without Effetch](https://github.com/monarcode/effetch-query#without-effetch) to
+use any Effect instead.
+
+## Add React
+
+For React, add `@effect/atom-react` and `react` (19):
+
+```bash
+pnpm add @effect/atom-react react
+```
+
+## Import the entry points
+
+Each entry point is a subpath of the one package. Import only the ones you
+use:
+
+| Entry point                                      | What it has                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | The core, with no framework in it: `Query`, `Mutation`, `QueryClient` and the other namespaces. |
+| `@monarcode/effetch-query/react`                 | The provider, the hooks and the boundaries.                                                     |
+| `@monarcode/effetch-query/effetch`               | `fromClient`, which turns Effetch endpoints into queries and mutations.                         |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`, from React Native modules you pass in.                                    |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`, which connects a client to TanStack Router and Start.                     |
+
+The core entry point exports namespaces:
+
+```ts
+import { Mutation, Query, QueryClient } from "@monarcode/effetch-query";
+```
+
+## What's next
+
+- Build a small todo app, end to end, in the README's [Getting
+  started](https://github.com/monarcode/effetch-query#getting-started).

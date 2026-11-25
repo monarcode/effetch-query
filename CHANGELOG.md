@@ -2,6 +2,15 @@
 
 All notable changes to `@monarcode/effetch-query`, newest first.
 
+## Unreleased
+
+### Added
+
+- A documentation site in `site/`: Fumadocs on TanStack Start, prerendered
+  to static files, with Introduction and Installation pages, search and a
+  404 page. The docs check compiles its pages' examples too, and CI builds
+  it.
+
 ## 0.1.0-rc.5
 
 Additive: opt-in entity sync, two exported errors, named types for

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import ts from "typescript";
@@ -12,9 +12,30 @@ const entries = [
 	"src/effetch/index.ts",
 	"src/react/tanstack-router/index.ts",
 ].map((file) => path.join(root, file));
-const markdown = ["README.md"]
-	.map((file) => path.join(root, file))
-	.filter((file) => existsSync(file));
+// The docs site's current pages. Older release lines will be snapshots of
+// released docs, so they aren't checked against the current API.
+const sitePages = path.join(root, "site", "content", "docs", "(latest)");
+// Every other page would be published unchecked, so it fails instead. A
+// release line's snapshot (`0.1/`) is the exception, once there is one.
+const siteContent = path.join(root, "site", "content", "docs");
+const uncheckedPages = existsSync(siteContent)
+	? readdirSync(siteContent, { recursive: true, encoding: "utf8" }).filter(
+			(file) =>
+				file.endsWith(".mdx") &&
+				!/^(?:\(latest\)|\d+\.\d+)[\\/]/.test(file),
+		)
+	: [];
+const markdown = [
+	...["README.md"]
+		.map((file) => path.join(root, file))
+		.filter((file) => existsSync(file)),
+	...(existsSync(sitePages)
+		? readdirSync(sitePages, { recursive: true, encoding: "utf8" })
+				.filter((file) => file.endsWith(".mdx"))
+				.sort()
+				.map((file) => path.join(sitePages, file))
+		: []),
+];
 
 const relative = (file) => path.relative(root, file);
 // Declares `react-native` and NetInfo, which aren't installed, for the
@@ -47,6 +68,16 @@ const options = {
 	},
 };
 const problems = [];
+for (const file of uncheckedPages) {
+	problems.push(
+		`${relative(path.join(siteContent, file))}: move the page into (latest), whose examples the check compiles`,
+	);
+}
+if (!existsSync(sitePages)) {
+	problems.push(
+		`${relative(sitePages)}: missing, so its pages went unchecked`,
+	);
+}
 
 const program = ts.createProgram(entries, options);
 const checker = program.getTypeChecker();
@@ -178,28 +209,71 @@ for (const entry of entries) {
 // file, which other blocks import as "./todos.js", the way an app's files
 // import each other.
 const opening = /^```(tsx?)(?:\s+([\w.-]+\.tsx?))?$/;
+// Any fence: three or more backticks or tildes, then its info string. It may
+// follow a list marker, as in "1. ```ts".
+const fenceOpen = /^(?:(?:[-*+]|\d+[.)])\s+)*((`{3,}|~{3,}).*)$/;
+// A fence in a quote, whose lines would carry the `>` into the example.
+const quotedFence = /^(?:>\s*)+(?:`{3}|~{3})/;
+// A TypeScript fence `opening` can't read, such as ```typescript, ~~~ts or
+// ```ts title="api.ts": its example would go unchecked, so it fails instead.
+const typeScriptInfo = /^\s*(?:ts|tsx|typescript|mts|cts)(?![\w-])/i;
 
+/**
+ * The ```ts and ```tsx blocks in `lines`. Other fences are skipped whole, so
+ * a fence shown inside one isn't read as an example.
+ */
 const codeBlocks = (file, lines, firstLine) => {
 	const blocks = [];
 	let block;
 	lines.forEach((line, index) => {
 		const fence = line.trim();
-		const open = opening.exec(fence);
-		if (block === undefined && open !== null) {
+		const at = `${relative(file)}:${firstLine + index}`;
+		if (block === undefined) {
+			if (quotedFence.test(fence)) {
+				problems.push(`${at}: move the code block out of the quote`);
+				return;
+			}
+			const fenced = fenceOpen.exec(fence);
+			if (fenced === null) return;
+			const [, opener, ticks] = fenced;
+			const info = opener.slice(ticks.length);
+			const open = opening.exec(opener);
+			if (open === null && typeScriptInfo.test(info)) {
+				problems.push(
+					`${at}: fence TypeScript examples as \`\`\`ts or \`\`\`tsx, optionally with a file name (\`\`\`ts todos.ts)`,
+				);
+			}
 			block = {
+				at,
+				ticks,
+				example: open !== null,
 				file,
 				line: firstLine + index + 1,
-				extension: open[1],
-				name: open[2],
+				extension: open?.[1],
+				name: open?.[2],
 				code: [],
 			};
-		} else if (block !== undefined && fence === "```") {
-			blocks.push({ ...block, code: block.code.join("\n") });
+		} else if (
+			fence[0] === block.ticks[0] &&
+			new RegExp(`^\\${fence[0]}{${block.ticks.length},}$`).test(fence)
+		) {
+			if (block.example) {
+				blocks.push({
+					file: block.file,
+					line: block.line,
+					extension: block.extension,
+					name: block.name,
+					code: block.code.join("\n"),
+				});
+			}
 			block = undefined;
-		} else if (block !== undefined) {
+		} else {
 			block.code.push(line);
 		}
 	});
+	if (block !== undefined) {
+		problems.push(`${block.at}: code block isn't closed`);
+	}
 	return blocks;
 };
 

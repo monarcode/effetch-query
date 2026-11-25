@@ -10,7 +10,7 @@ tab_width = 3
 trim_trailing_whitespace = true
 max_line_length = 80
 
-[*.md]
+[*.{md,mdx}]
 trim_trailing_whitespace = false
 # GitHub and npm render tabs 8 columns wide, so code examples use spaces.
 indent_style = space
