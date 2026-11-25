@@ -17,8 +17,10 @@ export const Route = createRootRoute({
 			{ charSet: "utf-8" },
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
 			{ title: "Effetch Query" },
+			// The default; `pageHead` sets each page's own.
 			{ property: "og:type", content: "website" },
 			{ property: "og:site_name", content: "Effetch Query" },
+			{ property: "og:locale", content: "en_US" },
 		],
 		links: [
 			{ rel: "stylesheet", href: appCss },

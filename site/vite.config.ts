@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { glob } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -11,7 +12,8 @@ import { defineConfig } from "vite";
 import { mdxOptions } from "./src/lib/mdx-options.ts";
 
 // Every docs page, so the prerender doesn't depend on the sidebar linking to
-// each one. Read from this file's folder, wherever the build runs from.
+// each one: an older line's pages only the version dropdown links to. Read
+// from this file's folder, wherever the build runs from.
 const docsPages: { path: string }[] = [];
 for await (const entry of glob("**/*.mdx", {
 	cwd: join(import.meta.dirname, "content/docs"),
@@ -20,7 +22,24 @@ for await (const entry of glob("**/*.mdx", {
 if (docsPages.length === 0)
 	throw new Error("No docs pages in content/docs to prerender");
 
+// The package's version, which names the current docs in the version dropdown.
+const { version } = JSON.parse(
+	readFileSync(join(import.meta.dirname, "../package.json"), "utf8"),
+) as { version: string };
+
+// The live site, or, on a Cloudflare Pages preview (`main` and pull
+// requests), the preview's own address, so its Markdown links stay on it.
+const PRODUCTION = "https://effetch-query.pages.dev";
+const preview =
+	process.env.CF_PAGES_BRANCH && process.env.CF_PAGES_BRANCH !== "site";
+const siteUrl = (preview && process.env.CF_PAGES_URL) || PRODUCTION;
+
 export default defineConfig(({ command }) => ({
+	define: {
+		__PACKAGE_VERSION__: JSON.stringify(version),
+		__SOURCE_REF__: JSON.stringify(process.env.CF_PAGES_COMMIT_SHA || "main"),
+		__SITE_URL__: JSON.stringify(siteUrl),
+	},
 	plugins: [
 		// The pages' MDX options run here, in the build, never in the browser.
 		fumadocsMdx({
@@ -44,6 +63,10 @@ export default defineConfig(({ command }) => ({
 			pages: [
 				...docsPages,
 				{ path: "/api/search" },
+				{ path: "/llms.txt" },
+				{ path: "/llms-full.txt" },
+				{ path: "/robots.txt" },
+				{ path: "/sitemap.xml" },
 				// Written to `404.html` at the output's root.
 				{ path: "/404" },
 			],

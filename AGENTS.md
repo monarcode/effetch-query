@@ -135,15 +135,31 @@ follows Vite's and Fumadocs' conventions, as its files do.
   export or its docs, run `pnpm run docs:reference`. A new export needs a
   group in that script, and the docs check fails until it has one and the
   pages match.
+- Older release lines in `site/content/docs/<line>/` are snapshots of
+  released docs, with that release's types in `site/versions/<line>/`.
+  Don't edit them, and don't update them when the API changes: the docs
+  check and Twoslash skip them. `pnpm run docs:snapshot <line>` writes one;
+  its header comment says when and how.
+- Each page is also served as Markdown (`/docs/<page>.md`), and
+  `/llms.txt` and `/llms-full.txt` list the current line's pages. Link
+  between pages with root-relative paths, which the Markdown turns into
+  full URLs.
 - The guides live on the site, once. The README is an overview that links
   to them: when a feature changes, update its page, and the README only if
   its quick start or links change.
-- Link between pages with root-relative paths (`/docs/installation`).
 - `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
   `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
   apart, or the browser bundle takes the loader and every Lucide icon.
 - Pages prerender to flat files (`docs/installation.html`), which
-  Cloudflare Pages serves at `/docs/installation`.
+  Cloudflare Pages serves at `/docs/installation`. A page's head comes
+  from `pageHead` in `site/src/lib/shared.ts`: its canonical URL, link
+  preview, Markdown alternate and structured data. `robots.txt` and
+  `sitemap.xml` are routes too, and the sitemap lists the home page and
+  the current line's pages. Full URLs use `SITE_URL`: the live site, or a
+  Cloudflare preview's own address. `npx wrangler pages dev site/dist/client`
+  serves a build the way Cloudflare does, headers included.
+- The live docs deploy from the `site` branch; `main` and pull requests
+  deploy as previews. Don't push `site` yourself.
 - `pnpm run check` doesn't build the site. After changing `site/`, run
   `pnpm run build:site`, which builds the package, then prerenders the site
   into `site/dist/client`. `pnpm --dir site run dev` serves it while you

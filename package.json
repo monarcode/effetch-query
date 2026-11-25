@@ -76,6 +76,7 @@
 		"typecheck": "pnpm run typegen && tsc --noEmit && tsc -p examples/effect-only && tsc -p examples/basic && tsc -p examples/tanstack-start && tsc -p examples/tanstack-start-httpclient && tsc -p examples/react-router && tsc -p test/examples/effect-only && tsc -p test/examples/tanstack-start && tsc -p test/examples/tanstack-start-httpclient && tsc -p test/examples/react-router",
 		"check:docs": "node scripts/check-docs.mjs",
 		"docs:reference": "node scripts/reference-docs.mjs",
+		"docs:snapshot": "node scripts/snapshot-docs.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"check:package": "publint --strict && attw --pack . --profile esm-only",

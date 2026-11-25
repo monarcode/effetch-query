@@ -765,7 +765,7 @@ function link(part, page, checker, targets) {
 	if (url) {
 		const [address, ...words] = `${written}${part.text}`.trim().split(/\s+/);
 		const label = words.join(" ").replace(/^\|\s*/, "");
-		return `[${escapeMdx(label || address)}](${address})`;
+		return `[${label || address}](${address})`;
 	}
 	const label = part.text.replace(/^\s*\|?\s*/, "").trim() || written;
 	const symbol = part.name && checker.getSymbolAtLocation(part.name);

@@ -230,12 +230,16 @@ if (existsSync(referenceDir)) {
 			);
 		}
 	}
-	const sidebar = JSON.parse(
-		readFileSync(path.join(referenceDir, "meta.json"), "utf8"),
-	).pages;
+	const metaFile = path.join(referenceDir, "meta.json");
+	let sidebar;
+	try {
+		sidebar = JSON.parse(readFileSync(metaFile, "utf8")).pages;
+	} catch {
+		// Reported below, with the pages it should list.
+	}
 	if (JSON.stringify(sidebar) !== JSON.stringify([...referencePages])) {
 		problems.push(
-			`${relative(path.join(referenceDir, "meta.json"))}: its pages should be ${JSON.stringify([...referencePages])}`,
+			`${relative(metaFile)}: its pages should be ${JSON.stringify([...referencePages])}`,
 		);
 	}
 }
