@@ -1,0 +1,18 @@
+{
+	"title": "Queries",
+	"pages": [
+		"index",
+		"keys",
+		"dependent",
+		"errors",
+		"status-errors",
+		"freshness",
+		"placeholders",
+		"options",
+		"from-client-options",
+		"infinite",
+		"streams",
+		"pushes",
+		"without-effetch"
+	]
+}

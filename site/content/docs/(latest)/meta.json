@@ -1,5 +1,20 @@
 {
 	"title": "Latest",
 	"root": "version",
-	"pages": ["index", "installation"]
+	"pages": [
+		"index",
+		"installation",
+		"getting-started",
+		"coming-from-tanstack-query",
+		"queries",
+		"react",
+		"mutations",
+		"cache",
+		"client",
+		"server-rendering",
+		"frameworks",
+		"testing",
+		"examples",
+		"reference"
+	]
 }
