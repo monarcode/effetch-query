@@ -20,10 +20,12 @@ for await (const entry of glob("**/*.mdx", {
 if (docsPages.length === 0)
 	throw new Error("No docs pages in content/docs to prerender");
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	plugins: [
 		// The pages' MDX options run here, in the build, never in the browser.
-		fumadocsMdx({ globalOptions: { mdxOptions } }),
+		fumadocsMdx({
+			globalOptions: { mdxOptions: mdxOptions(command === "build") },
+		}),
 		tailwindcss(),
 		tanstackStart({
 			// Static files only: every page is prerendered to HTML at build time,
@@ -51,4 +53,9 @@ export default defineConfig({
 	resolve: {
 		tsconfigPaths: true,
 	},
-});
+	// TypeScript locates its own files from where it's installed, so it and
+	// Twoslash stay out of the server bundle.
+	ssr: {
+		external: ["fumadocs-twoslash", "typescript"],
+	},
+}));

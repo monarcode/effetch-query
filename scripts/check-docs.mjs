@@ -4,7 +4,17 @@ import path from "node:path";
 
 import ts from "typescript";
 
-const root = path.resolve(import.meta.dirname, "..");
+import {
+	augments,
+	codeBlocks,
+	markdownExamples,
+	root,
+	shims,
+	sitePages,
+	usesNamed,
+} from "./docs-examples.mjs";
+import { referenceSlugs, renderReference } from "./reference-docs.mjs";
+
 const entries = [
 	"src/index.ts",
 	"src/react/index.ts",
@@ -12,9 +22,6 @@ const entries = [
 	"src/effetch/index.ts",
 	"src/react/tanstack-router/index.ts",
 ].map((file) => path.join(root, file));
-// The docs site's current pages. Older release lines will be snapshots of
-// released docs, so they aren't checked against the current API.
-const sitePages = path.join(root, "site", "content", "docs", "(latest)");
 // Every other page would be published unchecked, so it fails instead. A
 // release line's snapshot (`0.1/`) is the exception, once there is one.
 const siteContent = path.join(root, "site", "content", "docs");
@@ -25,26 +32,7 @@ const uncheckedPages = existsSync(siteContent)
 				!/^(?:\(latest\)|\d+\.\d+)[\\/]/.test(file),
 		)
 	: [];
-const markdown = [
-	...["README.md"]
-		.map((file) => path.join(root, file))
-		.filter((file) => existsSync(file)),
-	...(existsSync(sitePages)
-		? readdirSync(sitePages, { recursive: true, encoding: "utf8" })
-				.filter((file) => file.endsWith(".mdx"))
-				.sort()
-				.map((file) => path.join(sitePages, file))
-		: []),
-];
-
 const relative = (file) => path.relative(root, file);
-// Declares `react-native` and NetInfo, which aren't installed, for the
-// `./react-native` examples.
-const reactNativeModules = path.join(
-	root,
-	"test/types/react-native-modules.d.ts",
-);
-
 const parsed = ts.getParsedCommandLineOfConfigFile(
 	path.join(root, "tsconfig.json"),
 	{},
@@ -64,7 +52,7 @@ const options = {
 	paths: {
 		...parsed.options.paths,
 		// The Next.js page's examples; Next isn't a dependency.
-		"next/server": ["./scripts/docs-types/next-server.d.ts"],
+		"next/server": [shims["next/server"]],
 	},
 };
 const problems = [];
@@ -177,7 +165,11 @@ const requireNamespace = (name, node) => {
 };
 
 let exportCount = 0;
-const checkExports = (prefix, moduleSymbol) => {
+// Every export the walk below checks, as `entry:name` with the name readers
+// use, such as `src/index.ts:Query.make` or `src/react/index.ts:useQuery`.
+// The reference must list each one, on its entry point's pages.
+const documented = new Set();
+const checkExports = (prefix, moduleSymbol, entry) => {
 	for (const exported of checker.getExportsOfModule(moduleSymbol)) {
 		const name = `${prefix}${exported.name}`;
 		const symbol =
@@ -187,10 +179,13 @@ const checkExports = (prefix, moduleSymbol) => {
 		const namespace = exported.declarations?.find(ts.isNamespaceExport);
 		if (namespace !== undefined) {
 			requireNamespace(name, namespace.parent);
-			checkExports(`${name}.`, symbol);
+			checkExports(`${name}.`, symbol, entry);
 			continue;
 		}
 		exportCount += 1;
+		documented.add(
+			`${path.relative(root, entry).split(path.sep).join("/")}:${name}`,
+		);
 		for (const declaration of symbol.declarations ?? []) {
 			checkDeclaration(name, declaration);
 		}
@@ -201,81 +196,60 @@ for (const entry of entries) {
 		program.getSourceFile(entry),
 	);
 	if (moduleSymbol !== undefined) {
-		checkExports("", moduleSymbol);
+		checkExports("", moduleSymbol, entry);
 	}
 }
 
-// A fence can name its block, as in "```ts todos.ts": the block is then that
-// file, which other blocks import as "./todos.js", the way an app's files
-// import each other.
-const opening = /^```(tsx?)(?:\s+([\w.-]+\.tsx?))?$/;
-// Any fence: three or more backticks or tildes, then its info string. It may
-// follow a list marker, as in "1. ```ts".
-const fenceOpen = /^(?:(?:[-*+]|\d+[.)])\s+)*((`{3,}|~{3,}).*)$/;
-// A fence in a quote, whose lines would carry the `>` into the example.
-const quotedFence = /^(?:>\s*)+(?:`{3}|~{3})/;
-// A TypeScript fence `opening` can't read, such as ```typescript, ~~~ts or
-// ```ts title="api.ts": its example would go unchecked, so it fails instead.
-const typeScriptInfo = /^\s*(?:ts|tsx|typescript|mts|cts)(?![\w-])/i;
-
-/**
- * The ```ts and ```tsx blocks in `lines`. Other fences are skipped whole, so
- * a fence shown inside one isn't read as an example.
- */
-const codeBlocks = (file, lines, firstLine) => {
-	const blocks = [];
-	let block;
-	lines.forEach((line, index) => {
-		const fence = line.trim();
-		const at = `${relative(file)}:${firstLine + index}`;
-		if (block === undefined) {
-			if (quotedFence.test(fence)) {
-				problems.push(`${at}: move the code block out of the quote`);
-				return;
-			}
-			const fenced = fenceOpen.exec(fence);
-			if (fenced === null) return;
-			const [, opener, ticks] = fenced;
-			const info = opener.slice(ticks.length);
-			const open = opening.exec(opener);
-			if (open === null && typeScriptInfo.test(info)) {
-				problems.push(
-					`${at}: fence TypeScript examples as \`\`\`ts or \`\`\`tsx, optionally with a file name (\`\`\`ts todos.ts)`,
-				);
-			}
-			block = {
-				at,
-				ticks,
-				example: open !== null,
-				file,
-				line: firstLine + index + 1,
-				extension: open?.[1],
-				name: open?.[2],
-				code: [],
-			};
-		} else if (
-			fence[0] === block.ticks[0] &&
-			new RegExp(`^\\${fence[0]}{${block.ticks.length},}$`).test(fence)
-		) {
-			if (block.example) {
-				blocks.push({
-					file: block.file,
-					line: block.line,
-					extension: block.extension,
-					name: block.name,
-					code: block.code.join("\n"),
-				});
-			}
-			block = undefined;
-		} else {
-			block.code.push(line);
-		}
-	});
-	if (block !== undefined) {
-		problems.push(`${block.at}: code block isn't closed`);
+// The reference pages are what `scripts/reference-docs.mjs` renders from the
+// JSDoc, so they can't fall behind it, and they list every export.
+let reference = { files: new Map(), names: [...documented] };
+try {
+	reference = renderReference(program);
+} catch (error) {
+	problems.push(error instanceof Error ? error.message : String(error));
+}
+for (const [file, body] of reference.files) {
+	const onDisk = path.join(root, file);
+	if (!existsSync(onDisk) || readFileSync(onDisk, "utf8") !== body) {
+		problems.push(
+			`${file}: out of date with the JSDoc. Run \`pnpm run docs:reference\`.`,
+		);
 	}
-	return blocks;
-};
+}
+// The reference folder holds the generated pages and two written ones, and
+// its sidebar lists each: a page renamed or dropped from the generator
+// would otherwise stay published, and a new one would be missing.
+const referenceDir = path.join(sitePages, "reference");
+const referencePages = new Set(["index", ...referenceSlugs, "limitations"]);
+if (existsSync(referenceDir)) {
+	for (const file of readdirSync(referenceDir)) {
+		const slug = file.replace(/\.mdx$/, "");
+		if (file.endsWith(".mdx") && !referencePages.has(slug)) {
+			problems.push(
+				`${relative(path.join(referenceDir, file))}: not a page scripts/reference-docs.mjs writes; delete it, or add it to PAGES`,
+			);
+		}
+	}
+	const sidebar = JSON.parse(
+		readFileSync(path.join(referenceDir, "meta.json"), "utf8"),
+	).pages;
+	if (JSON.stringify(sidebar) !== JSON.stringify([...referencePages])) {
+		problems.push(
+			`${relative(path.join(referenceDir, "meta.json"))}: its pages should be ${JSON.stringify([...referencePages])}`,
+		);
+	}
+}
+const listed = new Set(reference.names);
+for (const name of documented) {
+	if (!listed.has(name)) {
+		problems.push(`${name} is missing from the API reference`);
+	}
+}
+for (const name of listed) {
+	if (!documented.has(name)) {
+		problems.push(`the API reference lists ${name}, which isn't exported`);
+	}
+}
 
 const examples = [];
 const publicSources = program
@@ -292,14 +266,14 @@ for (const source of publicSources) {
 		const lines = comment[0]
 			.split("\n")
 			.map((line) => line.replace(/^\s*\*\s?/, ""));
-		examples.push(...codeBlocks(source.fileName, lines, firstLine));
+		examples.push(
+			...codeBlocks(source.fileName, lines, firstLine, (problem) =>
+				problems.push(problem),
+			),
+		);
 	}
 }
-for (const file of markdown) {
-	examples.push(
-		...codeBlocks(file, readFileSync(file, "utf8").split("\n"), 1),
-	);
-}
+examples.push(...markdownExamples((problem) => problems.push(problem)));
 
 const virtual = new Map();
 examples.forEach((example, index) => {
@@ -347,14 +321,10 @@ host.directoryExists = (directory) =>
 	directory === path.join(root, ".docs-check") ||
 	(directoryExists?.(directory) ?? true);
 
-// An augmentation (`declare module`, of `Register` say, or `declare global`)
-// applies to every file in a program, so each example that has one compiles
-// on its own. Named files and the examples that import them share one
-// program, with the named files' augmentations. The rest share another.
-const augments = (example) =>
-	/\bdeclare\s+(?:module|global)\b/.test(example.code);
-const usesNamed = (example) =>
-	example.name !== undefined || /from\s+["']\.\//.test(example.code);
+// An augmentation applies to every file in a program, so each example that
+// has one compiles on its own. Named files and the examples that import them
+// share one program, with the named files' augmentations. The rest share
+// another.
 const fileNames = [...virtual.keys()];
 const named = fileNames.filter((fileName) => usesNamed(virtual.get(fileName)));
 for (const fileName of named) {
@@ -377,7 +347,7 @@ const groups = [
 ].filter((group) => group.length > 0);
 for (const group of groups) {
 	const examplesProgram = ts.createProgram(
-		[...group, reactNativeModules],
+		[...group, shims["react-native"]],
 		options,
 		host,
 	);

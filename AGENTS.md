@@ -122,6 +122,19 @@ follows Vite's and Fumadocs' conventions, as its files do.
   the README and every page: the examples build one app, whose files
   (`api.ts`, `todos.ts`, …) are defined once, mostly in Getting started,
   and imported from any page.
+- Every example on a page gets Twoslash type hovers, read from the built
+  package in `dist`, and a type error in one fails the site's build. A
+  block is compiled as the docs check compiles it, with the named files it
+  imports (and those that augment `Register`) as hidden files before it:
+  `scripts/docs-examples.mjs` holds that logic for both, so they can't
+  disagree. `no-twoslash` in a block's meta turns its hovers off; the docs
+  check still compiles it.
+- The API reference pages in `reference/` (all but `index.mdx` and
+  `limitations.mdx`) are generated from the JSDoc by
+  `scripts/reference-docs.mjs`. Don't edit them: after changing a public
+  export or its docs, run `pnpm run docs:reference`. A new export needs a
+  group in that script, and the docs check fails until it has one and the
+  pages match.
 - The guides live on the site, once. The README is an overview that links
   to them: when a feature changes, update its page, and the README only if
   its quick start or links change.
@@ -132,8 +145,10 @@ follows Vite's and Fumadocs' conventions, as its files do.
 - Pages prerender to flat files (`docs/installation.html`), which
   Cloudflare Pages serves at `/docs/installation`.
 - `pnpm run check` doesn't build the site. After changing `site/`, run
-  `pnpm run build:site`, which prerenders it into `site/dist/client`.
-  `pnpm --dir site run dev` serves it while you write.
+  `pnpm run build:site`, which builds the package, then prerenders the site
+  into `site/dist/client`. `pnpm --dir site run dev` serves it while you
+  write, once `pnpm run build` has built `dist`, which the hovers and type
+  tables read.
 
 ## Testing
 

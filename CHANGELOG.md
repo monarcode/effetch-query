@@ -10,6 +10,8 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   `site/` (Fumadocs on TanStack Start, prerendered to static files). Every
   guide moved there from the README, one page per task, with search. The
   docs check compiles the pages' examples too, and CI builds the site.
+  Every example has type hovers, and the API reference, a page per
+  namespace and entry point, is generated from the JSDoc.
 
 ### Changed
 

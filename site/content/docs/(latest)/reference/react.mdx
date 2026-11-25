@@ -1,0 +1,333 @@
+---
+title: "@monarcode/effetch-query/react"
+description: "Every export of the React entry point: the provider, the hooks and the boundaries."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`@monarcode/effetch-query/react` exports the provider, the hooks and the boundaries. Import what you use:
+
+```ts
+import {
+  HydrationBoundary,
+  MissingQueryProviderError,
+  QueryBoundary,
+  QueryFailure,
+  QueryProvider,
+  useInfiniteQuery,
+  useIsFetching,
+  useIsMutating,
+  useMutation,
+  useMutationState,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  useQueryState,
+  useRefetch,
+  useResetQueryFailure,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@monarcode/effetch-query/react";
+```
+
+Its exports follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## Provide the client [#provide-the-client]
+
+Guide: [Provide the client](/docs/getting-started#4-show-a-query).
+
+### QueryProvider [#queryprovider]
+
+Makes a [`QueryClient.QueryClient`](/docs/reference/query-client#queryclient) available to the hooks below it. It also provides the client's registry as `@effect/atom-react`'s `RegistryContext`, so atom-react's own hooks (`useAtomValue` and the rest) share the cache. Read the client with [`useQueryClient`](#usequeryclient). The hooks of `@monarcode/effetch-query/react`, and `HydrationBoundary`, throw a [`MissingQueryProviderError`](#missingqueryprovidererror) outside one.
+
+### QueryProviderProps [#queryproviderprops]
+
+Props for [`QueryProvider`](#queryprovider) with a client you own: the provider uses it and never disposes it. For a client the provider makes and disposes, see [`OwnedQueryProviderProps`](#ownedqueryproviderprops).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/QueryProvider.d.ts"
+  name="QueryProviderProps"
+/>
+
+## Sign out and switch accounts [#sign-out-and-switch-accounts]
+
+Guide: [Sign out and switch accounts](/docs/cache/accounts).
+
+### OwnedQueryProviderProps [#ownedqueryproviderprops]
+
+Props for [`QueryProvider`](#queryprovider) with a client the provider owns: it makes one with `make`, a new one each time `resetKey` changes, and disposes each when it's replaced or the provider unmounts. Pass the signed-in account's ID as `resetKey`, so no account sees another's cache.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/QueryProvider.d.ts"
+  name="OwnedQueryProviderProps"
+/>
+
+## Read a query [#read-a-query]
+
+Guide: [Read a query](/docs/react).
+
+### MissingQueryProviderError [#missingqueryprovidererror]
+
+Thrown by [`useQueryClient`](#usequeryclient), the other hooks of `@monarcode/effetch-query/react` and `HydrationBoundary` outside a [`QueryProvider`](#queryprovider).
+
+### useQuery [#usequery]
+
+Reads a query and keeps it up to date while the component is mounted. On mount, and when `query` changes, it refetches the query if it's stale (`refetchOnMount`) or failed (`retryOnMount`), and while mounted it refetches on focus, reconnect and `refetchInterval` as the query's options say.
+
+Pass `null` to read nothing: it returns `AsyncResult.initial()` and fetches nothing (TanStack's `enabled: false`). In a server render it reads only the cache and never starts a fetch, and the mount refetch doesn't run. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### useQueryClient [#usequeryclient]
+
+Returns the [`QueryClient.QueryClient`](/docs/reference/query-client#queryclient) of the nearest [`QueryProvider`](#queryprovider), for running Effects from event handlers. Throws a [`MissingQueryProviderError`](#missingqueryprovidererror) outside one.
+
+## Pause screens you can't see [#pause-screens-you-can-t-see]
+
+Guide: [Pause screens you can't see](/docs/react/pause).
+
+### UseQueryOptions [#usequeryoptions]
+
+Options for [`useInfiniteQuery`](#useinfinitequery), and the base of [`UseQuerySelectOptions`](#usequeryselectoptions), which [`useQuery`](#usequery) and [`useQueryState`](#usequerystate) take.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
+  name="UseQueryOptions"
+/>
+
+## Select part of a value [#select-part-of-a-value]
+
+Guide: [Select part of a value](/docs/react/select).
+
+### UseQuerySelectOptions [#usequeryselectoptions]
+
+Options for [`useQuery`](#usequery) and [`useQueryState`](#usequerystate): those of [`UseQueryOptions`](#usequeryoptions), and `select`.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
+  name="UseQuerySelectOptions"
+/>
+
+## Read a query as an object [#read-a-query-as-an-object]
+
+Guide: [Read a query as an object](/docs/react/as-object).
+
+### useQueryState [#usequerystate]
+
+Reads a query as [`useQuery`](#usequery) does, and returns its result as an object of fields: `status`, `data`, `error`, `isFetching`, `isPlaceholder`, `refetch` and more, TanStack Query's shape. It fetches, refetches and takes options as [`useQuery`](#usequery) does, `select` and `keepPrevious` included.
+
+Check `status` before reading `data`: it narrows the object ([`UseQueryStateResult`](#usequerystateresult)). A failure keeps the last success as `data`, and its `error` is typed; match each error by its `_tag`, or use `result` with `AsyncResult.builder`. The object keeps its identity while nothing in it changes. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### UseQueryStateFailure [#usequerystatefailure]
+
+What [`useQueryState`](#usequerystate) returns when the query has failed: its last fetch failed, or a refetch after a success did. A `select` that throws gives one too.
+
+### UseQueryStatePending [#usequerystatepending]
+
+What [`useQueryState`](#usequerystate) returns while the query has no value and no failure: before its first fetch settles, after a `clear`, and for a `null` query.
+
+### UseQueryStateResult [#usequerystateresult]
+
+What [`useQueryState`](#usequerystate) returns: one of three shapes, told apart by `status` (or `isPending`, `isSuccess` and `isFailure`), which narrows `data`, `error` and `cause`.
+
+### UseQueryStateSuccess [#usequerystatesuccess]
+
+What [`useQueryState`](#usequerystate) returns while the query has a value, including while it refetches.
+
+## Read many queries [#read-many-queries]
+
+Guide: [Read many queries](/docs/react/many).
+
+### useQueries [#usequeries]
+
+Reads a list of queries whose length can change between renders, such as one per selected item, and keeps each up to date as [`useQuery`](#usequery) does: it returns their results in the same order, and `Initial` for a `null` entry. Each query gets the mount policy when it joins the list. A query listed twice is read once, and shows in both places.
+
+The component re-renders when one of the results changes. The array keeps its identity while every result in it does, so it can be a dependency of `useMemo`. Combine the results with `AsyncResult.all`. In a server render it reads only the cache and never starts a fetch. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### UseQueriesEntry [#usequeriesentry]
+
+What [`useQueries`](#usequeries) returns for one entry of its list: the query's result, typed by the query, or `AsyncResult<never, never>` for `null`. An entry that may be one of several queries is a union of their results.
+
+### UseQueriesOptions [#usequeriesoptions]
+
+Options for [`useQueries`](#usequeries).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
+  name="UseQueriesOptions"
+/>
+
+### UseQueriesResult [#usequeriesresult]
+
+What [`useQueries`](#usequeries) returns: a result per query, in the same order, as a tuple for a tuple of queries and an array for an array.
+
+## Suspense and error boundaries [#suspense-and-error-boundaries]
+
+Guide: [Suspense and error boundaries](/docs/react/suspense).
+
+### QueryBoundary [#queryboundary]
+
+Shows `pending` while the queries below suspend, and `failure` when one of them fails with nothing to show: a `Suspense` boundary inside an error boundary that catches only `QueryFailure`s. Its `retry` refetches the failed query and renders the children again. Any other error goes on to the next error boundary up.
+
+Use it around components that read with `useSuspenseQuery` or `useSuspenseInfiniteQuery`. Where a router owns the error boundary (an `errorComponent` or an `ErrorBoundary` route export), use `useResetQueryFailure` there instead. In a server render it shows `pending` for what suspends, as `Suspense` does. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### QueryFailure [#queryfailure]
+
+Thrown by `useSuspenseQuery` and `useSuspenseInfiniteQuery` (from `@monarcode/effetch-query/react`) to the nearest error boundary when a query fails with no earlier value to show (a failed refetch keeps showing the last success instead), or when a reader's `select` throws. It carries the query, so the boundary can refetch it with `useResetQueryFailure`, and the full `Cause`. Tell it from other errors with `QueryFailure.is`. Code outside React never sees it: there, a query's failure keeps its own error type.
+
+### useResetQueryFailure [#useresetqueryfailure]
+
+Returns a function for an error boundary: given what the boundary caught, it refetches the query inside a `QueryFailure`, so the boundary can render its children again and have them suspend on the refetch. Other errors are ignored. [`useSuspenseQuery`](#usesuspensequery) and [`useSuspenseInfiniteQuery`](#usesuspenseinfinitequery) throw the failures it resets. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### useSuspenseQuery [#usesuspensequery]
+
+Reads a query through React Suspense: it suspends until the query has a value, then returns its `Success`, which stays `waiting` while it refetches. A stale value is shown and refetched in the background (`refetchOnMount`), but one under a second old isn't, as TanStack does, so the value a component suspended on isn't fetched again as it mounts. While suspended, a component keeps its query in use until the fetch settles, even if React abandons the render.
+
+A failure with no earlier value is thrown to the nearest error boundary as a `QueryFailure`, as it was cached: it's thrown again until something refetches the query, such as [`useResetQueryFailure`](#useresetqueryfailure) in the boundary. A refetch that fails after a success keeps showing that success.
+
+In a server render, unlike [`useQuery`](#usequery), it fetches a query the cache doesn't have and suspends on the fetch, for streaming SSR. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### QueryBoundaryFailureProps [#queryboundaryfailureprops]
+
+What `QueryBoundaryProps.failure` is called with: the failure a query below the boundary threw, and a way to try again.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/QueryBoundary.d.ts"
+  name="QueryBoundaryFailureProps"
+/>
+
+### QueryBoundaryProps [#queryboundaryprops]
+
+Props for [`QueryBoundary`](#queryboundary).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/QueryBoundary.d.ts"
+  name="QueryBoundaryProps"
+/>
+
+### UseSuspenseQueryOptions [#usesuspensequeryoptions]
+
+Options for [`useSuspenseQuery`](#usesuspensequery).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
+  name="UseSuspenseQueryOptions"
+/>
+
+## Refetch on demand [#refetch-on-demand]
+
+Guide: [Refetch on demand](/docs/react/refetch).
+
+### useRefetch [#userefetch]
+
+Refetches queries on demand, such as for pull to refresh, with a flag that is true only while this component's own refetch is in progress, unlike a query's `waiting`, which a background refetch also sets. It refetches the [`Query.Target`](/docs/reference/query#target)'s queries in use, as [`Query.refetch`](/docs/reference/query#refetch) does. For a screen made of queries with different keys, pass a [`Query.group`](/docs/reference/query#group) of them: it's refetching until every one has settled. Throws a `MissingQueryProviderError` outside a `QueryProvider`, and a [`Query.KeyHoldsTargetError`](/docs/reference/query#keyholdstargeterror) for a key that holds a query, a family or a group, such as `[todos, profile]`: pass a [`Query.group`](/docs/reference/query#group).
+
+### UseRefetchResult [#userefetchresult]
+
+What [`useRefetch`](#userefetch) returns.
+
+## Load more [#load-more]
+
+Guide: [Load more](/docs/queries/infinite#load-more).
+
+### useInfiniteQuery [#useinfinitequery]
+
+Reads an [`InfiniteQuery.InfiniteQuery`](/docs/reference/infinite-query#infinitequery) as [`useQuery`](#usequery) does (the mount policy, focus, reconnect and polling refetch every loaded page), with controls to fetch a page at either end: "load more" buttons and infinite scroll.
+
+A page fetch keeps the loaded pages shown: `result` stays a waiting `Success`, and `isFetchingNextPage` tells it from a refetch of every page. A page that fails makes `result` a `Failure` whose `previousSuccess` still holds the pages. Pass `null` to read nothing. It fetches, and throws, when [`useQuery`](#usequery) does.
+
+### useSuspenseInfiniteQuery [#usesuspenseinfinitequery]
+
+Reads an [`InfiniteQuery.InfiniteQuery`](/docs/reference/infinite-query#infinitequery) through React Suspense, as [`useSuspenseQuery`](#usesuspensequery) does, with the same page controls as [`useInfiniteQuery`](#useinfinitequery). It suspends only until the first page: later pages load while the loaded ones show, through `isFetchingNextPage`. A page that fails isn't thrown, since there are pages to show; only a failure with no pages before it reaches the error boundary, as a `QueryFailure`. It fetches, and throws, when [`useSuspenseQuery`](#usesuspensequery) does.
+
+### InfinitePageControls [#infinitepagecontrols]
+
+The page controls [`useInfiniteQuery`](#useinfinitequery) and [`useSuspenseInfiniteQuery`](#usesuspenseinfinitequery) return beside the result.
+
+### UseInfiniteQueryResult [#useinfinitequeryresult]
+
+What [`useInfiniteQuery`](#useinfinitequery) returns.
+
+### UseSuspenseInfiniteQueryResult [#usesuspenseinfinitequeryresult]
+
+What [`useSuspenseInfiniteQuery`](#usesuspenseinfinitequery) returns.
+
+## Run a mutation [#run-a-mutation]
+
+Guide: [Run a mutation](/docs/mutations/run).
+
+### useMutation [#usemutation]
+
+Uses a mutation in this component, with state of its own: two components using one mutation never share a waiting or failed state. A run carries on after the component unmounts, so its `onSuccess` and `invalidates` still happen, though the callbacks given to `run` don't ([`UseMutationRunOptions`](#usemutationrunoptions)). The mutation's `concurrent` decides how this component's runs overlap: `false` interrupts the previous one, `"queue"` runs them one at a time, and `"drop"` ignores a run while the one `result` shows is in progress. To show runs any component started, use [`useMutationState`](#usemutationstate).
+
+Define mutations at module level, with [`Mutation.make`](/docs/reference/mutation#make): a new definition on each render starts a new state. Outside React, run one with [`Mutation.run`](/docs/reference/mutation#run). Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### UseMutationResult [#usemutationresult]
+
+What [`useMutation`](#usemutation) returns.
+
+### UseMutationRunOptions [#usemutationrunoptions]
+
+Callbacks for one run of [`useMutation`](#usemutation), which its `run` takes: TanStack's `mutate(variables, { onSuccess, onError, onSettled })`. They're called after the mutation's own callbacks, `invalidates` and the client's hooks, before code awaiting `run` carries on.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
+  name="UseMutationRunOptions"
+/>
+
+## Show activity [#show-activity]
+
+Guide: [Show activity](/docs/mutations/activity).
+
+### useIsFetching [#useisfetching]
+
+Counts the queries with a fetch in progress on this client: those the [`Query.Target`](/docs/reference/query#target) matches, or all of them without one, as [`Query.invalidate`](/docs/reference/query#invalidate) matches them. Background refetches count, so it suits an app-wide progress bar. The component re-renders when the count changes.
+
+A server render counts none, and so does the first render while the page hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### useIsMutating [#useismutating]
+
+Counts the mutation runs in progress on this client: those of `mutation`, or of every mutation without one, whichever component or Effect started them. A run counts from when it starts until it settles, and a run `concurrent: "queue"` holds back counts while it waits. The component re-renders when the count changes.
+
+A server render counts none, and so does the first render while the page hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### useMutationState [#usemutationstate]
+
+Lists the runs of a mutation in progress on this client, oldest first, whichever component or Effect started them: a list can show the items a form elsewhere is still saving. A run is listed from when it starts until it settles, however it ends. A run `concurrent: "queue"` holds back is listed while it waits; one that `concurrent: false` makes wait for the run it replaces to roll back is listed once that's done. The list keeps its identity until the runs change.
+
+A server render lists none, and so does the first render while the page hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### UseMutationStateRun [#usemutationstaterun]
+
+A run of a mutation in progress, as [`useMutationState`](#usemutationstate) lists it.
+
+## Load the cache in the browser [#load-the-cache-in-the-browser]
+
+Guide: [Load the cache in the browser](/docs/server-rendering/hydrate).
+
+### HydrationBoundary [#hydrationboundary]
+
+Loads a cache `QueryClient.dehydrate` sent from the server into the client of the nearest `QueryProvider`, as TanStack's `HydrationBoundary` does, so the tree below shows the server's data without fetching it again. Throws a `MissingQueryProviderError` outside a provider.
+
+### HydrationBoundaryProps [#hydrationboundaryprops]
+
+Props for [`HydrationBoundary`](#hydrationboundary).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/HydrationBoundary.d.ts"
+  name="HydrationBoundaryProps"
+/>
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
+- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
+- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.

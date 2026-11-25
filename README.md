@@ -218,20 +218,22 @@ pnpm run check
 
 The package has the following scripts:
 
-| Script                | What it does                                                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm run build`      | Builds `dist/` (ESM and `.d.ts`) with `tsc`.                                                                                                           |
-| `pnpm test`           | Runs the tests, the type tests and the examples' tests with Vitest.                                                                                    |
-| `pnpm run typecheck`  | Typechecks `src`, `test` and each example.                                                                                                             |
-| `pnpm run lint`       | Lints with oxlint (`lint:effect` runs the Effect language service).                                                                                    |
-| `pnpm run format`     | Formats with oxfmt (`format:check` only checks).                                                                                                       |
-| `pnpm run check:docs` | Checks every public export has a description, `@example` and `@since`, and compiles every example in the JSDoc, this README and the docs site's pages. |
-| `pnpm run smoke`      | Packs the package, installs it in a fresh project, typechecks and runs consumers, and checks go-to-definition and hovers.                              |
-| `pnpm run check`      | All of these, plus publint and attw. CI runs it on every pull request.                                                                                 |
-| `pnpm run build:site` | Builds the docs site in `site/` and prerenders it to `site/dist/client`.                                                                               |
+| Script                    | What it does                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm run build`          | Builds `dist/` (ESM and `.d.ts`) with `tsc`.                                                                                                           |
+| `pnpm test`               | Runs the tests, the type tests and the examples' tests with Vitest.                                                                                    |
+| `pnpm run typecheck`      | Typechecks `src`, `test` and each example.                                                                                                             |
+| `pnpm run lint`           | Lints with oxlint (`lint:effect` runs the Effect language service).                                                                                    |
+| `pnpm run format`         | Formats with oxfmt (`format:check` only checks).                                                                                                       |
+| `pnpm run check:docs`     | Checks every public export has a description, `@example` and `@since`, and compiles every example in the JSDoc, this README and the docs site's pages. |
+| `pnpm run smoke`          | Packs the package, installs it in a fresh project, typechecks and runs consumers, and checks go-to-definition and hovers.                              |
+| `pnpm run check`          | All of these, plus publint and attw. CI runs it on every pull request.                                                                                 |
+| `pnpm run docs:reference` | Writes the docs site's API reference pages from the JSDoc. `check:docs` fails when they're out of date.                                                |
+| `pnpm run build:site`     | Builds the package, then the docs site in `site/`, prerendered to `site/dist/client`.                                                                  |
 
-To work on the docs site, run `pnpm --dir site run dev`, which serves it
-at the address it prints.
+To work on the docs site, run `pnpm run build` once, then
+`pnpm --dir site run dev`, which serves it at the address it prints. The
+site's type hovers and type tables read the built package in `dist`.
 
 The pre-commit hook runs `lint` and `format:check`.
 

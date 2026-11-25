@@ -1,0 +1,60 @@
+---
+title: "@monarcode/effetch-query/react/tanstack-router"
+description: "Every export of the TanStack Router entry point: connecting a client to a router, and so to TanStack Start."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`@monarcode/effetch-query/react/tanstack-router` connects a query client to a TanStack Router, and so to TanStack Start. Import what you use:
+
+```ts
+import { connectQueryClient } from "@monarcode/effetch-query/react/tanstack-router";
+```
+
+Its exports follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## TanStack Router and Start [#tanstack-router-and-start]
+
+Guide: [TanStack Router and Start](/docs/frameworks/tanstack-start).
+
+### connectQueryClient [#connectqueryclient]
+
+Connects a query client to a TanStack Router (and so TanStack Start), as TanStack's `setupRouterSsrQueryIntegration` does for TanStack Query. Call it where the router is made: Start's `getRouter`, or your server and browser entries.
+
+- **On the server**, the queries your loaders loaded go with the page, and queries started while rendering follow as they start, those still loading as promises the browser waits for, so nothing is fetched twice. The client is disposed when the request ends: make one per request from a process-wide `ManagedRuntime` (`QueryClient.make({ runtime })`), so your app's layer is built once rather than per request (see the example).
+- **In the browser**, they load into the client before React hydrates, with no `HydrationBoundary`.
+- **Redirects:** a query or mutation that fails or dies with a router `redirect()` navigates there, in the browser. Write it as `Effect.die(redirect({ to: "/login" }))`, to keep it out of the error type, inside the Effect so each run makes its own: the router resolves a redirect in place. A fetch an Effect awaits (`Query.fetch` or `Query.prefetch`) is left to it: in a loader, `client.fetch` rejects with the redirect and the router follows it, and a preload's is dropped, as the router drops it. So load a query that may redirect with `client.fetch`: one only prefetched fails in its readers instead.
+
+### ConnectDehydrateOptions [#connectdehydrateoptions]
+
+Which queries [`connectQueryClient`](#connectqueryclient) sends from the server, as [`QueryClient.DehydrateOptions`](/docs/reference/query-client#dehydrateoptions) chooses them. Queries still loading are always sent, as promises the browser waits for: the router's serializer carries them.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/tanstack-router/index.d.ts"
+  name="ConnectDehydrateOptions"
+/>
+
+### ConnectQueryClientOptions [#connectqueryclientoptions]
+
+Options for [`connectQueryClient`](#connectqueryclient).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/tanstack-router/index.d.ts"
+  name="ConnectQueryClientOptions"
+/>
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
+- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
+- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.

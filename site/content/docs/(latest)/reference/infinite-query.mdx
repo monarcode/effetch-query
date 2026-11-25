@@ -1,0 +1,118 @@
+---
+title: "InfiniteQuery"
+description: "Every member of the InfiniteQuery namespace: queries that load a list one page at a time."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`InfiniteQuery` defines queries that load a list one page at a time, and loads more pages. Import it from the core entry point:
+
+```ts
+import { InfiniteQuery } from "@monarcode/effetch-query";
+```
+
+Its exports follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## Infinite queries [#infinite-queries]
+
+Guide: [Infinite queries](/docs/queries/infinite).
+
+### InfiniteQuery.make [#make]
+
+Defines an [`InfiniteQuery`](#infinitequery) with no arguments. Nothing is fetched until it's used; then its first page, from `initialPageParam`.
+
+### InfiniteQuery.family [#family]
+
+Defines a [`Family`](#family-type): one [`InfiniteQuery`](#infinitequery) per argument, each with its own pages.
+
+### InfiniteQuery.isInfiniteQuery [#isinfinitequery]
+
+Checks whether a value is an [`InfiniteQuery`](#infinitequery), as opposed to a plain query or another atom.
+
+### InfiniteQuery.TypeId [#typeid]
+
+The property that marks an [`InfiniteQuery`](#infinitequery), so it can be told apart from other queries.
+
+### InfiniteQuery.Family [#family-type]
+
+Makes one [`InfiniteQuery`](#infinitequery) per argument, as [`Query.family`](/docs/reference/query#family) does: the same query for arguments that are `Equal.equals`, keyed by the family's key with the argument appended. It's a [`Query.Family`](/docs/reference/query#family-type), so it's a target for [`Query.invalidate`](/docs/reference/query#invalidate) (every query under its key), and [`Query.update`](/docs/reference/query#update) writes every cached member.
+
+### InfiniteQuery.FamilyOptions [#familyoptions]
+
+Options for [`family`](#family).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
+  name="FamilyOptions"
+/>
+
+### InfiniteQuery.InfiniteData [#infinitedata]
+
+What an [`InfiniteQuery`](#infinitequery) holds: the pages loaded so far, in order, and the param each was fetched with.
+
+### InfiniteQuery.InfiniteQuery [#infinitequery]
+
+A query whose value is a list of pages, for "load more" lists and infinite scroll, as TanStack's `useInfiniteQuery`. Create one with [`make`](#make), or one per argument with [`family`](#family).
+
+### InfiniteQuery.MakeOptions [#makeoptions]
+
+Options for [`make`](#make).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
+  name="MakeOptions"
+/>
+
+### InfiniteQuery.PageOptions [#pageoptions]
+
+How an infinite query finds its pages, in [`MakeOptions`](#makeoptions) and [`FamilyOptions`](#familyoptions).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
+  name="PageOptions"
+/>
+
+### InfiniteQuery.PageParamFunction [#pageparamfunction]
+
+Finds the param of the page after the last one (`nextPageParam`) or before the first (`previousPageParam`), from that page, every page, its param and every param. Return `undefined` or `null` when there's no such page, as in TanStack.
+
+## Load more [#load-more]
+
+Guide: [Load more](/docs/queries/infinite#load-more).
+
+### InfiniteQuery.fetchNextPage [#fetchnextpage]
+
+Fetches the page after the last one and appends it, dropping the first page past `maxPages`. Returns the new [`InfiniteData`](#infinitedata), and fails with the query's error if the page fails (the loaded pages stay).
+
+- With no next page (`nextPageParam` gives `undefined` or `null`), it returns the data as it is, without fetching.
+- Without data, it's the query's first fetch, and joins it while it runs. With no pages (a write left none), it fetches from the first page, as TanStack does.
+- While a next page is being fetched, it joins that fetch; while any other fetch of the query runs, it waits for it, then fetches its page.
+- A write made while the page loads stays: the page is added to the data shown when it lands.
+
+### InfiniteQuery.fetchPreviousPage [#fetchpreviouspage]
+
+Fetches the page before the first one and prepends it, dropping the last page past `maxPages`. Behaves as [`fetchNextPage`](#fetchnextpage) does, in the other direction; without `previousPageParam` there's never a previous page.
+
+## Send the cache [#send-the-cache]
+
+Guide: [Send the cache](/docs/server-rendering).
+
+### InfiniteQuery.Schema [#schema]
+
+How an infinite query's pages are sent from the server to the browser, as [`Query.Schema`](/docs/reference/query#schema) for a query: Schemas for a page and, to send failures too, the error. The page params go as they are, so they must be JSON values (strings, numbers, booleans, `null`), unless `pageParam` names their schema; a query whose params don't fit isn't sent.
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`Mutation`](/docs/reference/mutation): defining and running mutations.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
+- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
+- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
+- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.

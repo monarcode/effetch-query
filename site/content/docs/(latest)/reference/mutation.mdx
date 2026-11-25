@@ -1,0 +1,78 @@
+---
+title: "Mutation"
+description: "Every member of the Mutation namespace: defining and running mutations."
+---
+
+{/* Written by scripts/reference-docs.mjs from the JSDoc. Run `pnpm run docs:reference` after changing it; don't edit this page. */}
+
+`Mutation` defines mutations, and runs them from Effect. Import it from the core entry point:
+
+```ts
+import { Mutation } from "@monarcode/effetch-query";
+```
+
+Its exports follow, grouped by the guide that covers them. Each one has
+the first paragraph of its docs, and what it needs and how it fails; your
+editor shows the rest, with an example, when you hover the name.
+
+## Define a mutation [#define-a-mutation]
+
+Guide: [Define a mutation](/docs/mutations).
+
+### Mutation.make [#make]
+
+Defines a mutation. Nothing runs until it's used, with [`run`](#run) or `useMutation`. Its types come from `run`: annotate `run`'s parameter to type the variables. Explicit type arguments must give all three, since the value and error types left out are `never`.
+
+### Mutation.isMutation [#ismutation]
+
+Checks whether a value is a [`Mutation`](#mutation). A mutation's variables can't be known from the value, so it narrows to `Mutation<never, unknown, unknown>`, which every mutation is.
+
+### Mutation.TypeId [#typeid]
+
+The property that marks a [`Mutation`](#mutation).
+
+### Mutation.Mutation [#mutation]
+
+A mutation's definition: what a run does with its `Variables`, succeeding with `A` or failing with `E`. Create one with [`make`](#make), and run it with [`run`](#run) or `useMutation`.
+
+## Mutation options [#mutation-options]
+
+Guide: [Mutation options](/docs/mutations/options).
+
+### Mutation.MakeOptions [#makeoptions]
+
+Options for [`make`](#make). A run calls them in this order:
+
+1. `optimistic`, whose cache writes are recorded;
+2. the client's `mutations.onMutate`;
+3. `run`, retried on `retry`;
+4. on success: `onSuccess`, `invalidates`, then the client's `mutations.onSuccess`;
+5. on failure: the optimistic writes are rolled back, then `onFailure`, then the client's `mutations.onFailure`;
+6. `onSettled`, then the client's `mutations.onSettled`.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Mutation.d.ts"
+  name="MakeOptions"
+/>
+
+## Run a mutation [#run-a-mutation]
+
+Guide: [Run a mutation](/docs/mutations/run).
+
+### Mutation.run [#run]
+
+Runs a mutation from Effect code, with the steps [`MakeOptions`](#makeoptions) lists, and succeeds or fails as its `run` did. A mutation whose `run` takes no variables runs without them. Each call is a run of its own: `concurrent` applies to one use's runs, such as a component's `useMutation`, so calls never interrupt each other.
+
+## Related pages
+
+- [Entry points](/docs/reference): what each entry point exports.
+- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
+- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
+- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
+- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
+- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
+- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
+- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
+- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
+- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
+- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
