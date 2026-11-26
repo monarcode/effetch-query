@@ -22,8 +22,9 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   along the line that runs. Below it, `Effect<A, E, R>` traces a query's
   value, typed errors and services through the docs' code, an entity
   writes one todo into three cached queries (and undoes it when the
-  request fails), and a socket pushes changes into a live query. The site
-  is dark only.
+  request fails), and a socket pushes changes into a live query. The docs
+  pages share its look: the same type, colours and greyscale code. The
+  site is dark only.
 
 ### Changed
 

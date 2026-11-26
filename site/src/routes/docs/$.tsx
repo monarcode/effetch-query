@@ -15,6 +15,7 @@ import {
 import { Suspense, use } from "react";
 
 import { useMDXComponents } from "@/components/mdx";
+import { SidebarFooter } from "@/components/sidebar-footer";
 import { docs } from "@/lib/docs";
 import { baseOptions } from "@/lib/layout.shared";
 import {
@@ -187,7 +188,13 @@ function Page() {
 	);
 
 	return (
-		<DocsLayout {...baseOptions()} tree={pageTree}>
+		<DocsLayout
+			{...baseOptions()}
+			// The sidebar's footer links to GitHub with the rest.
+			githubUrl={undefined}
+			tree={pageTree}
+			sidebar={{ footer: <SidebarFooter /> }}
+		>
 			{/* For the prerender's crawler, which then writes every `.md` file. */}
 			<Link to={markdownUrl} hidden />
 			<Suspense>

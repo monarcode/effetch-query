@@ -13,8 +13,8 @@
 	/* Quiet text: --stale is for beams and data, too dark to read. */
 	--note: #868a95;
 	--rule: #262832;
-	--display: "Mona Sans Variable", ui-sans-serif, system-ui, sans-serif;
-	--mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", monospace;
+	--display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+	--mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
 	--gutter: clamp(1rem, 3.4vw, 3rem);
 	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -22,7 +22,6 @@
 	background: var(--void);
 	color: var(--paper);
 	font-family: var(--display);
-	font-optical-sizing: auto;
 	-webkit-font-smoothing: antialiased;
 }
 
@@ -54,8 +53,7 @@
 	align-items: center;
 	gap: 0.625rem;
 	margin-right: auto;
-	font-weight: 650;
-	font-stretch: 110%;
+	font-weight: 600;
 	font-size: 1.0625rem;
 	letter-spacing: -0.01em;
 }
@@ -128,7 +126,7 @@
 	border-radius: 6px;
 	background: var(--lime);
 	color: var(--ink);
-	font-weight: 650;
+	font-weight: 600;
 	font-size: 1rem;
 	transition: transform 200ms var(--ease-out);
 }
@@ -222,11 +220,10 @@
 }
 
 .stage-title {
-	font-size: clamp(2.375rem, 15.6cqi, 8.25rem);
-	font-weight: 720;
-	font-stretch: 112%;
+	font-size: clamp(2.375rem, 16.6cqi, 8.875rem);
+	font-weight: 620;
 	line-height: 0.9;
-	letter-spacing: -0.045em;
+	letter-spacing: -0.035em;
 }
 
 /* Each line rises out of its own mask as the page opens. */
@@ -663,8 +660,7 @@
 .stage-number b {
 	display: inline-block;
 	font-size: clamp(2.5rem, 3.4vw, 3.25rem);
-	font-weight: 700;
-	font-stretch: 108%;
+	font-weight: 600;
 	line-height: 0.9;
 	letter-spacing: -0.04em;
 	color: var(--paper);
@@ -1098,8 +1094,7 @@
 .band-title {
 	max-width: 18ch;
 	font-size: clamp(2.25rem, 4.6vw, 4rem);
-	font-weight: 700;
-	font-stretch: 106%;
+	font-weight: 600;
 	line-height: 1;
 	letter-spacing: -0.035em;
 	text-wrap: balance;
@@ -1167,7 +1162,7 @@
 	bottom: 0;
 	font-family: var(--display);
 	font-size: 0.875rem;
-	font-weight: 550;
+	font-weight: 500;
 	letter-spacing: 0;
 	white-space: nowrap;
 	color: var(--note);
@@ -1263,7 +1258,7 @@
 
 .effect-out-name {
 	font-size: 1.375rem;
-	font-weight: 650;
+	font-weight: 550;
 	letter-spacing: -0.01em;
 }
 
@@ -1334,7 +1329,7 @@
 
 .effect-rendered-title {
 	font-size: 1.5rem;
-	font-weight: 700;
+	font-weight: 600;
 	letter-spacing: -0.02em;
 }
 
@@ -1683,8 +1678,7 @@
 
 .platform-name {
 	font-size: clamp(1.75rem, 3.2vw, 2.75rem);
-	font-weight: 680;
-	font-stretch: 104%;
+	font-weight: 600;
 	line-height: 1.05;
 	letter-spacing: -0.03em;
 	text-decoration: underline;
@@ -1772,7 +1766,7 @@
 
 .close-step-title {
 	font-size: clamp(1.25rem, 2vw, 1.625rem);
-	font-weight: 650;
+	font-weight: 500;
 	letter-spacing: -0.02em;
 }
 
@@ -1830,8 +1824,7 @@
 /* One line, at whatever width its column has. */
 .close-title {
 	font-size: clamp(2.25rem, 10cqi, 4.5rem);
-	font-weight: 740;
-	font-stretch: 108%;
+	font-weight: 600;
 	line-height: 0.95;
 	letter-spacing: -0.04em;
 }

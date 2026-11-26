@@ -158,6 +158,10 @@ follows Vite's and Fumadocs' conventions, as its files do.
   (`cache.ts`), and WebGL light (`beams.ts`) sweeps the line that runs.
   three.js loads only there, by dynamic import, and the site is dark
   only.
+- `site/DESIGN.md` is the site's design system: colours, type, the lit
+  line, motion. The home page's styles are `landing.css`; the docs pages
+  map Fumadocs' colour variables onto the same tokens in `docs.css`, and
+  their code uses the home page's greyscale theme (`code-theme.ts`).
 - `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
   `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
   apart, or the browser bundle takes the loader and every Lucide icon.

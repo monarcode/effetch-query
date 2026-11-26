@@ -18,6 +18,7 @@ import {
 	sitePages,
 	type Example,
 } from "../../../scripts/docs-examples.mjs";
+import { codeTheme } from "./code-theme.ts";
 
 /*
  * How pages compile, for the build only: `vite.config.ts` hands these to
@@ -299,6 +300,8 @@ function text(node: ElementContent): string {
 export const mdxOptions = (build: boolean): MDXPresetOptions => ({
 	rehypeCodeOptions: {
 		...rehypeCodeDefaultOptions,
+		// The site is dark only, so both are the site's theme.
+		themes: { light: codeTheme, dark: codeTheme },
 		transformers: [
 			...(rehypeCodeDefaultOptions.transformers ?? []),
 			...twoslashTransformers(build),
