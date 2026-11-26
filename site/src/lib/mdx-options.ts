@@ -322,6 +322,8 @@ export const mdxOptions = (build: boolean): MDXPresetOptions => ({
 				// link `node_modules/@monarcode/effetch-query` points at the
 				// package.
 				options: { basePath: site },
+				// Types in the tables, in the same greys as the code.
+				shiki: { themes: { light: codeTheme, dark: codeTheme } },
 			},
 		],
 	],

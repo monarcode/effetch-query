@@ -212,7 +212,7 @@ Small, crisp radii: 4px for rows and inner buttons, 6px for cards, controls, but
 
 ### Buttons
 
-- **Primary:** lime fill, ink text, 650 weight, 3rem tall, 6px radius, with a trailing arrow. Hover lifts 1px and nudges the arrow 2px right. One per view.
+- **Primary:** lime fill, ink text, 600 weight, 3rem tall, 6px radius, with a trailing arrow. Hover lifts 1px and nudges the arrow 2px right. One per view.
 - **Bordered:** 2.25rem, 1px rule border, transparent fill, 6px radius. Hover moves the border and text to lime. Selected (a radio): lime border, lime text, 10% lime wash.
 - **Copy command:** a 3rem mono field (rule border, 6px) holding the install command, truncated with an ellipsis, with a 2.5rem icon button that turns lime on hover.
 - **Focus:** 2px lime outline, 3px offset, everywhere.
@@ -225,7 +225,7 @@ Small, crisp radii: 4px for rows and inner buttons, 6px for cards, controls, but
 
 ### Rows
 
-Todo rows and entity rows: 4px radius, 0.3125rem 0.5rem padding, a 7% lime wash on hover, a 0.99 press. Done rows strike through in note grey with the mark in lime. The ✓/○ marks are the docs component's own rendered output, not an icon system; icons elsewhere are Lucide.
+Todo rows and entity rows: 4px radius, 0.3125rem 0.5rem padding, a 7% lime wash on hover, a 0.99 press. Done rows strike through in note grey with the mark in lime. The ✓/○ marks are the docs component's own rendered output, not an icon system; icons elsewhere are Lucide, and brand logos (GitHub, npm) are Simple Icons.
 
 ### Switch
 
@@ -233,7 +233,7 @@ A 1.75 x 1rem pill: rule track and paper knob when off, lime track and ink knob 
 
 ### Navigation
 
-A 4rem bar over the stage: mark and wordmark (650, width 110%), muted links that turn paper on hover, and a bordered search button with a mono `⌘K` key cap. Link lists in bands are rows divided by rules, each with a large title, a mono note and an arrow that turns lime and shifts on hover.
+A 4rem bar over the stage: mark and wordmark (600), muted links that turn paper on hover, and a bordered search button with a mono `⌘K` key cap. Link lists in bands are rows divided by rules, each with a large title, a mono note and an arrow that turns lime and shifts on hover.
 
 ### Status Bar (signature)
 

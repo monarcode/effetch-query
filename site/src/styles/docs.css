@@ -57,24 +57,30 @@ body {
 
 /* The sidebar: an index on the page's own void, a hairline between them.
    Folders are sections; their pages hang off a hairline, which turns lime
-   beside the page you're on, as the line that runs does on the home page. */
+   beside the page you're on, as the line that runs does on the home page.
+   Only the page list's items are restyled: pages are `a[data-active]`,
+   sections are a folder's trigger button. */
 :is(#nd-sidebar, #nd-sidebar-mobile) {
 	background: #0c0d11;
 	border-color: #262832;
 }
 
-:is(#nd-sidebar, #nd-sidebar-mobile) a,
 :is(#nd-sidebar, #nd-sidebar-mobile)
-	button[aria-expanded]:not([aria-haspopup]) {
+	:is(
+		a[data-active],
+		:is([data-open], [data-closed]) > button[aria-expanded]
+	) {
 	border-radius: 0;
 	padding-block: 0.375rem;
 	color: #a2a6b0;
 	transition: color 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-:is(#nd-sidebar, #nd-sidebar-mobile) a:hover,
 :is(#nd-sidebar, #nd-sidebar-mobile)
-	button[aria-expanded]:not([aria-haspopup]):hover {
+	:is(
+		a[data-active],
+		:is([data-open], [data-closed]) > button[aria-expanded]
+	):hover {
 	background: transparent;
 	color: #edeee8;
 }
@@ -86,20 +92,29 @@ body {
 	font-weight: 500;
 }
 
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active="true"]::before {
+	display: none;
+}
+
 /* A section: its name set apart, more room above it. */
-:is(#nd-sidebar, #nd-sidebar-mobile) [data-open] > button[aria-expanded],
-:is(#nd-sidebar, #nd-sidebar-mobile) [data-closed] > button[aria-expanded] {
+:is(#nd-sidebar, #nd-sidebar-mobile)
+	:is([data-open], [data-closed])
+	> button[aria-expanded] {
 	margin-top: 0.75rem;
 	font-weight: 500;
 	color: #edeee8;
 }
 
-:is(#nd-sidebar, #nd-sidebar-mobile) [data-open] > button[aria-expanded] svg,
-:is(#nd-sidebar, #nd-sidebar-mobile) [data-closed] > button[aria-expanded] svg {
-	color: #5b5f6b;
+:is(#nd-sidebar, #nd-sidebar-mobile)
+	:is([data-open], [data-closed])
+	> button[aria-expanded]
+	svg {
+	color: #6b6f7b;
 }
 
-/* A section's pages, along one hairline: ours, not Fumadocs' own. */
+/* A section's pages, along one hairline: ours, not Fumadocs' own. The
+   panel clips its overflow, so the hairline is painted inside it, where
+   the page you're on can cover it with its lime. */
 :is(#nd-sidebar, #nd-sidebar-mobile) button[aria-expanded] + div::before,
 :is(#nd-sidebar, #nd-sidebar-mobile) button[aria-expanded] + div > div::before {
 	display: none;
@@ -107,26 +122,11 @@ body {
 
 :is(#nd-sidebar, #nd-sidebar-mobile) button[aria-expanded] + div {
 	margin-left: 0.5rem;
-	border-left: 1px solid #262832;
+	background: linear-gradient(#262832, #262832) 0 0 / 1px 100% no-repeat;
 }
 
 :is(#nd-sidebar, #nd-sidebar-mobile) button[aria-expanded] + div a {
 	padding-inline-start: 0.875rem !important;
-}
-
-:is(#nd-sidebar, #nd-sidebar-mobile)
-	button[aria-expanded]
-	+ div
-	a[data-active="true"] {
-	margin-left: -1px;
-	box-shadow: inset 2px 0 #d5f70d;
-}
-
-:is(#nd-sidebar, #nd-sidebar-mobile)
-	button[aria-expanded]
-	+ div
-	a[data-active="true"]::before {
-	display: none;
 }
 
 /* Search and the version picker, quiet until pointed at. */
@@ -141,6 +141,11 @@ body {
 :is(#nd-sidebar, #nd-sidebar-mobile)
 	button[aria-haspopup="dialog"]:not([data-search-full]) {
 	padding-block: 0.375rem;
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile)
+	button[aria-haspopup="dialog"]:not([data-search-full])
+	p {
 	font-family: var(--font-mono);
 	font-size: 0.75rem;
 }
@@ -153,24 +158,39 @@ body {
 }
 
 /* On a wide screen the sidebar floats: an ink panel inset from the
-   window's edges, flat, with a hairline round it. Only the page list
+   window's edges, flat, with a hairline round it. Fumadocs' sidebar spans
+   the page's left margin too and right-aligns its contents, so the panel
+   keeps to the sidebar's own width at its right edge. Collapsed, it keeps
+   Fumadocs' geometry and only takes the panel's look. Only the page list
    scrolls; search, the version and the links stay put. */
 @media (min-width: 768px) {
 	#nd-sidebar {
-		inset: 0.75rem auto 0.75rem 0.75rem;
-		width: calc(100% - 0.75rem);
 		border: 1px solid #262832;
 		border-radius: 6px;
 		background: #16171d;
+		box-shadow: none;
 	}
 
-	#nd-sidebar > * {
-		width: 100% !important;
+	#nd-sidebar:not([data-collapsed="true"]) {
+		inset: 0.75rem 0 0.75rem auto;
+		width: calc(var(--fd-sidebar-width) - 0.75rem);
+	}
+
+	#nd-sidebar:not([data-collapsed="true"]) > * {
+		width: 100%;
 	}
 
 	#nd-sidebar [data-search-full],
 	#nd-sidebar button[aria-haspopup="dialog"]:not([data-search-full]) {
 		background: #0c0d11;
+	}
+
+	/* The buttons that bring a collapsed sidebar back. */
+	[data-sidebar-panel] {
+		border-color: #262832;
+		border-radius: 6px;
+		background: #16171d;
+		box-shadow: none;
 	}
 }
 
@@ -182,6 +202,20 @@ body {
 	border-top: 1px solid #262832;
 	font-size: 0.8125rem;
 	color: #868a95;
+}
+
+/* The drawer draws its own rule above the footer. */
+#nd-sidebar-mobile .docs-sidebar-footer {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.docs-sidebar-footer a {
+	transition: color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.docs-sidebar-footer a:hover {
+	color: #edeee8;
 }
 
 /* Home on the left, the package's other homes as icons on the right. */
@@ -251,7 +285,7 @@ body {
 }
 
 /* Inline code: mono on ink, a hairline round it. */
-#nd-page .prose :not(pre) > code {
+#nd-page .prose :not(pre) > code:not(.not-prose, .not-prose *) {
 	padding: 0.125em 0.375em;
 	border: 1px solid #262832;
 	border-radius: 4px;
@@ -263,7 +297,7 @@ body {
 /* Code blocks: ink with a hairline, the file's name in mono, as the home
    page's code files are. */
 figure.shiki {
-	border-radius: 6px;
+	border-radius: 8px;
 	border-color: #262832;
 	background: #16171d;
 }
@@ -284,7 +318,19 @@ figure.shiki figcaption {
 	color: #edeee8;
 }
 
-/* Callouts, tabs and cards keep the system's 6px corners. */
-#nd-page .rounded-xl {
+/* Type hovers open outside the page, flat like everything else. */
+.fd-twoslash-popover {
+	border-radius: 6px;
+	box-shadow: none;
+}
+
+/* Keyboard focus is lime, as on the home page. */
+:where(:focus-visible) {
+	outline: 2px solid #d5f70d;
+	outline-offset: 2px;
+}
+
+/* Callouts, tabs, cards and type tables keep the system's 6px corners. */
+#nd-page :is(.rounded-xl, .rounded-2xl):not(figure.shiki) {
 	border-radius: 6px;
 }
