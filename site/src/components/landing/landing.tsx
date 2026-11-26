@@ -7,10 +7,12 @@ import landing from "virtual:landing";
 import { gitConfig } from "@/lib/shared";
 
 import { type Channel, CHANNELS, EffectBand } from "./effect-band";
+import { EntitiesBand } from "./entities-band";
+import { LiveBand } from "./live-band";
 import { Mark } from "./mark";
 import { Stage } from "./stage";
 
-const INSTALL = "pnpm add @monarcode/effetch-query @monarcode/effetch effect";
+const INSTALL = "pnpm add @monarcode/effetch-query @monarcode/effetch";
 
 const PLATFORMS = [
 	{ name: "React", note: "useQuery and useMutation", page: "react" },
@@ -81,6 +83,13 @@ export function Landing() {
 					code={landing.code}
 				/>
 
+				<EntitiesBand
+					facts={landing.entities}
+					panel={landing.code.entities}
+				/>
+
+				<LiveBand facts={landing.live} panel={landing.code.live} />
+
 				<section
 					className="band band-platforms"
 					aria-labelledby="runs-title"
@@ -119,22 +128,47 @@ export function Landing() {
 				</section>
 
 				<section className="close" aria-labelledby="close-title">
-					<h2 id="close-title" className="close-title reveal">
-						Build the todo app.
-					</h2>
-					<p className="close-sub">
-						Getting started builds a small todo app one piece at a time: a
-						client, a query, a component and a mutation.
-					</p>
-					<div className="hero-actions">
-						<GetStarted />
-						<CopyCommand command={INSTALL} />
+					<div className="close-lead">
+						<h2 id="close-title" className="close-title reveal">
+							Build the todo app.
+						</h2>
+						<p className="close-sub">
+							Getting started builds a small todo app one piece at a
+							time, a file for each step.
+						</p>
+						<div className="hero-actions">
+							<GetStarted />
+							<CopyCommand command={INSTALL} />
+						</div>
+						<p className="close-thanks">
+							With thanks to{" "}
+							<a href="https://tanstack.com/query">TanStack Query</a>,
+							whose model, vocabulary and many defaults Effetch Query
+							borrows.
+						</p>
 					</div>
-					<p className="close-thanks">
-						With thanks to{" "}
-						<a href="https://tanstack.com/query">TanStack Query</a>, whose
-						model, vocabulary and many defaults Effetch Query borrows.
-					</p>
+					<ol className="close-steps" aria-label="Getting started">
+						{landing.steps.map((step) => (
+							<li key={step.n} className="reveal">
+								<Link
+									to="/docs/$"
+									params={{ _splat: "getting-started" }}
+									hash={step.href.split("#")[1]}
+									className="close-step"
+								>
+									<span className="close-step-n">{step.n}</span>
+									<span className="close-step-title">
+										{step.title}
+									</span>
+									<code>{step.file}</code>
+									<ArrowRight
+										aria-hidden
+										className="close-step-arrow"
+									/>
+								</Link>
+							</li>
+						))}
+					</ol>
 				</section>
 			</main>
 			<LandingFooter />

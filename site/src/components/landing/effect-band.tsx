@@ -63,11 +63,11 @@ export function EffectBand({
 			className="band band-effect"
 			aria-labelledby="effect-title"
 		>
-			<div className="effect-head reveal">
+			<div className="band-head reveal">
 				<h2 id="effect-title" className="band-title">
 					Effect all the way to the component.
 				</h2>
-				<p className="effect-lead">
+				<p className="band-lead">
 					A query is an Effect, so its value, its errors and the services
 					it needs keep their types from the request to the component that
 					renders them. Pick one to follow it through the code.

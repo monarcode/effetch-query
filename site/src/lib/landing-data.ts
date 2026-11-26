@@ -30,7 +30,7 @@ import {
  */
 
 /** The examples the page shows, each beside the part of the story it's for. */
-export type LandingCode = "stage" | "errors" | "services";
+export type LandingCode = "stage" | "errors" | "services" | "entities" | "live";
 
 export interface LandingPanel {
 	/** The file's name, if the docs name it. */
@@ -88,9 +88,50 @@ export interface ErrorFacts {
 	}[];
 }
 
+/** A query the entities section shows: how it's called, and its key. */
+export interface CachedQuery {
+	readonly call: string;
+	readonly key: string;
+}
+
+/** What the entities section says about the docs' optimistic toggle. */
+export interface EntityFacts {
+	/** The entity's name, `Todos`. */
+	readonly entity: string;
+	readonly mutation: string;
+	readonly queries: {
+		readonly list: CachedQuery;
+		readonly open: CachedQuery;
+		readonly detail: CachedQuery;
+	};
+}
+
+/** What the live section says about the docs' socket-fed query. */
+export interface LiveFacts {
+	readonly url: string;
+	/** How long `Stream.retry` waits before subscribing again. */
+	readonly retry: { readonly text: string; readonly seconds: number };
+	/** The query's name, as the docs export it. */
+	readonly query: string;
+	/** The change tags: an upsert and a removal. */
+	readonly saved: string;
+	readonly deleted: string;
+}
+
+/** A step of Getting started: its heading, the file it writes, its link. */
+export interface GuideStep {
+	readonly n: number;
+	readonly title: string;
+	readonly file: string;
+	readonly href: string;
+}
+
 export interface LandingData {
+	readonly steps: readonly GuideStep[];
 	readonly facts: StageFacts;
 	readonly errors: ErrorFacts;
+	readonly entities: EntityFacts;
+	readonly live: LiveFacts;
 	readonly code: Record<LandingCode, LandingPanel>;
 }
 
@@ -311,6 +352,132 @@ function reader(example: Example, pattern: RegExp, read: string): ReaderFacts {
 	return { name: found[1]!, label: found[2]!, page: pageOf(example) };
 }
 
+/** The key the library gives a call of an endpoint's query. */
+function keyOf(route: string, call?: unknown) {
+	class Client extends Fetch.Service<Client>()("Client", {
+		baseUrl: "https://api.example.com",
+	}) {}
+	const query = fromClient(Client as never).query(
+		Fetch.endpoint(route as "GET /todos", { output: Schema.Unknown }),
+	) as unknown as (call?: unknown) => { readonly key: unknown };
+	return JSON.stringify(query(call).key);
+}
+
+function entityFacts(example: Example, family: Example): EntityFacts {
+	const entity = match(
+		example,
+		/Entity\.update\((\w+), Number\(params\.id\)/,
+		"the optimistic Entity.update",
+	);
+	expect(example, "done: body.done,");
+	expect(example, `onSuccess: (saved) => Entity.set(${entity}, saved),`);
+	expect(example, "invalidates: [todos],");
+	const mutation = match(
+		example,
+		/Fetch\.endpoint\("([A-Z]+ [^"]+)"/,
+		"the optimistic mutation's endpoint",
+	);
+	const list = match(
+		family,
+		/listTodos = Fetch\.endpoint\("([A-Z]+ [^"]+)"/,
+		"todos.ts's list endpoint",
+	);
+	const detail = match(
+		family,
+		/getTodo = Fetch\.endpoint\("([A-Z]+ [^"]+)"/,
+		"todos.ts's detail endpoint",
+	);
+	expect(family, "export const todo = api.query(getTodo");
+	// The keys below are the library's for these routes, as long as the
+	// client adds no key prefix of its own.
+	expect(family, "export const api = fromClient(ApiClient);");
+	const open = { query: { done: false } };
+	const one = { params: { id: 2 } };
+	return {
+		entity,
+		mutation,
+		queries: {
+			list: { call: "todos()", key: keyOf(list) },
+			open: {
+				call: "todos({ query: { done: false } })",
+				key: keyOf(list, open),
+			},
+			detail: {
+				call: "todo({ params: { id: 2 } })",
+				key: keyOf(detail, one),
+			},
+		},
+	};
+}
+
+const retrySeconds = (text: string) =>
+	Duration.toSeconds(text as Duration.Input);
+
+function liveFacts(example: Example): LiveFacts {
+	const retry = match(example, /Schedule\.spaced\("([^"]+)"\)/, "the retry");
+	const query = match(
+		example,
+		/export const (\w+) = api\.query\(listTodos, \{ live: \(\) => changes \}\);/,
+		"the live query's export",
+	);
+	if (!(retrySeconds(retry) >= 1))
+		throw new Error(`The live section can't count down a retry of ${retry}`);
+	return {
+		query,
+		url: match(example, /socketMessages\("([^"]+)"\)/, "the socket's URL"),
+		retry: {
+			text: retry,
+			seconds: retrySeconds(retry),
+		},
+		saved: match(
+			example,
+			/TaggedStruct\("(\w+)", \{ todo: Todo \}/,
+			"the upsert's tag",
+		),
+		deleted: match(
+			example,
+			/TaggedStruct\("(\w+)", \{ id: Schema\.Finite \}/,
+			"the removal's tag",
+		),
+	};
+}
+
+/** Getting started's numbered steps, each with the first file it names. */
+function guideSteps(): GuideStep[] {
+	const file = path.join(sitePages, "getting-started.mdx");
+	const content = readFileSync(file, "utf8");
+	const steps = [...content.matchAll(/^## (\d+)\. (.+)$/gm)].map(
+		(heading, i, all) => {
+			const section = content.slice(heading.index, all[i + 1]?.index);
+			const named = /^```tsx? ([\w.-]+\.tsx?)$/m.exec(section)?.[1];
+			if (!named)
+				throw new Error(
+					`Getting started's step "${heading[2]}" names no file`,
+				);
+			// The docs' heading ids, for headings of letters, digits and spaces.
+			if (!/^[A-Za-z0-9 ]+$/.test(heading[2]!))
+				throw new Error(
+					`The landing page can't link to Getting started's "${heading[2]}"`,
+				);
+			const slug = `${heading[1]}. ${heading[2]}`
+				.toLowerCase()
+				.replace(/[^a-z0-9 -]/g, "")
+				.replace(/ /g, "-");
+			return {
+				n: Number(heading[1]),
+				title: heading[2]!,
+				file: named,
+				href: `/docs/getting-started#${slug}`,
+			};
+		},
+	);
+	if (steps.length < 3)
+		throw new Error(
+			"The landing page needs Getting started's numbered steps",
+		);
+	return steps;
+}
+
 function errorFacts(example: Example): ErrorFacts {
 	const statuses = /statusErrors: \{ 404: (\w+), 403: \[(\w+)\] \}/.exec(
 		example.code,
@@ -462,6 +629,11 @@ export async function landingData(build: boolean): Promise<LandingData> {
 	const errorsExample = find(examples, "the statusErrors example", (example) =>
 		example.code.includes("statusErrors: { 404: TodoNotFound"),
 	);
+	const optimistic = find(
+		examples,
+		"the optimistic entity example",
+		(example) => example.code.includes("optimistic: ({ params, body }) =>"),
+	);
 	const panels: Record<LandingCode, Example> = {
 		stage: show(stage, [
 			["// A cached query", '" },\n);'],
@@ -469,6 +641,8 @@ export async function landingData(build: boolean): Promise<LandingData> {
 		]),
 		errors: show(errorsExample, [["const findTodo"]]),
 		services: show(byName("api.ts"), [["// Sends requests"]]),
+		entities: show(optimistic, [["export const toggleTodo"]]),
+		live: show(byName("live-todos.ts"), [["// A change as an update"]]),
 	};
 	const code = Object.fromEntries(
 		await Promise.all(
@@ -491,7 +665,14 @@ export async function landingData(build: boolean): Promise<LandingData> {
 			}),
 		),
 	) as Record<LandingCode, LandingPanel>;
-	return { facts: stageFacts, errors: errorFacts(errorsExample), code };
+	return {
+		steps: guideSteps(),
+		facts: stageFacts,
+		errors: errorFacts(errorsExample),
+		entities: entityFacts(optimistic, byName("todos.ts")),
+		live: liveFacts(byName("live-todos.ts")),
+		code,
+	};
 }
 
 /** The lines each panel lights, by name: the text each line has. */
@@ -505,6 +686,20 @@ const LINES: Partial<Record<LandingCode, Record<string, string>>> = {
 		"e-403": '.onErrorTag("NotYourTodo"',
 		"e-other": ".onError(",
 		"a-success": ".onSuccess(",
+	},
+	entities: {
+		optimistic: "Entity.update(",
+		body: "done: body.done",
+		set: "onSuccess: (saved) =>",
+		invalidates: "invalidates: [todos]",
+	},
+	live: {
+		upsert: 'return change._tag === "Saved"',
+		socket: "socketMessages(",
+		decode: "Stream.mapEffect(",
+		apply: "Stream.map(apply)",
+		retry: "Stream.retry(",
+		live: "live: () => changes",
 	},
 	services: {
 		"r-layer": "ApiClient.layer.pipe(",

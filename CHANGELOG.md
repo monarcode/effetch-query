@@ -20,8 +20,10 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   mount, unmount or pause a component, change `staleTime` or invalidate
   the query, and the components and a status bar answer, with WebGL light
   along the line that runs. Below it, `Effect<A, E, R>` traces a query's
-  value, typed errors and services through the docs' code. The site is
-  dark only.
+  value, typed errors and services through the docs' code, an entity
+  writes one todo into three cached queries (and undoes it when the
+  request fails), and a socket pushes changes into a live query. The site
+  is dark only.
 
 ### Changed
 
