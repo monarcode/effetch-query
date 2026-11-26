@@ -147,6 +147,17 @@ follows Vite's and Fumadocs' conventions, as its files do.
 - The guides live on the site, once. The README is an overview that links
   to them: when a feature changes, update its page, and the README only if
   its quick start or links change.
+- The home page (`site/src/components/landing/`) shows examples from the
+  docs' pages, compiled by Twoslash when the site builds, and what its
+  simulation says (the query's key and route, the components that read
+  it, the error tags and what they render) comes from those examples
+  too: `site/src/lib/landing-data.ts` reads and checks them, and
+  `vite.config.ts` serves the result as `virtual:landing`. The site's
+  build fails if a page stops matching what the home page says. The hero
+  (`stage.tsx`) runs the docs' query against a model of the cache
+  (`cache.ts`), and WebGL light (`beams.ts`) sweeps the line that runs.
+  three.js loads only there, by dynamic import, and the site is dark
+  only.
 - `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
   `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
   apart, or the browser bundle takes the loader and every Lucide icon.
