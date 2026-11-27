@@ -151,7 +151,7 @@ export const todo = Query.family({
 });
 // todo(1): Query<Todo, TodoNotFound>, keyed ["todos", "detail", 1]
 
-// Reads the list, and runs again when the list's result changes.
+// Reads the list, and runs again when the list's value changes.
 export const openCount = Query.make({
   key: ["todos", "open-count"],
   run: (ctx) =>

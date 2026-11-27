@@ -42,12 +42,15 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ### Fixed
 
-- Editor hovers that said something the code doesn't do: a dependent
-  query (`RunContext.result`) refetches when the other query's result
-  changes, which a refetch of it does twice, not only when its value
-  changes; `connectQueryClient`'s `queries` fails each server render
-  rather than throwing when called; `gcTime` isn't the only option
-  without a client-wide default. Others now name every error they throw:
+- A dependent query (`ctx.result`) refetches once per refetch of the
+  query it reads, when that refetch settles. It also refetched as the
+  refetch started, with the old value, so each refetch sent the dependent
+  query's request twice. A refetch that reaches both queries still runs
+  the dependent query with the old value first.
+- Editor hovers that said something the code doesn't do:
+  `connectQueryClient`'s `queries` fails each server render rather than
+  throwing when called, and `gcTime` isn't the only option without a
+  client-wide default. Others now name every error they throw:
   `QueryClient.dehydrate`, `useIsFetching` and `Mutation.run` with a key
   that holds a query, and `optimistic` records `Entity` writes too.
 

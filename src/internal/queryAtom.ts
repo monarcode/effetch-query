@@ -231,6 +231,21 @@ export const nodeValue = <A>(
 		| Option.Option<A>
 		| undefined) ?? Option.none();
 
+/** Whether two results hold the same value or failure, `waiting` aside. */
+const sameUnderneath = (
+	a: AsyncResult.AsyncResult<unknown, unknown>,
+	b: AsyncResult.AsyncResult<unknown, unknown>,
+): boolean => {
+	switch (a._tag) {
+		case "Initial":
+			return b._tag === "Initial";
+		case "Success":
+			return b._tag === "Success" && Object.is(a.value, b.value);
+		case "Failure":
+			return b._tag === "Failure" && Object.is(a.cause, b.cause);
+	}
+};
+
 /**
  * Whether a result's value isn't its query's own: the value its
  * `placeholder` gave, or a reader's copy of a borrowed value
@@ -587,6 +602,24 @@ export const makeQuery = <A, E>(definition: {
 			{ immediate: true },
 		);
 	};
+	// What `ctx.result` reads of a dependency. A refetch only sets `waiting`
+	// over the same value or failure, which isn't a change to derive from:
+	// this keeps the earlier result, so the reader refetches once, when the
+	// dependency's fetch settles, not also as it starts. A placeholder is
+	// never the same as a value, even an equal one.
+	const dependencyView = Atom.family((dependency: Query.Query<any, any>) =>
+		Atom.readable((get): AsyncResult.AsyncResult<any, any> => {
+			const result = get(dependency);
+			const previous = get.self<AsyncResult.AsyncResult<any, any>>();
+			return result.waiting &&
+				Option.isSome(previous) &&
+				!isPlaceholder(get.registry, result) &&
+				!isPlaceholder(get.registry, previous.value) &&
+				sameUnderneath(previous.value, result)
+				? previous.value
+				: result;
+		}),
+	);
 	const runContext = (
 		get: Atom.AtomContext,
 		generation: number,
@@ -595,11 +628,12 @@ export const makeQuery = <A, E>(definition: {
 			if (isIdle(get.registry, dependency)) {
 				wakeForReader(get.registry, dependency, query, generation);
 			}
+			const view = dependencyView(dependency);
 			// A placeholder isn't a value to derive from: wait, as for
 			// `Initial`, until the dependency's fetch replaces it.
-			return isPlaceholder(get.registry, get(dependency))
+			return isPlaceholder(get.registry, get(view))
 				? Effect.never
-				: get.result(dependency);
+				: get.result(view);
 		},
 	});
 	const started = (

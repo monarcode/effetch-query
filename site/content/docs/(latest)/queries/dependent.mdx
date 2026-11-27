@@ -34,7 +34,7 @@ export const myTodos = Query.make({
   key: ["todos", "mine"],
   run: (ctx) =>
     Effect.gen(function* () {
-      // Waits for the session, and runs again when its result changes.
+      // Waits for the session, and runs again when its value changes.
       const { userId } = yield* ctx.result(session());
       return yield* ApiClient.use((client) =>
         client.get("/todos", {
@@ -53,26 +53,28 @@ depend on it:
 
 - it waits while the other query has no value yet;
 - it fails as the other query does, with its typed error;
-- it re-runs whenever the other query's result changes.
+- it re-runs when the other query's value or failure changes.
 
 Endpoint queries have no `run` to write, so a query that reads one is a
 `Query.make` or `Query.family` of your own, as `myTodos` is.
 
 ## When it runs again
 
-A dependent query re-runs on every change to the other query's result,
-not only to its value. A refetch of `session()` changes its result twice:
-when the refetch starts, the result is marked as waiting, and when it
-settles, it holds the new value. So each refetch of `session()` runs
-`myTodos` twice, and sends `GET /todos?owner=…` twice, even when the
+A dependent query re-runs when the other query's value or failure
+changes: when a refetch of it settles, when it's written, and when it's
+reset. So each refetch of `session()` runs `myTodos` once, after the
+refetch settles, and sends `GET /todos?owner=…` once, even when the
 session didn't change.
 
-While the other query refetches, `ctx.result` returns the value it still
-shows. If that refetch fails, the dependent query fails too, with the
-same error.
+While the other query refetches, the dependent query keeps its value, and
+`ctx.result` returns the value the other query still shows. So when one
+event refetches both, such as an invalidation that reaches both keys,
+the dependent query runs with that value, then again when the other
+query's refetch settles. If that refetch fails, the dependent query fails
+too, with the same error.
 
-To keep the extra requests down, give the query you read a longer
-`staleTime`, so fewer events refetch it. See
+To send fewer requests, give the query you read a longer `staleTime`, so
+fewer events refetch it. See
 [Freshness and refetching](/docs/queries/freshness).
 
 ## What the dependency changes

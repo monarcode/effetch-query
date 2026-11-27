@@ -292,11 +292,10 @@ export type GroupTargets<Targets> = {
  */
 export interface RunContext {
 	/**
-	 * Reads another query's value and makes this query depend on it: when
-	 * that query's result changes, this query refetches. A refetch of the
-	 * other query changes its result twice, when it starts and when it
-	 * settles, so this query refetches twice. Waits while it has no value
-	 * yet, and fails if it failed.
+	 * Reads another query's value and makes this query depend on it: this
+	 * query refetches when that query's value or failure changes, as when a
+	 * refetch of it settles or it's written, but not while a refetch of it
+	 * runs. Waits while it has no value yet, and fails if it failed.
 	 */
 	readonly result: <A, E>(query: Query<A, E>) => Effect.Effect<A, E>;
 }
