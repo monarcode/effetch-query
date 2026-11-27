@@ -283,7 +283,9 @@ A few details:
 
 Its options (`UseQueriesOptions`) take only `paused`: see
 [Pause screens you can't see](/docs/react/pause). As with `useQuery`, a
-server render reads only the cache.
+server render reads only the cache. To read each query's `status`, `data`
+and `error` as fields, use `useQueriesState`: see
+[Read several queries](/docs/react/as-object#read-several-queries).
 
 ## Other hooks and components
 

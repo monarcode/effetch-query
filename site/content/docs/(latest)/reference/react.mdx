@@ -15,18 +15,22 @@ import {
   QueryFailure,
   QueryProvider,
   useInfiniteQuery,
+  useInfiniteQueryState,
   useIsFetching,
   useIsMutating,
   useMutation,
   useMutationState,
   useQueries,
+  useQueriesState,
   useQuery,
   useQueryClient,
   useQueryState,
   useRefetch,
   useResetQueryFailure,
   useSuspenseInfiniteQuery,
+  useSuspenseInfiniteQueryState,
   useSuspenseQuery,
+  useSuspenseQueryState,
 } from "@monarcode/effetch-query/react";
 ```
 
@@ -124,6 +128,38 @@ Check `status` before reading `data`: it narrows the object ([`UseQueryStateResu
 
 What [`useQueryState`](#usequerystate) returns: one of three shapes, told apart by `status` (or `isPending`, `isSuccess` and `isFailure`), which narrows `data`, `error` and `cause`.
 
+### useInfiniteQueryState [#useinfinitequerystate]
+
+Reads an [`InfiniteQuery.InfiniteQuery`](/docs/reference/infinite-query#infinitequery) as [`useInfiniteQuery`](#useinfinitequery) does, and returns its result as an object of fields, as [`useQueryState`](#usequerystate) does, with the page controls beside them: close to TanStack Query's `useInfiniteQuery`. `data.pages` holds the loaded pages once `status` is `"success"`, and a page that fails makes it a `"failure"` whose `data` still holds them. The object keeps its identity while nothing in it changes. It fetches, and throws, as [`useInfiniteQuery`](#useinfinitequery) does.
+
+### useQueriesState [#usequeriesstate]
+
+Reads a list of queries as [`useQueries`](#usequeries) does, and returns each query's result as an object of fields, as [`useQueryState`](#usequerystate) does: close to TanStack Query's `useQueries`. A `null` entry is pending, and its `refetch` resolves at once.
+
+Each object keeps its identity while its query's result does, and its `refetch` while the query stays in the list. The array keeps its identity while every object in it does. A query listed twice shows the same object in both places. It fetches, pauses and throws as [`useQueries`](#usequeries) does.
+
+### useSuspenseInfiniteQueryState [#usesuspenseinfinitequerystate]
+
+Reads an [`InfiniteQuery.InfiniteQuery`](/docs/reference/infinite-query#infinitequery) through React Suspense, as [`useSuspenseInfiniteQuery`](#usesuspenseinfinitequery) does, and returns its result as an object of fields, as [`useSuspenseQueryState`](#usesuspensequerystate) does, with the page controls beside them: close to TanStack Query's `useSuspenseInfiniteQuery`. `data.pages` is always there. A page that fails makes `status` `"failure"`, with the loaded pages still in `data`. The object keeps its identity while nothing in it changes. It fetches, and throws, as [`useSuspenseInfiniteQuery`](#usesuspenseinfinitequery) does.
+
+### useSuspenseQueryState [#usesuspensequerystate]
+
+Reads a query through React Suspense, as [`useSuspenseQuery`](#usesuspensequery) does, and returns its result as an object of fields, as [`useQueryState`](#usequerystate) does: close to TanStack Query's `useSuspenseQuery`. It suspends until the query has a value and throws a failure with no value before it to the error boundary, so `data` is always there.
+
+Unlike [`useSuspenseQuery`](#usesuspensequery), which keeps showing the earlier success after a refetch fails, the object says so: its `status` is `"failure"`, with the typed `error` beside the earlier `data`. It fetches and takes `select` as [`useSuspenseQuery`](#usesuspensequery) does. The object keeps its identity while nothing in it changes. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+
+### UseInfiniteQueryStateResult [#useinfinitequerystateresult]
+
+What [`useInfiniteQueryState`](#useinfinitequerystate) returns: [`useQueryState`](#usequerystate)'s object for the pages, narrowed by `status`, with the page controls beside it.
+
+### UseQueriesStateEntry [#usequeriesstateentry]
+
+What [`useQueriesState`](#usequeriesstate) returns for one entry of its list: the query's state object, typed by the query, or a pending one for `null`.
+
+### UseQueriesStateResult [#usequeriesstateresult]
+
+What [`useQueriesState`](#usequeriesstate) returns: a state object per query, in the same order, as a tuple for a tuple of queries and an array for an array.
+
 ### UseQueryStateFailure [#usequerystatefailure]
 
 What [`useQueryState`](#usequerystate) returns when the query has failed: its last fetch failed, or a refetch after a success did. A `select` that throws gives one too.
@@ -150,6 +186,23 @@ What [`useQueryState`](#usequerystate) returns while the query has a value, incl
   path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
   name="UseQueryStateSuccess"
 />
+
+### UseSuspenseInfiniteQueryStateResult [#usesuspenseinfinitequerystateresult]
+
+What [`useSuspenseInfiniteQueryState`](#usesuspenseinfinitequerystate) returns: [`useSuspenseQueryState`](#usesuspensequerystate)'s object for the pages, with the page controls beside it.
+
+### UseSuspenseQueryStateFailure [#usesuspensequerystatefailure]
+
+What [`useSuspenseQueryState`](#usesuspensequerystate) returns after a refetch fails: the failure, with the value shown before it as `data`, since a suspense reader only throws a failure that has no value before it.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react/hooks.d.ts"
+  name="UseSuspenseQueryStateFailure"
+/>
+
+### UseSuspenseQueryStateResult [#usesuspensequerystateresult]
+
+What [`useSuspenseQueryState`](#usesuspensequerystate) returns: the success, or a failed refetch with the earlier value. `data` is there either way, so it needs no check; `status` tells the two apart.
 
 ## Read many queries [#read-many-queries]
 

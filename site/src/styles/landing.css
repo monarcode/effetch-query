@@ -220,7 +220,7 @@
 }
 
 .stage-title {
-	font-size: clamp(2.375rem, 16.6cqi, 8.875rem);
+	font-size: clamp(2.375rem, 13.6cqi, 7.25rem);
 	font-weight: 620;
 	line-height: 0.9;
 	letter-spacing: -0.035em;

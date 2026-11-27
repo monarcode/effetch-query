@@ -17,7 +17,7 @@ colors:
 typography:
   display:
     fontFamily: "Geist Variable, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "clamp(2.375rem, 16.6cqi, 8.875rem)"
+    fontSize: "clamp(2.375rem, 13.6cqi, 7.25rem)"
     fontWeight: 620
     lineHeight: 0.9
     letterSpacing: "-0.035em"

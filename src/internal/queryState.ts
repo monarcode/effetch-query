@@ -98,3 +98,51 @@ export const queryState = <A, E>(
 			};
 	}
 };
+
+/** What `useMutation` shows of its latest run, beside `result`. */
+export interface MutationStateFields<A, E> {
+	readonly status: "idle" | "pending" | "success" | "failure";
+	readonly data: A | undefined;
+	readonly error: E | undefined;
+	readonly cause: Cause.Cause<E> | undefined;
+	readonly isIdle: boolean;
+	readonly isPending: boolean;
+	readonly isSuccess: boolean;
+	readonly isFailure: boolean;
+}
+
+/**
+ * The fields of a mutation's result, as TanStack's mutation has them: a run
+ * in progress is `"pending"` with no `data` or `error`, even when an
+ * earlier run's result is still under it.
+ */
+export const mutationState = <A, E>(
+	result: AsyncResult.AsyncResult<A, E>,
+): MutationStateFields<A, E> => {
+	const status = result.waiting
+		? "pending"
+		: result._tag === "Initial"
+			? "idle"
+			: result._tag === "Success"
+				? "success"
+				: "failure";
+	return {
+		status,
+		data:
+			status === "success" && result._tag === "Success"
+				? result.value
+				: undefined,
+		error:
+			status === "failure" && result._tag === "Failure"
+				? Option.getOrUndefined(Cause.findErrorOption(result.cause))
+				: undefined,
+		cause:
+			status === "failure" && result._tag === "Failure"
+				? result.cause
+				: undefined,
+		isIdle: status === "idle",
+		isPending: status === "pending",
+		isSuccess: status === "success",
+		isFailure: status === "failure",
+	};
+};

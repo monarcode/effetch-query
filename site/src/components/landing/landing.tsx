@@ -14,6 +14,9 @@ import { Stage } from "./stage";
 
 const INSTALL = "pnpm add @monarcode/effetch-query @monarcode/effetch";
 
+/** The hero's title, a line each, which the home page's image sets too. */
+export const HEADLINE = ["Cached queries,", "made of Effect."] as const;
+
 const PLATFORMS = [
 	{ name: "React", note: "useQuery and useMutation", page: "react" },
 	{
@@ -55,12 +58,14 @@ export function Landing() {
 					heading={
 						<>
 							<h1 id="stage-title" className="stage-title">
-								<span>
-									<span>Server state,</span>
-								</span>{" "}
-								<span>
-									<span>as an Effect.</span>
-								</span>
+								{HEADLINE.map((line, i) => (
+									<Fragment key={line}>
+										{i > 0 ? " " : null}
+										<span>
+											<span>{line}</span>
+										</span>
+									</Fragment>
+								))}
 							</h1>
 							<Signature onPick={follow} />
 						</>

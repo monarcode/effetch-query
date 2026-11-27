@@ -81,18 +81,22 @@ describe("public entry points", () => {
 			"QueryFailure",
 			"QueryProvider",
 			"useInfiniteQuery",
+			"useInfiniteQueryState",
 			"useIsFetching",
 			"useIsMutating",
 			"useMutation",
 			"useMutationState",
 			"useQueries",
+			"useQueriesState",
 			"useQuery",
 			"useQueryClient",
 			"useQueryState",
 			"useRefetch",
 			"useResetQueryFailure",
 			"useSuspenseInfiniteQuery",
+			"useSuspenseInfiniteQueryState",
 			"useSuspenseQuery",
+			"useSuspenseQueryState",
 		]);
 		expect(React.QueryFailure).toBe(Core.QueryFailure);
 	});

@@ -18,6 +18,7 @@ import { useMDXComponents } from "@/components/mdx";
 import { SidebarFooter } from "@/components/sidebar-footer";
 import { docs } from "@/lib/docs";
 import { baseOptions } from "@/lib/layout.shared";
+import { pageImagePath } from "@/lib/og";
 import {
 	getPageMarkdownUrl,
 	gitConfig,
@@ -41,7 +42,7 @@ export const Route = createFileRoute("/docs/$")({
 	},
 	head: ({ loaderData }) => {
 		if (!loaderData) return {};
-		const { title, description, url, markdownUrl, folders, older } =
+		const { title, description, url, markdownUrl, folders, older, slugs } =
 			loaderData;
 		const head = pageHead({
 			title: `${title} | Effetch Query`,
@@ -49,6 +50,7 @@ export const Route = createFileRoute("/docs/$")({
 			path: url,
 			type: "article",
 			markdown: markdownUrl,
+			image: pageImagePath(slugs),
 			jsonLd: [
 				{
 					"@context": "https://schema.org",
@@ -131,6 +133,7 @@ const loader = createServerFn({ method: "GET" })
 		return {
 			path: page.path,
 			url: page.url,
+			slugs: page.slugs,
 			folders: pageFolders(page.url),
 			title: page.data.title ?? "",
 			description: page.data.description ?? "",

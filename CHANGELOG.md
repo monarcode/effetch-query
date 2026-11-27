@@ -4,8 +4,28 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ## Unreleased
 
+## 0.1.0-rc.6
+
+Additive: object hooks for Suspense, infinite queries and lists of
+queries, TanStack-style fields on `useMutation`, and a documentation site.
+It works with `@monarcode/effetch` 0.1.0-rc.4 and later in 0.1, as rc.5
+does. One fix changes what a dependent query (`ctx.result`) sends: one
+request per refetch of the query it reads, not two (see Fixed).
+
 ### Added
 
+- `useSuspenseQueryState`, `useInfiniteQueryState`,
+  `useSuspenseInfiniteQueryState` and `useQueriesState` in
+  `@monarcode/effetch-query/react`: the object of `useQueryState`
+  (`status`, `data`, `error`, `isFetching`, `refetch` and the rest) for
+  Suspense, infinite queries and lists of queries, as TanStack Query's
+  hooks return it. A suspense reader's `data` is always there, and a
+  failed refetch after a success shows as a `"failure"` with the earlier
+  `data`. The infinite hooks add the page controls beside the fields. See
+  [Read a query as an object](https://effetch-query.pages.dev/docs/react/as-object).
+- `useMutation` returns its latest run as fields beside `result`:
+  `status` (`"idle"`, `"pending"`, `"success"` or `"failure"`), `data`,
+  `error`, `cause`, `isIdle`, `isPending`, `isSuccess` and `isFailure`.
 - A documentation site at https://effetch-query.pages.dev, built from
   `site/` (Fumadocs on TanStack Start, prerendered to static files). Every
   guide moved there from the README, one page per task, with search. The
@@ -14,7 +34,9 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   namespace and entry point, is generated from the JSDoc. Each page is
   also served as Markdown, `llms.txt` and `llms-full.txt` list them for
   LLMs and agents, and older release lines will stay readable from a
-  version dropdown. Each release moves the live docs to its commit.
+  version dropdown. Each page has a link-preview image with its title, and
+  the site has a home-screen icon. Each release moves the live docs to its
+  commit.
 - The site's home page runs the docs' own code: a query and three of the
   docs' components reading it, against a simulated cache. Toggle a todo,
   mount, unmount or pause a component, change `staleTime` or invalidate

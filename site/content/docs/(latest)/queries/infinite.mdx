@@ -243,6 +243,11 @@ While a page loads, `result` stays a waiting `Success`, so
 `isFetchingNextPage` is how you tell a page fetch from a background
 refetch of every page.
 
+To check fields such as `status`, `data` and `error` instead of matching
+on `result`, use `useInfiniteQueryState` or
+`useSuspenseInfiniteQueryState`: see
+[Read pages](/docs/react/as-object#read-pages).
+
 ### Without Suspense
 
 `useInfiniteQuery`'s `result` is an `AsyncResult`, as
