@@ -25,7 +25,7 @@ const retryNetworkFailures = Schedule.exponential("250 millis").pipe(
  * the server, and one for the page in the browser. Nothing here is costly to
  * build; an app with a database pool would share it through a
  * `ManagedRuntime`: see "Sharing your runtime" at
- * https://effetch-query.pages.dev/docs/client#layer-or-runtime.
+ * https://effetch-query.monarcode.dev/docs/client#layer-or-runtime.
  */
 export const makeQueryClient = (
 	token: Effect.Effect<string | undefined>,

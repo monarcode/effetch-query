@@ -36,7 +36,7 @@ export interface RouterOptions {
  * so each request gets its own query client, with that request's token.
  * Nothing here is costly to build; an app with a database pool would share
  * it through a `ManagedRuntime`: see "Sharing your runtime" at
- * https://effetch-query.pages.dev/docs/client#layer-or-runtime.
+ * https://effetch-query.monarcode.dev/docs/client#layer-or-runtime.
  */
 export function getRouter({
 	http = FetchHttpClient.layer,

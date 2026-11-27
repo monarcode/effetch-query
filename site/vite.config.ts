@@ -75,7 +75,7 @@ const { version } = JSON.parse(
 
 // The live site, or, on a Cloudflare Pages preview (`main` and pull
 // requests), the preview's own address, so its Markdown links stay on it.
-const PRODUCTION = "https://effetch-query.pages.dev";
+const PRODUCTION = "https://effetch-query.monarcode.dev";
 const preview =
 	process.env.CF_PAGES_BRANCH && process.env.CF_PAGES_BRANCH !== "site";
 const siteUrl = (preview && process.env.CF_PAGES_URL) || PRODUCTION;
