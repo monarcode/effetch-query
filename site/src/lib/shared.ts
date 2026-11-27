@@ -1,3 +1,5 @@
+import { OG_SIZE } from "./og";
+
 export const docsRoute = "/docs";
 
 /** The site as a structured-data node, which every page's data is part of. */
@@ -25,6 +27,8 @@ export interface PageHeadInput {
 	type: "website" | "article";
 	/** The path of the page as Markdown, for LLMs and agents. */
 	markdown?: string | undefined;
+	/** The path of its link-preview image (see `lib/og.ts`). */
+	image?: string | undefined;
 	/** Its structured data, for search engines. */
 	jsonLd?: readonly object[] | undefined;
 }
@@ -44,6 +48,21 @@ export function pageHead(page: PageHeadInput) {
 			{ property: "og:description", content: page.description },
 			{ property: "og:url", content: url },
 			{ property: "og:type", content: page.type },
+			...(page.image
+				? [
+						{ property: "og:image", content: SITE_URL + page.image },
+						{
+							property: "og:image:width",
+							content: String(OG_SIZE.width),
+						},
+						{
+							property: "og:image:height",
+							content: String(OG_SIZE.height),
+						},
+						{ property: "og:image:alt", content: page.title },
+						{ name: "twitter:card", content: "summary_large_image" },
+					]
+				: []),
 		],
 		// Written into the page as is, so `<` is escaped: a string can't end
 		// the script.

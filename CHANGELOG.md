@@ -14,7 +14,9 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   namespace and entry point, is generated from the JSDoc. Each page is
   also served as Markdown, `llms.txt` and `llms-full.txt` list them for
   LLMs and agents, and older release lines will stay readable from a
-  version dropdown. Each release moves the live docs to its commit.
+  version dropdown. Each page has a link-preview image with its title, and
+  the site has a home-screen icon. Each release moves the live docs to its
+  commit.
 - The site's home page runs the docs' own code: a query and three of the
   docs' components reading it, against a simulated cache. Toggle a todo,
   mount, unmount or pause a component, change `staleTime` or invalidate

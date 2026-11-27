@@ -162,6 +162,12 @@ follows Vite's and Fumadocs' conventions, as its files do.
   line, motion. The home page's styles are `landing.css`; the docs pages
   map Fumadocs' colour variables onto the same tokens in `docs.css`, and
   their code uses the home page's greyscale theme (`code-theme.ts`).
+- Each docs page, and the home page, has a link-preview image, drawn
+  with Takumi by `site/src/lib/og-image.tsx` and served at
+  `/og/docs/<page>.png` and `/og/home.png`, beside `/apple-touch-icon.png`.
+  `vite.config.ts` lists them for the prerender, which saves responses as
+  text, so it asks for each image as base64 and writes the bytes back. In
+  dev, open an image's URL to see it.
 - `site/src/lib/docs.ts` (`defineDocs`) is loaded by the browser;
   `site/src/lib/source.ts` (`loader()`) is for server code only. Keep them
   apart, or the browser bundle takes the loader and every Lucide icon.
