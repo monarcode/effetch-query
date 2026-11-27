@@ -63,7 +63,7 @@ any Effect too.
   read from the built package.
 - One docs version per release line. The current line is at `/docs/…`;
   older lines are snapshots at `/docs/<line>/…`. The live site
-  (https://effetch-query.pages.dev) deploys from the `site` branch at each
+  (https://effetch-query.monarcode.dev) deploys from the `site` branch at each
   release; `main` and pull requests deploy as previews.
 
 ## Capabilities and Constraints
@@ -84,8 +84,8 @@ any Effect too.
 - Terminology: the product is **Effetch Query** and its HTTP client is
   **Effetch** in prose; `effetch-query` only as an identifier (npm name,
   repo, URLs).
-- Undecided: a custom domain. `https://effetch-query.pages.dev` until
-  then.
+- Domain: `https://effetch-query.monarcode.dev`. The Pages address,
+  `https://effetch-query.pages.dev`, still serves the same site.
 
 ## Brand Commitments
 

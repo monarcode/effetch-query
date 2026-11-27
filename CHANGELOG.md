@@ -4,6 +4,11 @@ All notable changes to `@monarcode/effetch-query`, newest first.
 
 ## Unreleased
 
+### Changed
+
+- The documentation site moved to https://effetch-query.monarcode.dev.
+  The old address, https://effetch-query.pages.dev, still serves it.
+
 ## 0.1.0-rc.6
 
 Additive: object hooks for Suspense, infinite queries and lists of

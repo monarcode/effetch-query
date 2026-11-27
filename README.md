@@ -13,12 +13,12 @@
 [![provenance](https://img.shields.io/badge/provenance-verified-brightgreen?logo=npm)](https://www.npmjs.com/package/@monarcode/effetch-query#provenance)
 [![license](https://img.shields.io/npm/l/@monarcode/effetch-query)](./LICENSE)
 
-[![React](https://img.shields.io/badge/React-20232a?logo=react&logoColor=61dafb)](https://effetch-query.pages.dev/docs/react)
-[![React Native](https://img.shields.io/badge/React%20Native-20232a?logo=react&logoColor=61dafb)](https://effetch-query.pages.dev/docs/react/react-native)
-[![TanStack Router](https://img.shields.io/badge/TanStack%20Router-20232a?logo=tanstack&logoColor=white)](https://effetch-query.pages.dev/docs/frameworks/tanstack-start)
-[![TanStack Start](https://img.shields.io/badge/TanStack%20Start-20232a?logo=tanstack&logoColor=white)](https://effetch-query.pages.dev/docs/frameworks/tanstack-start)
-[![React Router](https://img.shields.io/badge/React%20Router-20232a?logo=reactrouter&logoColor=ca4245)](https://effetch-query.pages.dev/docs/frameworks/react-router)
-[![Next.js](https://img.shields.io/badge/Next.js-20232a?logo=nextdotjs&logoColor=white)](https://effetch-query.pages.dev/docs/frameworks/nextjs)
+[![React](https://img.shields.io/badge/React-20232a?logo=react&logoColor=61dafb)](https://effetch-query.monarcode.dev/docs/react)
+[![React Native](https://img.shields.io/badge/React%20Native-20232a?logo=react&logoColor=61dafb)](https://effetch-query.monarcode.dev/docs/react/react-native)
+[![TanStack Router](https://img.shields.io/badge/TanStack%20Router-20232a?logo=tanstack&logoColor=white)](https://effetch-query.monarcode.dev/docs/frameworks/tanstack-start)
+[![TanStack Start](https://img.shields.io/badge/TanStack%20Start-20232a?logo=tanstack&logoColor=white)](https://effetch-query.monarcode.dev/docs/frameworks/tanstack-start)
+[![React Router](https://img.shields.io/badge/React%20Router-20232a?logo=reactrouter&logoColor=ca4245)](https://effetch-query.monarcode.dev/docs/frameworks/react-router)
+[![Next.js](https://img.shields.io/badge/Next.js-20232a?logo=nextdotjs&logoColor=white)](https://effetch-query.monarcode.dev/docs/frameworks/nextjs)
 [![Effect](https://img.shields.io/badge/Effect-20232a?logo=effect&logoColor=white)](https://effect.website)
 
 **Server state for [Effect](https://effect.website) apps, inspired by
@@ -46,8 +46,8 @@ it. It works with any Effect too.
 ## Documentation
 
 The guides and the API reference are at
-**[effetch-query.pages.dev](https://effetch-query.pages.dev/docs)**. Start with
-[Getting started](https://effetch-query.pages.dev/docs/getting-started), which builds a small todo
+**[effetch-query.monarcode.dev](https://effetch-query.monarcode.dev/docs)**. Start with
+[Getting started](https://effetch-query.monarcode.dev/docs/getting-started), which builds a small todo
 app one piece at a time.
 
 ## Install
@@ -66,7 +66,7 @@ pnpm add @effect/atom-react react
 
 Effetch Query needs `effect` 4.1 or later. With Effetch, it needs Effetch
 `0.1.0-rc.4` or later in 0.1. It runs in browsers, React Native (Hermes),
-Node 20+, Bun and Deno. See [Installation](https://effetch-query.pages.dev/docs/installation) for
+Node 20+, Bun and Deno. See [Installation](https://effetch-query.monarcode.dev/docs/installation) for
 the entry points.
 
 ## Quick start
@@ -166,24 +166,24 @@ function Todos() {
 
 ## Guides
 
-- [Queries](https://effetch-query.pages.dev/docs/queries): queries from endpoints, keys, errors,
+- [Queries](https://effetch-query.monarcode.dev/docs/queries): queries from endpoints, keys, errors,
   freshness, placeholders, infinite and live queries, and queries without
   Effetch.
-- [React](https://effetch-query.pages.dev/docs/react): reading queries in components, Suspense,
+- [React](https://effetch-query.monarcode.dev/docs/react): reading queries in components, Suspense,
   refetching, atoms and React Native.
-- [Mutations](https://effetch-query.pages.dev/docs/mutations): running mutations, invalidation,
+- [Mutations](https://effetch-query.monarcode.dev/docs/mutations): running mutations, invalidation,
   optimistic updates and activity.
-- [The cache](https://effetch-query.pages.dev/docs/cache): reading and writing it from Effect and
+- [The cache](https://effetch-query.monarcode.dev/docs/cache): reading and writing it from Effect and
   from plain code, entities, and switching accounts.
-- [The client](https://effetch-query.pages.dev/docs/client): options, services, defaults and
+- [The client](https://effetch-query.monarcode.dev/docs/client): options, services, defaults and
   signals.
-- [Server rendering](https://effetch-query.pages.dev/docs/server-rendering) and
-  [frameworks](https://effetch-query.pages.dev/docs/frameworks): TanStack Router and
+- [Server rendering](https://effetch-query.monarcode.dev/docs/server-rendering) and
+  [frameworks](https://effetch-query.monarcode.dev/docs/frameworks): TanStack Router and
   Start, Next.js and React Router.
-- [Testing](https://effetch-query.pages.dev/docs/testing) and
-  [Coming from TanStack Query](https://effetch-query.pages.dev/docs/coming-from-tanstack-query).
-- [Entry points](https://effetch-query.pages.dev/docs/reference) and
-  [limitations](https://effetch-query.pages.dev/docs/reference/limitations).
+- [Testing](https://effetch-query.monarcode.dev/docs/testing) and
+  [Coming from TanStack Query](https://effetch-query.monarcode.dev/docs/coming-from-tanstack-query).
+- [Entry points](https://effetch-query.monarcode.dev/docs/reference) and
+  [limitations](https://effetch-query.monarcode.dev/docs/reference/limitations).
 
 ## Examples
 
