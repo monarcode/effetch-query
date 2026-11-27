@@ -115,7 +115,9 @@ export interface ConnectQueryClientOptions {
  * returns a fresh value without fetching, and set the router's
  * `defaultPreloadStaleTime` to `0`, so the queries' `staleTime` decides
  * what's refetched rather than the router's own loader cache. Only queries
- * with a `schema` cross to the browser.
+ * with a `schema` cross to the browser. A `dehydrate.queries` key that
+ * holds a query, a family or a group fails each server render with a
+ * `Query.KeyHoldsTargetError`.
  *
  * @example
  * ```tsx

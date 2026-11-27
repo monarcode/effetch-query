@@ -2,6 +2,8 @@
 	"title": "Reference",
 	"pages": [
 		"index",
+		"limitations",
+		"---Core entry point---",
 		"core",
 		"query",
 		"infinite-query",
@@ -9,10 +11,10 @@
 		"entity",
 		"query-client",
 		"signals",
+		"---Other entry points---",
 		"react",
 		"effetch",
 		"react-native",
-		"tanstack-router",
-		"limitations"
+		"tanstack-router"
 	]
 }

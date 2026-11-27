@@ -1,4 +1,4 @@
 {
 	"title": "Server rendering",
-	"pages": ["index", "transforming-schemas", "hydrate", "streaming"]
+	"pages": ["index", "whats-sent", "streaming"]
 }

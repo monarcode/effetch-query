@@ -1132,7 +1132,7 @@ interface AnyClient {
  * `Register["services"]`). Returns an {@link Endpoints}, whose `query`,
  * `infiniteQuery` and `mutation` make them.
  *
- * The adapter adds no behaviour of its own: a query is a
+ * The adapter adds no behavior of its own: a query is a
  * {@link Query.family} member keyed by its route, and a mutation is a
  * {@link Mutation.make} whose `run` calls the endpoint, and that
  * invalidates its route with {@link EndpointsOptions.invalidates}. From a

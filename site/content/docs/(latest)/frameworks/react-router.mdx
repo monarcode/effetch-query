@@ -3,17 +3,35 @@ title: React Router
 description: Use Effetch Query in React Router's framework mode.
 ---
 
-React Router's framework mode needs no integration package: the core and
-`./react` cover it. A root
-middleware gives each request its own client, which loaders read from the
-router's context, and `QueryClient.disposeAfter` disposes it once the
-response is sent.
+Your app uses React Router's framework mode, with server rendering. A
+root middleware gives each request its own client, which loaders read
+from the router's context, and `QueryClient.disposeAfter` disposes it
+after the response is sent. In the browser, one client serves the page's
+components and its client loaders. React Router needs no integration
+package: the core and `./react` cover it.
 
-The examples import `api.ts`, `client.ts` and `todos.ts` from [Getting started](/docs/getting-started), and `todo-list.tsx` from [Send the cache](/docs/server-rendering).
+This page shows React Router's wiring. The rules every framework shares,
+a `staleTime`, streaming and redirects, are in
+[Frameworks](/docs/frameworks), and the round trip itself is in
+[Send the cache](/docs/server-rendering). The examples import `api.ts`,
+`client.ts` and `todos.ts` from [Getting started](/docs/getting-started),
+and `todo-list.tsx` from [Send the cache](/docs/server-rendering).
+`client.ts` makes the browser's client, with a 30-second `staleTime`.
 
-**1. Make a client per request in a middleware.** It puts the client in
-the router's context, and wraps the response so the client lives until
-the streamed body is sent:
+## Before you begin
+
+You need:
+
+- React 19;
+- React Router 8, in framework mode with server rendering. Effetch Query
+  is built and tested against React Router 8.5.2;
+- the entry files, `entry.server.tsx` and `entry.client.tsx`. To get
+  them, run `npx react-router reveal`.
+
+## 1. Make a client per request in a middleware
+
+The middleware puts the client in the router's context, and wraps the
+response so the client lives until the streamed body is sent:
 
 ```ts query-context.ts
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -32,18 +50,18 @@ import { ApiClientLive } from "./api.js";
 const appRuntime = ManagedRuntime.make(ApiClientLive);
 
 // `null` where the middleware didn't run: React Router runs none for a URL
-// no route matches.
+// no route matches. In the browser, `entry.client.tsx` sets the page's client.
 export const queryClientContext = createContext<QueryClient.QueryClient | null>(
   null,
 );
 
-/** The request's client, in a loader or action. */
+/** The request's client in a loader, or the page's in a client loader. */
 export const getQueryClient = (
   context: Readonly<RouterContextProvider>,
 ): QueryClient.QueryClient => {
   const client = context.get(queryClientContext);
   if (client === null) {
-    throw data("app/root.tsx doesn't export queryClientMiddleware", {
+    throw data("No query client: see app/root.tsx and entry.client.tsx", {
       status: 500,
     });
   }
@@ -62,8 +80,10 @@ export const queryClientMiddleware: MiddlewareFunction<Response> = async (
 };
 ```
 
-**2. Run it for every request.** `app/root.tsx` exports it, so it runs for
-every request that runs a loader:
+## 2. Run the middleware for every request
+
+Export it from `app/root.tsx`, so it runs for every request that runs a
+loader:
 
 ```ts
 import { queryClientMiddleware } from "./query-context.js";
@@ -71,9 +91,10 @@ import { queryClientMiddleware } from "./query-context.js";
 export const middleware = [queryClientMiddleware];
 ```
 
-**3. Prefetch in loaders.** A route's loader prefetches into the request's
-client and returns its state, which the route hands to a
-`HydrationBoundary`:
+## 3. Prefetch in loaders
+
+A route's loader prefetches into the request's client and returns its
+state, which the route hands to a `HydrationBoundary`:
 
 ```tsx
 import { QueryClient } from "@monarcode/effetch-query";
@@ -101,14 +122,15 @@ export default function TodosRoute() {
 ```
 
 With React Router's generated route types (`react-router typegen`), type
-the loader with `Route.LoaderArgs` and read the state from the component's
-`loaderData` prop (`Route.ComponentProps`), as the
-[`react-router` example](https://github.com/monarcode/effetch-query/tree/main/examples/react-router) does.
+the loader with `Route.LoaderArgs`, and read the state from the
+component's `loaderData` prop (`Route.ComponentProps`), as the
+[`react-router` example](https://github.com/monarcode/effetch-query/tree/main/examples/react-router)
+does.
 
-**4. Give the server render the request's client.** To get the entry
-files, run `npx react-router reveal`. In `entry.server.tsx`,
-`handleRequest` gets the router's context as `loadContext`; render the
-following where it renders `<ServerRouter>`:
+## 4. Give the server render the request's client
+
+In `entry.server.tsx`, wrap the router in a `QueryProvider` for the
+request's client:
 
 ```tsx
 import { QueryProvider } from "@monarcode/effetch-query/react";
@@ -137,49 +159,204 @@ export function ServerApp(props: {
 }
 ```
 
-**5. Give the browser one client.** In `entry.client.tsx`, the browser gets
-one client for the page's lifetime:
+`handleRequest` gets the router's context as its fifth argument,
+`loadContext`. Render `ServerApp` where it renders `<ServerRouter>`,
+passing it `request`, `routerContext` and `loadContext`. The example's
+[`entry.server.tsx`](https://github.com/monarcode/effetch-query/blob/main/examples/react-router/app/entry.server.tsx)
+does the same inline.
+
+## 5. Give the browser one client
+
+In `entry.client.tsx`, the browser gets one client for the page's
+lifetime. Give it to the `QueryProvider`, for components, and to the
+router's context with `getContext`, for client middleware and client
+loaders:
 
 ```tsx
 import { QueryProvider } from "@monarcode/effetch-query/react";
 import { StrictMode, startTransition } from "react";
 import { hydrateRoot } from "react-dom/client";
+import { RouterContextProvider } from "react-router";
 import { HydratedRouter } from "react-router/dom";
 
 import { queryClient } from "./client.js";
+import { queryClientContext } from "./query-context.js";
+
+// `getQueryClient(context)` returns the page's client in the browser.
+const getContext = () =>
+  new RouterContextProvider(new Map([[queryClientContext, queryClient]]));
 
 startTransition(() => {
   hydrateRoot(
     document,
     <StrictMode>
       <QueryProvider client={queryClient}>
-        <HydratedRouter />
+        <HydratedRouter getContext={getContext} />
       </QueryProvider>
     </StrictMode>,
   );
 });
 ```
 
-A few things to know about React Router:
+Without `getContext`, the router's context in the browser holds no
+client, and `getQueryClient` throws its 500 on the first client
+navigation that runs a client loader or client middleware.
 
-- **A query still loading streams in:** React Router streams the promises
-  in loader data. Start a prefetch without awaiting it,
-  `void client.prefetch(query)`, and the page renders at once. One still
-  loading at the entry's `streamTimeout` is fetched in the browser instead.
-- **On navigation**, the loaders run through a `.data` request, which
-  brings the page's state the same way. Each navigation runs them again,
-  with a new client, so they refetch on the server whatever the browser
-  has cached; where that's too much, export `shouldRevalidate` from the
-  route, or a `clientLoader` that prefetches into the browser's client.
-- **Redirect from loaders.** A query whose run dies with `redirect()`, made
-  inside the Effect
-  (`Effect.suspend(() => Effect.die(redirect("/login")))`), makes
-  `client.fetch` reject with the `Response`, and the router follows it.
-  Load such a query with `client.fetch` in the loader.
-- **Guard a layout in middleware.** To check the user once for every page
-  under a layout, fetch the query in the layout route's `middleware` and
-  `clientMiddleware`, which run before its pages' loaders, and put the
-  value in a router context (`createContext`) for those loaders to read.
-  The [`react-router` example](https://github.com/monarcode/effetch-query/tree/main/examples/react-router) does this with
-  the signed-in user. The pages' loaders wait for it, so give the query a
-  `staleTime`: while it's fresh, `fetch` answers from the cache at once.
+## Stream a query
+
+React Router streams the promises in loader data. Start a prefetch
+without awaiting it, and the page renders at once:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { type LoaderFunctionArgs } from "react-router";
+
+import { getQueryClient } from "./query-context.js";
+import { todos } from "./todos.js";
+
+export function loader({ context }: LoaderFunctionArgs) {
+  const client = getQueryClient(context);
+  void client.prefetch(todos());
+  return { state: QueryClient.dehydrate(client, { pending: "promise" }) };
+}
+```
+
+A query still loading at the server entry's `streamTimeout` is fetched in
+the browser instead.
+
+## Load in the browser on navigation
+
+On navigation, the loaders run through a `.data` request, which brings
+the page's state the same way. Each navigation runs them again, with a
+new client, so they refetch on the server whatever the browser has
+cached. Where that's too much, export `shouldRevalidate` from the route,
+or a `clientLoader` that loads into the browser's client:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { HydrationBoundary } from "@monarcode/effetch-query/react";
+import {
+  type ClientLoaderFunctionArgs,
+  type LoaderFunctionArgs,
+  useLoaderData,
+} from "react-router";
+
+import { getQueryClient } from "./query-context.js";
+import { TodoList } from "./todo-list.js";
+import { todos } from "./todos.js";
+
+// The first page load: the server fetches, and sends what it loaded.
+export async function loader({ context }: LoaderFunctionArgs) {
+  const client = getQueryClient(context);
+  await client.fetch(todos());
+  return { state: QueryClient.dehydrate(client) };
+}
+
+// Later navigations: the page's client fetches only what's stale.
+export async function clientLoader({ context }: ClientLoaderFunctionArgs) {
+  await getQueryClient(context).fetch(todos());
+  return { state: undefined };
+}
+
+export default function TodosRoute() {
+  const { state } = useLoaderData<typeof loader | typeof clientLoader>();
+  return (
+    <HydrationBoundary state={state}>
+      <TodoList />
+    </HydrationBoundary>
+  );
+}
+```
+
+A `clientLoader` needs step 5's `getContext`, so that `getQueryClient`
+finds the page's client.
+
+## Redirect from a loader
+
+A query whose run dies with `redirect()` makes `client.fetch` reject with
+the `Response`, and the router follows it. Make the redirect inside the
+Effect, with `Effect.die`, as
+[Redirect from a query](/docs/frameworks#redirect-from-a-query) explains:
+
+```ts current-user.ts
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+import { redirect } from "react-router";
+
+import { ApiClient } from "./api.js";
+
+export const User = Schema.Struct({ name: Schema.String });
+
+export const currentUser = Query.make({
+  key: ["current-user"],
+  run: ApiClient.use((client) => client.get("/me", { output: User })).pipe(
+    Effect.catchTag("HttpError", (error) =>
+      error.status === 401
+        ? Effect.die(redirect("/login"))
+        : Effect.fail(error),
+    ),
+  ),
+  schema: { success: User },
+});
+```
+
+Load it with `client.fetch` in the loader, as
+`await getQueryClient(context).fetch(currentUser)`.
+
+## Guard a layout
+
+To check the user once for every page under a layout, fetch the query in
+the layout route's `middleware` and `clientMiddleware`, which run before
+its pages' loaders. Put the user in a router context for those loaders to
+read:
+
+```ts
+import {
+  createContext,
+  type LoaderFunctionArgs,
+  type RouterContextProvider,
+} from "react-router";
+
+import { currentUser, type User } from "./current-user.js";
+import { getQueryClient } from "./query-context.js";
+
+export const userContext = createContext<typeof User.Type>();
+
+// Runs on the server and in the browser. Signed out, the query dies with a
+// redirect to /login, and the router follows it.
+const requireUser = async ({
+  context,
+}: {
+  readonly context: Readonly<RouterContextProvider>;
+}) => {
+  context.set(userContext, await getQueryClient(context).fetch(currentUser));
+};
+
+export const middleware = [requireUser];
+export const clientMiddleware = [requireUser];
+
+// In a page under the layout:
+export function loader({ context }: LoaderFunctionArgs) {
+  return { name: context.get(userContext).name };
+}
+```
+
+`clientMiddleware` reads the page's client, so it needs step 5's
+`getContext` too. The
+[`react-router` example](https://github.com/monarcode/effetch-query/tree/main/examples/react-router)
+does this with the signed-in user. The pages' loaders wait for the guard,
+so give its query a `staleTime`: while it's fresh, `fetch` answers from
+the cache at once.
+
+## What's next
+
+- [The `react-router` example](https://github.com/monarcode/effetch-query/tree/main/examples/react-router):
+  a whole app, with sign-in, a guarded layout, client loaders and
+  streamed pages.
+- [Stream the cache](/docs/server-rendering/streaming): what happens to a
+  query still loading when the page is sent, and how `disposeAfter`
+  works.
+- [Sign out and switch accounts](/docs/cache/accounts): keep one user's
+  cached data away from the next.

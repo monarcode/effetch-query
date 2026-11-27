@@ -1,4 +1,4 @@
 {
 	"title": "The client",
-	"pages": ["index", "defaults", "signals", "members"]
+	"pages": ["index", "defaults"]
 }

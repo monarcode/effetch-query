@@ -11,13 +11,13 @@ description: "Every member of the Query namespace: defining queries, keys and ta
 import { Query } from "@monarcode/effetch-query";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## Define queries [#define-queries]
 
-Guide: [Define queries](/docs/getting-started#3-define-your-queries).
+Guide: [3. Define your queries](/docs/getting-started#3-define-your-queries).
 
 ### Query.make [#make]
 
@@ -27,9 +27,16 @@ Defines a query with no arguments. Nothing is fetched until it's used.
 
 Defines a [`Family`](#family-type): one query per argument, each cached on its own.
 
+Members are weakly held where the runtime has `WeakRef` and `FinalizationRegistry`. Where `typeof FinalizationRegistry` is `"undefined"`, as on React Native with a Hermes older than 260318099.0.0, each distinct argument's query definition stays in memory for the app's lifetime (about 2 KB each, measured on V8). Its cached value is still dropped after `gcTime`, so this matters only for families with many thousands of arguments over a session.
+
 ### Query.Family [#family-type]
 
 Makes one [`Query`](#query) per argument. Calling it with arguments that are `Equal.equals` (plain objects and arrays compare by structure) returns the same query, whose key is the family's key with the argument appended.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Query.d.ts"
+  name="Family"
+/>
 
 ### Query.FamilyOptions [#familyoptions]
 
@@ -51,7 +58,13 @@ Options for [`make`](#make).
 
 ## Queries [#queries]
 
-Guide: [Queries from endpoints](/docs/queries).
+Guide: [Queries from any Effect](/docs/queries/without-effetch).
+
+### Query.Query [#query]
+
+A cached query: an atom whose value is the query's `AsyncResult`, with a key. Create one with [`make`](#make), or one per argument with [`family`](#family).
+
+Because it's an atom, it works with `@effect/atom-react`'s hooks, `Atom.map` and the rest of `effect/reactivity`. Writing to it shows the written value until a fetch that settles after the write. Prefer [`set`](#set): on a query that isn't cached, a plain atom write (such as `registry.set` or `useAtomSet`) is kept but the query still fetches when it's first read, while [`set`](#set) caches the value without fetching.
 
 ### Query.isQuery [#isquery]
 
@@ -60,10 +73,6 @@ Checks whether a value is a [`Query`](#query), as opposed to another atom or val
 ### Query.TypeId [#typeid]
 
 The property that marks a [`Query`](#query), so it can be told apart from other atoms.
-
-### Query.Query [#query]
-
-A cached query: an atom whose value is the query's `AsyncResult`, with a key. Create one with [`make`](#make), or one per argument with [`family`](#family).
 
 ## Query options [#query-options]
 
@@ -80,7 +89,7 @@ The options every query takes besides `key` and `run`, in [`MakeOptions`](#makeo
 
 ## Keep copies in sync [#keep-copies-in-sync]
 
-Guide: [Keep copies in sync](/docs/mutations/entity-sync).
+Guide: [Keep copies in sync](/docs/cache/entity-sync).
 
 ### Query.EntitiesOptions [#entitiesoptions]
 
@@ -99,6 +108,8 @@ Guide: [Query keys](/docs/queries/keys).
 
 Identifies a query in the cache. Keys are hierarchical arrays: each segment is compared with `Equal.equals`, so plain objects and arrays match by structure, and a key matches every longer key it is a prefix of (see [`Target`](#target)).
 
+Keep keys JSON-compatible (strings, numbers, booleans, `null`, and arrays and plain objects of them): with server rendering, they're sent to the browser to find each query again.
+
 ## Queries that read other queries [#queries-that-read-other-queries]
 
 Guide: [Queries that read other queries](/docs/queries/dependent).
@@ -107,13 +118,23 @@ Guide: [Queries that read other queries](/docs/queries/dependent).
 
 What a query's `run` receives, for reading other queries: given to [`make`](#make)'s `run` and as the second argument of [`family`](#family)'s.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Query.d.ts"
+  name="RunContext"
+/>
+
 ## Send the cache [#send-the-cache]
 
 Guide: [Send the cache](/docs/server-rendering).
 
 ### Query.Schema [#schema]
 
-How a query's value is sent from the server to the browser, for server rendering: Schemas for its value and, to send failures too, its error. Only queries with one are sent ([`QueryClient.dehydrate`](/docs/reference/query-client#dehydrate)); the rest fetch in the browser. Each must be a JSON codec that needs no services, as `Schema.toCodecJson` derives from it.
+How a query's value is sent from the server to the browser, for server rendering: Schemas for its value and, to send failures too, its error. Only queries with one are sent ([`QueryClient.dehydrate`](/docs/reference/query-client#dehydrate)); the rest fetch in the browser. Pass the schemas themselves: the JSON codec is derived from each (`Schema.toCodecJson`), so each must encode to JSON and need no services.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Query.d.ts"
+  name="Schema"
+/>
 
 ## Queries from a stream [#queries-from-a-stream]
 
@@ -162,7 +183,7 @@ The options every stream query takes besides `key` and `run`, in [`MakeStreamOpt
 
 ## Use the cache from Effect [#use-the-cache-from-effect]
 
-Guide: [Use the cache from Effect](/docs/cache).
+Guide: [Read and write the cache](/docs/cache).
 
 ### Query.clear [#clear]
 
@@ -175,6 +196,8 @@ Drops the matching queries' values, and those written with [`set`](#set), withou
 - A [`fetch`](#fetch) waiting on it is interrupted, and a [`refetch`](#refetch) waiting on it completes: neither starts a fetch.
 - A mutation's optimistic write made before it isn't rolled back over it: the cleared values don't come back. One made after it is rolled back to the cleared state.
 - With `keepPrevious`, a component doesn't show a cleared value as its previous one.
+
+A component reading a derived atom through `useAtomValue` doesn't ask for the query, so it stays empty until something else does.
 
 ### Query.fetch [#fetch]
 
@@ -196,6 +219,8 @@ Fetches a query unless its value is fresh, like [`fetch`](#fetch), but never fai
 
 Refetches the matching queries that are in use, and completes when they have all settled. Their failures don't fail it: each query shows its own.
 
+A query is in use while something subscribes to it, or to an atom or query that depends on it: a mounted component, say, or a mounted query that reads it through `RunContext.result`. A dependent that is only cached doesn't count.
+
 ### Query.reset [#reset]
 
 Puts the matching queries back to `Initial`, dropping their values and any written with [`set`](#set). Those in use (as [`refetch`](#refetch) defines it) fetch again at once, and a fetch in progress is replaced; the others fetch the next time they're used. Completes without waiting for the fetches.
@@ -208,21 +233,39 @@ Writes a query's value. It's shown until a fetch settles after the write, includ
 
 Writes a value computed from a query's cached one, as [`set`](#set) does, and is undone the same way in a mutation's `optimistic`. Does nothing if the query has no value.
 
+Given a [`Family`](#family-type), it writes every cached member, as TanStack's `setQueriesData` does: `f` gets each member's value and its argument. Members are the family's own queries, not every query under its key, and only those with a value are written: none is created. In a mutation's `optimistic`, a failed run puts each member back.
+
 ## Targets [#targets]
 
 Guide: [Targets](/docs/queries/keys#targets).
 
 ### Query.group [#group]
 
-Combines targets into one [`Group`](#group-type), for acting on unrelated queries together: pass it wherever a [`Target`](#target) goes, to [`refetch`](#refetch), [`invalidate`](#invalidate), [`reset`](#reset), a mutation's `invalidates` or `useRefetch`. It matches every query one of its targets matches, and each only once, so a family and one of its own queries in a group refetch that query once. Groups given to it are flattened.
+Combines targets into one [`Group`](#group-type), for acting on unrelated queries together: pass it wherever a [`Target`](#target) goes, to [`refetch`](#refetch), [`invalidate`](#invalidate), [`reset`](#reset), [`clear`](#clear), a mutation's `invalidates` or `useRefetch`. It matches every query one of its targets matches, and each only once, so a family and one of its own queries in a group refetch that query once. Groups given to it are flattened.
+
+Writes don't take a group, since a value can't fit queries of different types: [`set`](#set) and [`update`](#update) take one query or family.
+
+Pass the targets as separate arguments, not an array: `[wallet, transactions]` is a [`Key`](#key), which would match nothing, so [`GroupTargets`](#grouptargets) makes it a type error.
 
 ### Query.KeyHoldsTargetError [#keyholdstargeterror]
 
 Thrown when a key holds a query, a family or a group, such as `Query.invalidate([wallet, transactions])`. Its segments are compared with the query keys, so as a key it would match nothing: the targets were meant to be one target. Combine them with [`Query.group`](#group).
 
+Everything that takes a [`Query.Target`](#target) checks it, and reports it in its own way:
+
+- the `Query` functions, such as `Query.invalidate`, die with it, and so does `Mutation.run` for a key in `invalidates`;
+- the client's methods, such as `client.refetch`, reject with it;
+- `useRefetch`, `useIsFetching` and `QueryClient.dehydrate`'s `queries` throw it when called;
+- `connectQueryClient`'s `queries` fails each server render, when the router dehydrates the client.
+
 ### Query.Group [#group-type]
 
 Several targets as one, made by [`group`](#group): it matches every query one of its targets matches, each once. Use it to act on unrelated queries together, such as a screen's pull to refresh.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Query.d.ts"
+  name="Group"
+/>
 
 ### Query.GroupTargets [#grouptargets]
 
@@ -232,16 +275,4 @@ The targets [`group`](#group) takes: any [`Target`](#target), except an array th
 
 What [`invalidate`](#invalidate), [`refetch`](#refetch), [`reset`](#reset) and [`clear`](#clear) act on: a [`Query`](#query) (that key only), a [`Family`](#family-type) (every query whose key starts with the family's, its members included; an Effetch endpoint matches only its own queries), a [`Key`](#key) (every query whose key starts with it, so `[]` matches every query), or a [`Group`](#group-type) of these (every query one of them matches).
 
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
-- [`Mutation`](/docs/reference/mutation): defining and running mutations.
-- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
-- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
-- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
+An array of queries is a key, not a group, and as a key it would match nothing: `[wallet, transactions]` fails with a [`KeyHoldsTargetError`](#keyholdstargeterror) defect instead. Combine targets with [`group`](#group).

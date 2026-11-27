@@ -14,8 +14,10 @@ import type * as Query from "./Query.js";
  * - the `Query` functions, such as `Query.invalidate`, die with it, and so
  *   does `Mutation.run` for a key in `invalidates`;
  * - the client's methods, such as `client.refetch`, reject with it;
- * - `useRefetch`, `useIsFetching`, `QueryClient.dehydrate`'s `queries` and
- *   `connectQueryClient`'s `queries` throw it when called.
+ * - `useRefetch`, `useIsFetching` and `QueryClient.dehydrate`'s `queries`
+ *   throw it when called;
+ * - `connectQueryClient`'s `queries` fails each server render, when the
+ *   router dehydrates the client.
  *
  * @example
  * ```ts

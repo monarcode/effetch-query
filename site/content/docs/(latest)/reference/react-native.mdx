@@ -11,9 +11,9 @@ description: "Every export of the React Native entry point: focus and online sig
 import { reactNativeSignals } from "@monarcode/effetch-query/react-native";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## React Native [#react-native]
 
@@ -29,9 +29,19 @@ Each client starts its own listeners when one of its queries first needs them, a
 
 The part of React Native's `AppState` that [`reactNativeSignals`](#reactnativesignals) uses. `AppState` from `react-native` satisfies it, so this package never imports `react-native`.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react-native/index.d.ts"
+  name="AppStateLike"
+/>
+
 ### NetInfoLike [#netinfolike]
 
 The part of NetInfo (`@react-native-community/netinfo`) that [`reactNativeSignals`](#reactnativesignals) uses. Its default export satisfies it, so this package never imports it.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/react-native/index.d.ts"
+  name="NetInfoLike"
+/>
 
 ### ReactNativeSignalsOptions [#reactnativesignalsoptions]
 
@@ -41,17 +51,3 @@ What [`reactNativeSignals`](#reactnativesignals) listens to.
   path="node_modules/@monarcode/effetch-query/dist/react-native/index.d.ts"
   name="ReactNativeSignalsOptions"
 />
-
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
-- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
-- [`Mutation`](/docs/reference/mutation): defining and running mutations.
-- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
-- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.

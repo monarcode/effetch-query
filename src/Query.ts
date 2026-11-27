@@ -292,9 +292,11 @@ export type GroupTargets<Targets> = {
  */
 export interface RunContext {
 	/**
-	 * Reads another query's value and makes this query depend on it: when it
-	 * changes, this query refetches. Waits while it has no value yet, and
-	 * fails if it failed.
+	 * Reads another query's value and makes this query depend on it: when
+	 * that query's result changes, this query refetches. A refetch of the
+	 * other query changes its result twice, when it starts and when it
+	 * settles, so this query refetches twice. Waits while it has no value
+	 * yet, and fails if it failed.
 	 */
 	readonly result: <A, E>(query: Query<A, E>) => Effect.Effect<A, E>;
 }
@@ -320,8 +322,8 @@ export interface RunContext {
  */
 export interface Options<E> extends QueryClient.QueryDefaults<E> {
 	/**
-	 * How long a query nothing uses stays cached. Default: 5 minutes. Unlike
-	 * the other options, there's no client-wide default.
+	 * How long a query nothing uses stays cached. Default: 5 minutes. Like
+	 * `reactivityKeys` and `entities`, it has no client-wide default.
 	 */
 	readonly gcTime?: Duration.Input | undefined;
 	/**
@@ -379,8 +381,9 @@ export interface EntitiesOptions {
  * How a query's value is sent from the server to the browser, for server
  * rendering: Schemas for its value and, to send failures too, its error.
  * Only queries with one are sent ({@link QueryClient.dehydrate}); the rest
- * fetch in the browser. Each must be a JSON codec that needs no services, as
- * `Schema.toCodecJson` derives from it.
+ * fetch in the browser. Pass the schemas themselves: the JSON codec is
+ * derived from each (`Schema.toCodecJson`), so each must encode to JSON and
+ * need no services.
  *
  * @example
  * ```ts
@@ -680,8 +683,8 @@ export const make = <A, E>(options: MakeOptions<A, E>): Query<A, E> =>
  *
  * Members are weakly held where the runtime has `WeakRef` and
  * `FinalizationRegistry`. Where `typeof FinalizationRegistry` is
- * `"undefined"`, as on React Native with a Hermes older than its 2026
- * releases, each distinct argument's query definition stays in memory for
+ * `"undefined"`, as on React Native with a Hermes older than
+ * 260318099.0.0, each distinct argument's query definition stays in memory for
  * the app's lifetime (about 2 KB each, measured on V8). Its cached value is
  * still dropped after `gcTime`, so this matters only for families with many
  * thousands of arguments over a session.
@@ -1152,8 +1155,8 @@ export const clear = (
 /**
  * Combines targets into one {@link Group}, for acting on unrelated queries
  * together: pass it wherever a {@link Target} goes, to {@link refetch},
- * {@link invalidate}, {@link reset}, a mutation's `invalidates` or
- * `useRefetch`. It matches every query one of its targets matches, and
+ * {@link invalidate}, {@link reset}, {@link clear}, a mutation's
+ * `invalidates` or `useRefetch`. It matches every query one of its targets matches, and
  * each only once, so a family and one of its own queries in a group refetch
  * that query once. Groups given to it are flattened.
  *

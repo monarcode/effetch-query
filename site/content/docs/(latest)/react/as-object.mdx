@@ -3,12 +3,18 @@ title: Read a query as an object
 description: Read a query's data, error and loading flags as fields.
 ---
 
-`useQueryState` reads a query as `useQuery` does, with the same options,
-and returns TanStack Query's shape: `status`, `data`, `error`,
-`isFetching` and `refetch`. Check `status` first; it narrows `data` and
-`error`:
+If you'd rather check fields than match on an `AsyncResult`, as you would
+with TanStack Query's `useQuery`, read the query with `useQueryState`. It
+fetches and takes options as `useQuery` does, `select`, `keepPrevious` and
+`paused` included, and returns `status`, `data`, `error`, `isFetching`,
+`refetch` and a few more fields. This page shows how to read them, and
+where they differ from TanStack Query's.
 
 The examples import `todos.ts` from [Getting started](/docs/getting-started).
+
+## Check the status, then read the fields
+
+`status` narrows `data` and `error`, so check it first:
 
 ```tsx
 import { useQueryState } from "@monarcode/effetch-query/react";
@@ -34,28 +40,110 @@ export function TodoTitle({ id }: { readonly id: number }) {
 }
 ```
 
-The fields are:
-
-- `status`: `"pending"`, `"success"` or `"failure"`, with `isPending`,
-  `isSuccess` and `isFailure` to match. A query is pending before its
-  first fetch settles, after a `clear` and when it's `null`.
-- `data`: the value. A failed refetch keeps the last value as `data`.
-- `error`: the typed error, or `undefined` for a defect, which `cause`
-  holds with the rest of the failure.
-- `isFetching`: true while a fetch runs, the first one or a refetch.
-- `isPlaceholder`: true while `data` is a placeholder, or the value
-  `keepPrevious` keeps, rather than the query's own value
-  ([Show a placeholder](/docs/queries/placeholders)). Use it to dim the data, or to turn off
-  what needs the real value, such as editing it.
-- `refetch`: refetches the query, and resolves when it settles. It never
-  rejects, and keeps its identity while the query stays the same.
-- `result`: the `AsyncResult` the fields come from, for
-  `AsyncResult.builder`.
-
 The object's type is `UseQueryStateResult`, a union of three shapes told
 apart by `status`. The object keeps its identity while nothing in it
 changes.
 
+## The fields
+
+`useQueryState` returns these fields:
+
+- `status`: `"pending"`, `"success"` or `"failure"`, with `isPending`,
+  `isSuccess` and `isFailure` to match. A query is pending before its
+  first fetch settles, after a [`clear`](/docs/cache), and when it's
+  `null`.
+- `data`: the value, or its selection with `select`. A failed refetch keeps
+  the last value as `data`.
+- `error`: the typed error. It's `undefined` when the query died with a
+  defect or was interrupted.
+- `cause`: the failure's full `Cause`, which holds the error, the defect or
+  the interruption.
+- `isFetching`: true while a fetch runs, the first one or a refetch.
+- `isPlaceholder`: true while `data` isn't the query's own value yet: see
+  [Tell a placeholder from the real value](#tell-a-placeholder-from-the-real-value).
+- `refetch`: refetches the query, and resolves when the refetch settles. It
+  never rejects, and keeps its identity while the query stays the same.
+- `result`: the `AsyncResult` the fields come from.
+
 `error` is a union of every error the query can fail with. To handle each
-by its `_tag`, match on `useQuery`'s result
-([Read a query](/docs/react)) or on `state.result`.
+by its `_tag`, match on `state.result`, or on `useQuery`'s result: see
+[Read a query](/docs/react).
+
+<Accordions type="multiple">
+  <Accordion title="Details: when isFetching and refetch don't follow a fetch">
+    - In a server render, a query the cache doesn't have reads as fetching,
+      though nothing fetches it there.
+    - A `paused` reader fetches nothing, so `isFetching` stays false for it.
+    - `refetch` resolves at once for a `null` query, and for a query that
+      only paused readers use: see [Pause screens you can't see](/docs/react/pause).
+
+  </Accordion>
+</Accordions>
+
+## Differences from TanStack Query
+
+The fields are close to TanStack Query's, not the same. Coming from it,
+these are the differences:
+
+- `status` is `"failure"`, not `"error"`, and its flag is `isFailure`, not
+  `isError`.
+- `isPlaceholder` replaces `isPlaceholderData`.
+- `refetch` resolves with nothing, not with the new result, and never
+  rejects: a failure shows in the fields.
+- `error` is `undefined` for a defect or an interruption. Read `cause` for
+  those.
+- There's no `isLoading`, `isRefetching` or `isStale`. For a refetch you
+  started yourself, such as pull to refresh, use `useRefetch`'s
+  `isRefetching`: see [Refetch on demand](/docs/react/refetch).
+
+## Tell a placeholder from the real value
+
+Some values a component shows aren't the query's own yet: a
+[placeholder](/docs/queries/placeholders), such as the list's copy of a
+todo, or the previous todo that `keepPrevious` keeps while the next one
+loads. `isPlaceholder` is true for both. Use it to dim the data, or to turn
+off what needs the real value, such as editing it:
+
+```tsx
+import { useQueryState } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoTitleInput({ id }: { readonly id: number }) {
+  const state = useQueryState(todo({ params: { id } }), {
+    keepPrevious: true,
+  });
+
+  if (state.status !== "success") {
+    return null;
+  }
+  // Editing waits for this todo, not the one kept from before.
+  return (
+    <input defaultValue={state.data.title} disabled={state.isPlaceholder} />
+  );
+}
+```
+
+`isPlaceholder` stays true until the query's own value or failure replaces
+the placeholder, and `isFetching` is true meanwhile. A failure's `data` is
+always the query's own last value, so `isPlaceholder` is false there.
+
+A `paused` reader fetches nothing, so it keeps showing a placeholder, with
+`isPlaceholder` true and `isFetching` false, until it resumes.
+
+Suspense treats a placeholder as a value. In the browser,
+`useSuspenseQuery` doesn't suspend on one: it returns it as a waiting
+`Success`. A server render doesn't show a placeholder, so there, and while
+the page hydrates, `useSuspenseQuery` suspends until the query's own value
+arrives.
+
+## What's next
+
+- [Show a placeholder](/docs/queries/placeholders): give a query a value to
+  show while it loads.
+- [Read a query](/docs/react): match on the `AsyncResult` itself, select
+  part of a value, or read several queries.
+- [Refetch on demand](/docs/react/refetch): refetch from a button, with a
+  flag for that refetch only.
+- [Coming from TanStack Query](/docs/coming-from-tanstack-query): the rest
+  of TanStack Query's names, mapped to Effetch Query's.

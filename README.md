@@ -172,9 +172,9 @@ function Todos() {
 - [React](https://effetch-query.pages.dev/docs/react): reading queries in components, Suspense,
   refetching, atoms and React Native.
 - [Mutations](https://effetch-query.pages.dev/docs/mutations): running mutations, invalidation,
-  optimistic updates, entities and activity.
+  optimistic updates and activity.
 - [The cache](https://effetch-query.pages.dev/docs/cache): reading and writing it from Effect and
-  from plain code, and switching accounts.
+  from plain code, entities, and switching accounts.
 - [The client](https://effetch-query.pages.dev/docs/client): options, services, defaults and
   signals.
 - [Server rendering](https://effetch-query.pages.dev/docs/server-rendering) and

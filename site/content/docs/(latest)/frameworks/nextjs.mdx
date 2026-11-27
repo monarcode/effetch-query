@@ -3,15 +3,30 @@ title: Next.js
 description: Use Effetch Query in the Next.js App Router.
 ---
 
-The App Router needs no integration package: the core and `./react` cover
-it. Server components load the data, and client components read it, each
-from a client of their own.
+Your app uses the Next.js App Router. Server components load the data,
+and client components read it, each from a client of their own. The App
+Router needs no integration package: the core and `./react` cover it.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started), and `todo-list.tsx` from [Send the cache](/docs/server-rendering).
+This page shows the App Router's wiring. The rules every framework
+shares, a `staleTime`, streaming and redirects, are in
+[Frameworks](/docs/frameworks), and the round trip itself is in
+[Send the cache](/docs/server-rendering). The examples import `api.ts`
+and `todos.ts` from [Getting started](/docs/getting-started), and
+`todo-list.tsx` from [Send the cache](/docs/server-rendering).
 
-**1. Make a client per request for server components.** React's `cache()`
-gives every server component of a request the same client, and Next.js's
-`after()` disposes it once the response is sent:
+## Before you begin
+
+You need:
+
+- React 19;
+- Next.js 15.1 or later, where `after` from `next/server` is stable;
+- the App Router. For the Pages Router, see
+  [The Pages Router](#the-pages-router).
+
+## 1. Make a client per request for server components
+
+React's `cache()` gives every server component of a request the same
+client, and Next.js's `after()` disposes it after the response is sent:
 
 ```ts query-client.ts
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -26,7 +41,7 @@ import { ApiClientLive } from "./api.js";
 const appRuntime = ManagedRuntime.make(ApiClientLive);
 
 // Every server component of a request gets the same client. It's disposed
-// once the response is sent, streamed results included.
+// after the response is sent, streamed results included.
 export const getQueryClient = cache(() => {
   const client = QueryClient.make({ runtime: appRuntime });
   after(() => client.dispose());
@@ -38,9 +53,10 @@ Call `getQueryClient` from server components only: React's `cache()`
 memoizes only while it renders them. `import "server-only"` at the top of
 the file makes importing it from a client component a build error.
 
-**2. Mark the components that read queries.** `TodoList` reads a query, so
-it's a client component: mark it with `"use client"`, in a file of its
-own:
+## 2. Mark the components that read queries
+
+`TodoList` reads a query, so it's a client component. Mark it with
+`"use client"`, in a file of its own:
 
 ```tsx todo-list-view.tsx
 "use client";
@@ -48,8 +64,14 @@ own:
 export { TodoList } from "./todo-list.js";
 ```
 
-**3. Prefetch in the page.** The page, a server component, prefetches the
-todos and passes their state to `TodoList` under a `HydrationBoundary`:
+Keep the queries themselves out of `"use client"` files, in a file such
+as `todos.ts`. A server component that imports from a `"use client"` file
+gets references to its exports, not the queries.
+
+## 3. Prefetch in the page
+
+The page, a server component, prefetches the todos and passes their state
+to `TodoList` under a `HydrationBoundary`:
 
 ```tsx
 import { QueryClient } from "@monarcode/effetch-query";
@@ -72,9 +94,11 @@ export default async function TodosPage() {
 }
 ```
 
-**4. Give the client components a client.** They get their own client from
-a `QueryProvider` in the root layout. The browser keeps one for the page's
-lifetime; on the server, Next.js renders client components for every
+## 4. Give the client components a client
+
+Client components get their own client from a `QueryProvider` in the root
+layout. The browser keeps one for the page's lifetime, with a
+`staleTime`. On the server, Next.js renders client components for every
 request, so each render gets its own:
 
 ```tsx
@@ -91,10 +115,16 @@ import { ApiClientLive } from "./api.js";
 const appRuntime = ManagedRuntime.make(ApiClientLive);
 let browserClient: QueryClient.QueryClient | undefined;
 
+const makeClient = () =>
+  QueryClient.make({
+    runtime: appRuntime,
+    queries: { defaults: { staleTime: "30 seconds" } },
+  });
+
 const getClient = () =>
   typeof window === "undefined"
-    ? QueryClient.make({ runtime: appRuntime })
-    : (browserClient ??= QueryClient.make({ runtime: appRuntime }));
+    ? makeClient()
+    : (browserClient ??= makeClient());
 
 // The root layout renders its children inside it.
 export function Providers({ children }: { readonly children: ReactNode }) {
@@ -103,31 +133,89 @@ export function Providers({ children }: { readonly children: ReactNode }) {
 }
 ```
 
-A few things to know about Next.js:
+A server render's client isn't disposed: nothing says when React is done
+with it, so it's kept until its queries' `gcTime` passes. Making it from
+a `runtime` means it never builds services of its own.
 
-- **A query still loading streams in** with `pending: "promise"`: start a
-  prefetch without awaiting it, `void client.prefetch(query)`, and the page
-  renders at once. `prefetch` never rejects, so a prefetch cut short when
-  the client is disposed isn't an unhandled rejection.
-- **On client navigation**, the page's state comes with its payload, and
-  the boundary loads what's newer than the browser's cache.
-- **A server render's client isn't disposed:** nothing says when React is
-  done with it, so it's kept until its queries' `gcTime` passes. Making it
-  from a `runtime`, as in step 4, means it never builds services of its
-  own.
-- **Call Next.js's `redirect()` and `notFound()` from server components.**
-  A query whose run calls one, inside `Effect.suspend`, makes
-  `client.fetch` reject with what it throws, and Next.js follows it. In a
-  client component the failure is a `QueryFailure`, which Next.js doesn't
-  treat as a redirect or a not-found.
-- **Keep queries out of `"use client"` files:** a server component that
-  imports from one gets references to its exports, not the queries.
+On client navigation, the page's state comes with its payload, and the
+boundary loads what's newer than the browser's cache.
 
-**The Pages Router.** To use it instead, follow these steps:
+## Stream a query
 
-1. In `getServerSideProps`, make a client for the request, and prefetch
-   what the page needs.
-2. Read the cache with `QueryClient.dehydrate(client)`, then dispose the
-   client.
-3. Return the dehydrated state as a prop.
-4. Render the page under a `HydrationBoundary` given that prop.
+To send the page before the todos have loaded, start the prefetch without
+awaiting it. The state goes to the browser as promises, which Next.js
+streams, and `TodoList` shows the todos when they land:
+
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import { HydrationBoundary } from "@monarcode/effetch-query/react";
+
+import { getQueryClient } from "./query-client.js";
+import { TodoList } from "./todo-list-view.js";
+import { todos } from "./todos.js";
+
+export default function TodosPage() {
+  const client = getQueryClient();
+  void client.prefetch(todos());
+  return (
+    <HydrationBoundary
+      state={QueryClient.dehydrate(client, { pending: "promise" })}
+    >
+      <TodoList />
+    </HydrationBoundary>
+  );
+}
+```
+
+## Redirect from a query
+
+Call Next.js's `redirect()` and `notFound()` from the run of a query that
+server components load. Both throw, so call them inside the Effect, where
+a throw is a defect:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { redirect } from "next/navigation";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient } from "./api.js";
+
+const User = Schema.Struct({ name: Schema.String });
+
+export const account = Query.make({
+  key: ["account"],
+  run: ApiClient.use((client) => client.get("/me", { output: User })).pipe(
+    Effect.catchTag("HttpError", (error) =>
+      error.status === 401
+        ? Effect.sync(() => redirect("/login"))
+        : Effect.fail(error),
+    ),
+  ),
+  schema: { success: User },
+});
+```
+
+Load it in the page with `await getQueryClient().fetch(account)`.
+`client.fetch` rejects with what `redirect()` threw, and Next.js follows
+it. `client.prefetch` never rejects, so it doesn't redirect. In a client
+component, the failure is a `QueryFailure`, which Next.js doesn't treat
+as a redirect or a not-found.
+
+## The Pages Router
+
+The Pages Router has no server components, so it's the recipe in
+[Send the cache](/docs/server-rendering): make a client per request in
+`getServerSideProps`, prefetch, dehydrate, dispose it, and return the state
+as a prop for a `HydrationBoundary`. Props are JSON, so don't pass
+`pending: "promise"`.
+
+## What's next
+
+- [Stream the cache](/docs/server-rendering/streaming): what happens to a
+  query still loading when the page is sent.
+- [What's sent](/docs/server-rendering/whats-sent): schemas that
+  transform, keys and failures.
+- [Sign out and switch accounts](/docs/cache/accounts): keep one user's
+  cached data away from the next.

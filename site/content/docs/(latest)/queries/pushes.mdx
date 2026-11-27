@@ -3,13 +3,20 @@ title: Push updates into a query
 description: Update a fetched query's value from pushed events.
 ---
 
-`live` keeps a fetched value up to date between fetches, from a stream of
-updates: functions that each take the value and return the next one. With
-the `socketMessages` helper from
-[Queries from a stream](/docs/queries/streams), a WebSocket that announces
-changes to the todo list keeps it current:
+Your server announces changes over a WebSocket, and you'd rather apply
+them than refetch the whole list. A query's `live` option takes a stream
+of updates, each a function from the current value to the next one, and
+applies them between fetches. This page shows how, and how pushes and
+fetches work together.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started), and `socket.ts` from [Queries from a stream](/docs/queries/streams).
+The example imports `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started), and `socket.ts` from
+[Queries from a stream](/docs/queries/streams).
+
+## Apply pushed changes to a query
+
+With the `socketMessages` helper from `socket.ts`, a WebSocket that
+announces changes to the todo list keeps it current:
 
 ```ts live-todos.ts
 import * as Schedule from "effect/Schedule";
@@ -45,23 +52,45 @@ const changes = socketMessages("wss://api.example.com/todos/changes").pipe(
 export const liveTodos = api.query(listTodos, { live: () => changes });
 ```
 
+Each change becomes an update of the list: a saved todo replaces its old
+copy, at the end of the list, and a deleted one is removed. On
+`api.query`, `live` is a function of the call's `params` and `query`. On
+`Query.make` it's a `Stream`, and on `Query.family` a function of the
+member's argument.
+
+The stream runs only while the query is read, and stops about a second
+after its last reader leaves. `Query.fetch` doesn't start it: unlike a
+[stream query](/docs/queries/streams), a `live` query's value comes from
+its fetch.
+
+## Pushes and fetches together
+
 A push keeps the value's age, so `staleTime` and the refetches it drives
-work as they do without one, and catch changes the stream missed. Make each
-update idempotent, such as an upsert or a removal by ID, because some are
-applied twice:
+work as they do without one, and catch changes the stream missed. Make
+each update idempotent, such as an upsert or a removal by ID, because
+some are applied twice:
 
 - A push that comes while a fetch runs is applied to the fetch's result
   too, which may or may not hold the change.
-- A push that comes after an [optimistic update](/docs/mutations/optimistic) is
-  applied again if the mutation fails and the update is undone.
+- A push that comes after an
+  [optimistic update](/docs/mutations/optimistic) is applied again if the
+  mutation fails and the update is undone.
 
-A push to a query with no value yet is kept only for a fetch in progress:
-a fetch that starts after it already holds the change. An update that
-throws is logged with `Effect.logError` and skipped. If the stream fails,
-the error is logged and pushes stop until the query is next read after its
-readers leave; add `Stream.retry` to subscribe again sooner.
+Three more cases to know:
 
-The stream runs only while the query is read: `Query.fetch` doesn't start
-it. `live` works on `Query.make` as a `Stream`, and on `Query.family` and
-`api.query` as a function: of the member's argument, or of the call's
-`params` and `query`.
+- **A push with no value to apply to.** A push to a query with no value
+  yet, or one that failed, is kept only for a fetch in progress: a fetch
+  that starts after it already holds the change.
+- **An update that throws** is logged with `Effect.logError` and skipped.
+- **A stream that fails.** The error is logged, and pushes stop until the
+  query is next read after its readers leave. Add `Stream.retry` to
+  subscribe again sooner, as `changes` does.
+
+## What's next
+
+- [Queries from a stream](/docs/queries/streams): make a query whose value
+  is a stream's latest element.
+- [Optimistic updates](/docs/mutations/optimistic): show a change before
+  the server confirms it.
+- [Freshness and refetching](/docs/queries/freshness): the refetches that
+  catch what a push missed.

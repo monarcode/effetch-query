@@ -11,9 +11,9 @@ description: "Every member of the InfiniteQuery namespace: queries that load a l
 import { InfiniteQuery } from "@monarcode/effetch-query";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## Infinite queries [#infinite-queries]
 
@@ -39,6 +39,11 @@ The property that marks an [`InfiniteQuery`](#infinitequery), so it can be told 
 
 Makes one [`InfiniteQuery`](#infinitequery) per argument, as [`Query.family`](/docs/reference/query#family) does: the same query for arguments that are `Equal.equals`, keyed by the family's key with the argument appended. It's a [`Query.Family`](/docs/reference/query#family-type), so it's a target for [`Query.invalidate`](/docs/reference/query#invalidate) (every query under its key), and [`Query.update`](/docs/reference/query#update) writes every cached member.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
+  name="Family"
+/>
+
 ### InfiniteQuery.FamilyOptions [#familyoptions]
 
 Options for [`family`](#family).
@@ -52,13 +57,22 @@ Options for [`family`](#family).
 
 What an [`InfiniteQuery`](#infinitequery) holds: the pages loaded so far, in order, and the param each was fetched with.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
+  name="InfiniteData"
+/>
+
 ### InfiniteQuery.InfiniteQuery [#infinitequery]
 
 A query whose value is a list of pages, for "load more" lists and infinite scroll, as TanStack's `useInfiniteQuery`. Create one with [`make`](#make), or one per argument with [`family`](#family).
 
+It **is** a [`Query.Query`](/docs/reference/query#query) of [`InfiniteData`](#infinitedata), so the whole cache API works on it: [`Query.invalidate`](/docs/reference/query#invalidate) and [`Query.refetch`](/docs/reference/query#refetch) fetch its pages again, [`Query.set`](/docs/reference/query#set) and [`Query.update`](/docs/reference/query#update) write them (optimistic writes too). [`fetchNextPage`](#fetchnextpage) and [`fetchPreviousPage`](#fetchpreviouspage) add a page at either end.
+
+A refetch fetches as many pages as are loaded, one after the other, and shows them together: the first from its stored param, each later one from `nextPageParam` of the page before it, so cursors stay consistent when the list has changed. A page that fails keeps the loaded pages: the query becomes a failure whose `previousSuccess` holds them.
+
 ### InfiniteQuery.MakeOptions [#makeoptions]
 
-Options for [`make`](#make).
+Options for [`make`](#make): a query's options and its page options. An infinite query takes no `placeholder` or `live`.
 
 <auto-type-table
   path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
@@ -103,16 +117,7 @@ Guide: [Send the cache](/docs/server-rendering).
 
 How an infinite query's pages are sent from the server to the browser, as [`Query.Schema`](/docs/reference/query#schema) for a query: Schemas for a page and, to send failures too, the error. The page params go as they are, so they must be JSON values (strings, numbers, booleans, `null`), unless `pageParam` names their schema; a query whose params don't fit isn't sent.
 
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
-- [`Mutation`](/docs/reference/mutation): defining and running mutations.
-- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
-- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
-- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/InfiniteQuery.d.ts"
+  name="Schema"
+/>

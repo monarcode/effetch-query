@@ -1178,8 +1178,10 @@ export interface DehydrateOptions {
  * the server. It reads without fetching: a stale query is sent as it is.
  * Values a schema can't encode are left out.
  *
- * Throws a `NonJsonKeyError` for a key that isn't JSON, and a
- * `DuplicateQueryKeyError` when two queries it sends have one key.
+ * Throws a `NonJsonKeyError` for a key that isn't JSON, a
+ * `DuplicateQueryKeyError` when two queries it sends have one key, and a
+ * `Query.KeyHoldsTargetError` when `queries` is a key that holds a query, a
+ * family or a group.
  *
  * @example
  * ```ts

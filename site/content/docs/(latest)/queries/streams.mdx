@@ -3,18 +3,22 @@ title: Queries from a stream
 description: Make a query from a stream, such as a socket's messages.
 ---
 
-A live query stays current while it's read: a stream's elements are its
-value, or server pushes update a fetched value. This page covers streams;
-[Push updates into a query](/docs/queries/pushes) covers pushes. Both run only while
-something reads the query, and stop about a second after the last reader
-leaves. The value stays cached for `gcTime`, and the stream starts again
-for the next reader.
+Some values arrive as a stream: prices from a WebSocket, or a job's
+progress over Server-Sent Events. `Query.stream` makes a query whose value
+is a `Stream`'s latest element, and `Query.streamFamily` makes one per
+argument. This page shows how, and how a stream query differs from a
+fetched one. To keep a fetched value current from pushed events instead,
+see [Push updates into a query](/docs/queries/pushes).
+
+A stream runs only while something reads its query, and stops about a
+second after the last reader leaves. The value stays cached for `gcTime`,
+and the stream starts again for the next reader.
 
 The examples import `todos.ts` from [Getting started](/docs/getting-started).
 
-`Query.stream` makes a query whose value is a `Stream`'s latest element,
-such as a price feed, and `Query.streamFamily` makes one per argument.
-Until the first element, the query is `Initial` and waiting:
+## Define a stream query
+
+Until the first element, a stream query is `Initial` and waiting:
 `useSuspenseQuery` suspends, and `Query.fetch` waits for it. After that,
 each element shows as a `Success` stamped with the time it came.
 
@@ -81,40 +85,56 @@ export const price = Query.streamFamily({
 ```
 
 Read it as any other query, with `useQuery(price("ACME"))` or
-`useSuspenseQuery`. What differs from a fetched query:
+`useSuspenseQuery`.
 
-- It has no `staleTime`: nothing refetches it when a component starts
+## How a stream query differs
+
+A stream keeps its query current, so the refetch rules of a fetched query
+don't apply to it:
+
+- **It has no `staleTime`.** Nothing refetches it when a component starts
   using it, on focus, on reconnect or on an interval. `Query.refetch`,
-  `Query.invalidate` and `Query.reset` subscribe again; `Query.clear` stops
-  it until it's read again.
-- A failure is retried with `retry`, which starts over once an element comes
-  through. Defects aren't retried. When `retry` is done, the query shows
-  the failure with the last element as its previous success; the next reader
-  subscribes again (`retryOnMount`).
-- A stream that ends keeps its last element. One that ends with none fails
-  with a `NoSuchElementError` defect.
-- `Query.fetch` and `Query.prefetch` return the first element, or the latest
-  while the stream runs.
-- A server render shows only what's cached. `Query.prefetch` on the server
-  runs the stream to its first element, which
-  [`QueryClient.dehydrate`](/docs/server-rendering) sends with a `schema`; the
-  browser shows it, and subscribes again.
+  `Query.invalidate` and `Query.reset` subscribe again; `Query.clear`
+  stops it until it's read again.
+- **A failure shows, unless `retry` says otherwise.** Without `retry`, a
+  failed stream shows its failure, with the last element as its previous
+  success. With `retry`, it subscribes again on that schedule first. The
+  schedule starts over after an element comes through, and defects
+  aren't retried.
+- **A failed stream subscribes again when a component next starts using
+  the query**, unless `retryOnMount` is `false`.
+- **A stream that ends keeps its last element.** One that ends with none
+  fails with a `NoSuchElementError` defect.
+- **`Query.fetch` starts the stream,** since the query's value is its
+  elements, and returns the first element, or the latest while the
+  stream runs. `Query.prefetch` waits the same way, and returns nothing.
+- **Its elements aren't synced with entities,** as
+  [Keep copies in sync](/docs/cache/entity-sync) describes for fetched
+  queries.
+- **A server render shows only what's cached.** `Query.prefetch` on the
+  server runs the stream to its first element, which
+  [`QueryClient.dehydrate`](/docs/server-rendering) sends when the query
+  has a `schema`. The browser shows it, and subscribes again.
+
+## Stream query options
 
 A stream query takes the following options:
 
-| Option           | What it does                                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `key`            | The query's key. A family's members append their argument.                                                                                                    |
-| `run`            | The stream. For `Query.stream`, a `Stream`, or a function of the run context for a stream that reads other queries; for a family, a function of the argument. |
-| `retry`          | The schedule to subscribe again on after a failure, as `Stream.retry` takes it. Default: the client's `queries.defaults.retry`, or none.                      |
-| `retryOnMount`   | Whether a failed stream subscribes again when something starts using the query. Default: the client's, or `true`.                                             |
-| `gcTime`         | How long the value stays cached once nothing uses the query. Default: 5 minutes.                                                                              |
-| `reactivityKeys` | `Reactivity` keys that subscribe it again when they're invalidated.                                                                                           |
-| `schema`         | How the latest value crosses to the browser in [server rendering](/docs/server-rendering).                                                                    |
-| `placeholder`    | A value to show until the first element ([Show a placeholder](/docs/queries/placeholders)).                                                                   |
+| Option           | What it does                                                                                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `key`            | The query's key. A family's members append their argument.                                                                                                                              |
+| `run`            | The stream. For `Query.stream`, a `Stream`, or a function of the run context for a stream that reads other queries. For a family, a function of the argument and the run context.       |
+| `retry`          | The schedule to subscribe again on after a failure, as `Stream.retry` takes it. Default: the client's `queries.defaults.retry`, or none.                                                |
+| `retryOnMount`   | Whether a failed stream subscribes again when something starts using the query. Default: the client's, or `true`.                                                                       |
+| `gcTime`         | How long the value stays cached after nothing uses the query. Default: 5 minutes.                                                                                                       |
+| `reactivityKeys` | `Reactivity` keys that subscribe it again when they're invalidated, as [Freshness and refetching](/docs/queries/freshness#refetch-on-effects-reactivity-keys) describes. Default: none. |
+| `schema`         | How the latest value crosses to the browser in server rendering.                                                                                                                        |
+| `placeholder`    | A value to show until the first element. See [Show a placeholder](/docs/queries/placeholders). Default: none.                                                                           |
 
-**From an endpoint.** An Effetch endpoint defined with `stream: "sse"` or
-`stream: "ndjson"` makes stream queries through `api.query`, keyed by route:
+## Stream an Effetch endpoint
+
+An Effetch endpoint defined with `stream: "sse"` or `stream: "ndjson"`
+makes stream queries through `api.query`, keyed by route:
 
 ```ts job-progress.ts
 import * as Schema from "effect/Schema";
@@ -129,12 +149,24 @@ export const jobProgress = api.query(
   Fetch.endpoint("GET /jobs/:id/events", { output: Progress, stream: "sse" }),
 );
 // jobProgress({ params: { id: "7" } }) holds the latest Fetch.SseEvent.
-// Read its data with useQuery(query, { select: (event) => event.data }).
 ```
 
-The value is the latest element as Effetch gives it: a `Fetch.SseEvent` of
-the `output` for SSE, or the `output` itself for NDJSON. The request runs
-while the query is read. Its options are `retry`, `retryOnMount`,
-`gcTime` and `reactivityKeys` as for any stream query, a `placeholder`
-from the call's `params` and `query`, and the `headers` and `plugins` it
-takes for any endpoint.
+The value is the latest element as Effetch gives it: a `Fetch.SseEvent`
+of the `output` for SSE, or the `output` itself for NDJSON. To read only
+an event's data in a component, pass `useQuery` a `select` of
+`(event) => event.data`, as
+[Select part of a value](/docs/react#select-part-of-a-value) shows.
+
+The request runs while the query is read. It takes a stream query's
+`retry`, `retryOnMount`, `gcTime` and `reactivityKeys`. Its `placeholder`
+is a function of the call's `params` and `query`. As with any endpoint,
+it also takes `headers` and `plugins`.
+
+## What's next
+
+- [Push updates into a query](/docs/queries/pushes): keep a fetched value
+  current from a stream of changes.
+- [Show a placeholder](/docs/queries/placeholders): show a value until the
+  first element.
+- [Send the cache](/docs/server-rendering): render a stream's first
+  element on the server.

@@ -53,6 +53,7 @@ const options = {
 		...parsed.options.paths,
 		// The Next.js page's examples; Next isn't a dependency.
 		"next/server": [shims["next/server"]],
+		"next/navigation": [shims["next/navigation"]],
 	},
 };
 const problems = [];
@@ -220,7 +221,7 @@ for (const [file, body] of reference.files) {
 // its sidebar lists each: a page renamed or dropped from the generator
 // would otherwise stay published, and a new one would be missing.
 const referenceDir = path.join(sitePages, "reference");
-const referencePages = new Set(["index", ...referenceSlugs, "limitations"]);
+const referencePages = new Set(["index", "limitations", ...referenceSlugs]);
 if (existsSync(referenceDir)) {
 	for (const file of readdirSync(referenceDir)) {
 		const slug = file.replace(/\.mdx$/, "");
@@ -233,7 +234,10 @@ if (existsSync(referenceDir)) {
 	const metaFile = path.join(referenceDir, "meta.json");
 	let sidebar;
 	try {
-		sidebar = JSON.parse(readFileSync(metaFile, "utf8")).pages;
+		// Separators ("---Title---") group the pages; they aren't pages.
+		sidebar = JSON.parse(readFileSync(metaFile, "utf8")).pages.filter(
+			(page) => !page.startsWith("---"),
+		);
 	} catch {
 		// Reported below, with the pages it should list.
 	}

@@ -1,0 +1,170 @@
+---
+title: Keep copies in sync
+description: Sync a record's cached copies whenever a query fetches it.
+---
+
+Writing an [entity](/docs/cache/entities) reaches every cached copy, but a
+fetch only updates its own query. A todo's detail refetches and shows it
+done, while the lists still show it open until they refetch. Entity sync
+closes that gap: each fetch writes its copies over the older ones
+everywhere. This page shows how to turn it on, which copy wins, and what
+it costs.
+
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started), and `entities.ts` from
+[Entities](/docs/cache/entities).
+
+## Turn on sync
+
+Give the client the entities to keep in sync:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+import { Todos } from "./entities.js";
+
+export const syncedClient = QueryClient.make({
+  layer: ApiClientLive,
+  entities: { sync: [Todos] },
+});
+```
+
+With that, when any query's fetch succeeds, each todo in its value is
+written over the older copies with the same ID, in every other cached
+query whose schema holds `Todo`. No other query fetches, and each one
+written keeps its own age, so a stale list still refetches when it's next
+used.
+
+## An example
+
+Say an app has a list of the five most recent todos on its home screen, a
+detail screen that opens when a todo is tapped, and a page that lists
+every todo with an infinite query:
+
+1. The home screen fetches the five todos. Nothing else is cached yet.
+2. A tap opens the detail screen. Its placeholder, `Entity.get`, shows the
+   list's copy at once, as [Show a placeholder](/docs/queries/placeholders)
+   sets up. The detail's fetch lands with the todo done, and the sync
+   writes it over the home list's copy. Back on the home screen, the todo
+   shows as done.
+3. The "all todos" page loads its first page. Its todos are newer than
+   the copies cached so far, so the sync writes them over the detail and
+   the home list. Loading the next page sends only that page's todos; the
+   pages already loaded aren't counted as new.
+
+## Which copy wins
+
+A copy is as new as the fetch it came from, by when that fetch started. A
+slow response that lands after a newer one doesn't overwrite it, and the
+query that fetched it shows the newer copy instead.
+
+A write is newer still. A write, such as `Entity.set` with a mutation's
+result, `Query.set` or a `live` push, counts as newer than every fetch
+already in flight, so none of them syncs an older copy over it in another
+query. The written query's own fetch is different:
+
+- After `Query.set` or `Entity.set`, a fetch of that query already in
+  flight still settles over the write. So after `Entity.set`, a detail
+  fetch that was already in flight shows what it fetched.
+- A `live` push is applied again to what that fetch returns.
+
+A sync doesn't copy a written todo to other queries either: an entity
+write already reached every query that held it, and an optimistic one may
+be rolled back.
+
+<Accordions type="multiple">
+  <Accordion title="Details: retries, pages, server values and rollbacks">
+    A retry counts from when it started. A refetch of an infinite query
+    requests its pages one after the other, and each page counts from when
+    its own request started.
+
+    A value sent from the server, as
+    [Server rendering](/docs/server-rendering) describes, is older than
+    any fetch in the browser.
+
+    If a mutation's `optimistic` changed a copy that a newer fetch then
+    synced over, and the mutation fails, the rollback puts the synced copy
+    back.
+
+  </Accordion>
+</Accordions>
+
+## What syncs
+
+Only a fetch syncs. Writes, `live` pushes and
+[stream queries](/docs/queries/streams) don't, so a sync never starts
+another sync. A sync updates the todos a query already holds:
+
+- A query that doesn't hold a todo doesn't gain it. A sync never adds a
+  row to a list, so invalidate the lists a new todo should join, as with
+  `Entity.set`.
+- A copy equal to the newer one (`Equal.equals`) isn't written, so its
+  readers don't render again.
+- Some queries are neither read nor written, and are left to their next
+  fetch: one that's invalidated and not in use, that shows a failure,
+  that has no value or no schema, that's a stream query, or that opted
+  out.
+
+<Accordions type="multiple">
+  <Accordion title="Details: dependent queries and errors">
+    A fetch doesn't write the queries it read through `ctx.result`, so it
+    doesn't start itself again. A query that reads a written query through
+    `ctx.result` refetches, as after any write, as
+    [Queries that read other queries](/docs/queries/dependent) shows.
+
+    An `id` that throws, or a listener that throws as a query is written,
+    is logged with `Effect.logError`. The fetch keeps its value.
+
+  </Accordion>
+</Accordions>
+
+## Partial records
+
+A sync replaces copies whole: it writes the newer todo over the older one,
+and doesn't combine their fields. If some endpoint's todos are partial,
+such as a list whose `decode` fills the fields it doesn't send with
+defaults, a fetch of that list writes its partial todos over the full
+ones in the cached details. Make every decoded `Todo` complete, or opt the
+partial queries out:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+// Served from an index that lags behind the database.
+export const indexedTodos = api.query(
+  Fetch.endpoint("GET /index/todos", { output: Schema.Array(Todo) }),
+  { entities: { sync: false } },
+);
+```
+
+A query that opts out is left out both ways: its fetches write no other
+query, and no other query's fetch writes it. `Entity` writes still reach
+it.
+
+`Entity.get` placeholders still help with sync on. A sync runs after a
+fetch, and a placeholder fills a detail screen before its first fetch,
+from the copy already cached. Use both.
+
+## Cost
+
+Each fetch of a query that holds a synced entity reads every cached query
+that holds it, once per synced entity: about one `id` call and one lookup
+per cached copy. For a few lists of tens of rows, that's nothing. For an
+entity held in many large lists, or a query that polls often, opt out the
+queries that don't need it.
+
+## What's next
+
+- [Entities](/docs/cache/entities): define an entity, and write every
+  copy of a record from a mutation.
+- [Query options](/docs/queries/options): `entities: { sync: false }`
+  and the other options a query takes.
+- [Schemas that transform](/docs/server-rendering/whats-sent#schemas-that-transform):
+  how a query's value crosses from the server, and why its schema must
+  encode.

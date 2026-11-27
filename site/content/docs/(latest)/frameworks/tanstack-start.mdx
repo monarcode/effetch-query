@@ -3,26 +3,42 @@ title: TanStack Router and Start
 description: Use Effetch Query in TanStack Router and TanStack Start.
 ---
 
-This page shows how to use Effetch Query with TanStack Router and
-TanStack Start. It builds on [Server rendering](/docs/server-rendering),
-and the examples use `todos` and `TodoList` from there. TanStack Router has
-an integration of its own; [Next.js](/docs/frameworks/nextjs) and [React
-Router](/docs/frameworks/react-router) need only the core and `./react`.
-
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started), and `todo-list.tsx` from [Send the cache](/docs/server-rendering).
-
+Your app's routes are TanStack Router's, with or without Start.
 `connectQueryClient`, from `@monarcode/effetch-query/react/tanstack-router`,
-connects a client to a TanStack Router, and so to TanStack Start, as
-TanStack's `setupRouterSsrQueryIntegration` does for TanStack Query. It
-sends the cache with the page and loads it in the browser before React
-hydrates, with no `HydrationBoundary`.
+connects a query client to the router, as TanStack's
+`setupRouterSsrQueryIntegration` does for TanStack Query. What your
+loaders load goes with the page, and is in the browser's cache before
+React hydrates, with no `HydrationBoundary` and no `QueryProvider` of your
+own.
 
-**1. Install the router.** Install `@tanstack/react-router`, or
-`@tanstack/react-start` for Start.
+This page shows the router's side. The rules every framework shares, a
+`staleTime`, streaming and redirects, are in
+[Frameworks](/docs/frameworks), and the round trip itself is in
+[Send the cache](/docs/server-rendering). The examples import `api.ts` and
+`todos.ts` from [Getting started](/docs/getting-started), and
+`todo-list.tsx` from [Send the cache](/docs/server-rendering).
 
-**2. Connect the client where the router is made.** That's Start's
-`getRouter`, or your server and browser entries. Make the client with the
-router, and connect it to no other:
+## Before you begin
+
+You need:
+
+- React 19;
+- `@tanstack/react-router` 1.170.33 or later, below 2.0.0. The integration
+  imports it, so a Start app installs it beside `@tanstack/react-start`.
+
+## 1. Install the router
+
+Install `@tanstack/react-router`, even in a Start app:
+
+```bash
+pnpm add @tanstack/react-router
+```
+
+## 2. Connect the client where the router is made
+
+That's Start's `getRouter`, or your server and browser entries. Make the
+client with the router, give it a `staleTime`, and connect it to no
+other router:
 
 ```tsx router.tsx
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -40,15 +56,14 @@ import { ApiClientLive } from "./api.js";
 import { TodoList } from "./todo-list.js";
 import { todos } from "./todos.js";
 
-const rootRoute = createRootRouteWithContext<{
+export const rootRoute = createRootRouteWithContext<{
   readonly queryClient: QueryClient.QueryClient;
 }>()({ component: Outlet });
 
 const todosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  // TanStack's `queryClient.query()` (`ensureQueryData`, deprecated since
-  // 5.102): the cached value while it's fresh.
+  // Returns the cached value while it's fresh, and fetches it otherwise.
   loader: ({ context }) => context.queryClient.fetch(todos()),
   component: TodoList,
 });
@@ -59,7 +74,10 @@ const appRuntime = ManagedRuntime.make(ApiClientLive);
 // Start calls `getRouter` once per request on the server, and once in the
 // browser, so each request gets its own client.
 export function getRouter() {
-  const queryClient = QueryClient.make({ runtime: appRuntime });
+  const queryClient = QueryClient.make({
+    runtime: appRuntime,
+    queries: { defaults: { staleTime: "30 seconds" } },
+  });
   const router = createRouter({
     routeTree: rootRoute.addChildren([todosRoute]),
     context: { queryClient },
@@ -71,31 +89,44 @@ export function getRouter() {
 }
 ```
 
+The sample is trimmed to the parts Effetch Query needs. In a Start app,
+the route tree is generated, and the root route renders the document, as
+the
+[`tanstack-start` example's](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start)
+`__root.tsx` does.
+
 Load data in loaders with `context.queryClient.fetch(query)`, which
 returns the cached value while it's fresh. `defaultPreloadStaleTime: 0`
 lets the queries' `staleTime` decide what's refetched, rather than the
-router's own loader cache. From there, the integration does the rest:
+router's own loader cache. Without a `staleTime`, nothing is ever fresh:
+every loader run fetches, and the browser refetches what the server sent.
+
+## What the integration does
+
+From there, the integration does the rest:
 
 - **On the server**, what the loaders loaded goes with the page, and
   queries started while rendering stream in as they start, those still
   loading as promises the browser waits for. A loader can start a
-  prefetch without awaiting it, `void context.queryClient.prefetch(query)`,
-  so the page renders at once and the value follows. The client is
-  disposed when the request ends, so on the server it must be the
-  request's own.
-- **In the browser**, it all loads into the client before React hydrates:
-  no `HydrationBoundary`, and nothing is fetched while it's fresh.
+  prefetch without awaiting it, as
+  [Frameworks](/docs/frameworks#stream-with-an-unawaited-prefetch)
+  explains. The client is disposed when the request ends, so on the
+  server it must be the request's own.
+- **In the browser**, it all loads into the client before React hydrates,
+  and nothing is fetched while it's fresh. The integration wraps the
+  router in a `QueryProvider` for the client, so you render none.
 - **Preloading** a route on hover runs its loader, and `client.fetch`
   fetches only what's stale.
-- **Only queries with a schema cross** to the browser, as in
-  [Send the cache](/docs/server-rendering).
+- **Only queries with a schema cross** to the browser, as
+  [What's sent](/docs/server-rendering/whats-sent) explains.
 
-**3. Redirect from a query.** A query or mutation that dies with the
-router's `redirect()` navigates there. Make the redirect inside the
-Effect, so each run has its own, and use `Effect.die`, so it stays out of
-the error type:
+## Redirect from a query
 
-```ts
+A query or mutation that dies with the router's `redirect()` navigates
+there. Make the redirect inside the Effect, and use `Effect.die`, as
+[Redirect from a query](/docs/frameworks#redirect-from-a-query) explains:
+
+```ts viewer.ts
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -119,32 +150,79 @@ export const viewer = Query.make({
 });
 ```
 
-If your client maps a 401 to its own error with `statusErrors`
-([Errors by status](/docs/queries/status-errors)), catch that error's tag, as the
-[`tanstack-start`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start) and
-[`react-router`](https://github.com/monarcode/effetch-query/tree/main/examples/react-router) examples do with `Unauthorized`.
-A 401 whose body doesn't decode stays an `HttpError`, so keep that branch
-if your server can send one.
+If your client maps a 401 to its own error with `statusErrors`, catch
+that error's tag, as the
+[`tanstack-start`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start)
+and
+[`react-router`](https://github.com/monarcode/effetch-query/tree/main/examples/react-router)
+examples do with `Unauthorized`. See
+[Errors by status](/docs/queries/errors#errors-by-status). A 401 whose
+body doesn't decode stays an `HttpError`, so keep that branch if your
+server can send one.
 
 In a loader, `client.fetch` rejects with the redirect and the router
 follows it, on the server too. Load a query that may redirect with
-`fetch`: a fetch that's only prefetched leaves the redirect to its
-readers, which show it as a failure instead. A preload's redirect is
-dropped, as the router drops it.
+`client.fetch`. `client.prefetch` never rejects, so the router doesn't
+get the redirect: the components that read the query show it as a
+failure. A preload's redirect is dropped, as the router drops it.
 
-To guard every page under a layout, fetch the query in the layout route's
-`beforeLoad`, which runs before any page below it loads. What it returns
-joins those pages' context, so `beforeLoad: async ({ context }) => ({ user:
-await context.queryClient.fetch(viewer) })` hands each loader
-`context.user`, as the [`tanstack-start` example](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start)
-does. The pages' loaders wait for it, so give the query a `staleTime`:
-while it's fresh, `fetch` answers from the cache at once.
+In the browser, the integration also follows a redirect from a fetch
+that nothing awaits, such as one a component starts, unless you turn off
+`handleRedirects`.
 
-**Options.** `connectQueryClient` takes the following options besides
-`router` and `queryClient`:
+## Guard every page under a layout
 
-| Option            | What it does                                                                                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dehydrate`       | `queries` to send only some queries, `failures: "include"` to send failures, as `QueryClient.dehydrate`. Queries still loading are always sent, as promises. |
-| `handleRedirects` | Default `true`: in the browser, follow a `redirect()` a query or mutation fails or dies with, unless an Effect awaits the fetch (a loader's `client.fetch`). |
-| `wrapQueryClient` | Default `true`: wrap the router's `Wrap` in a `QueryProvider` for the client. With `false`, render your own.                                                 |
+To check the user once for every page under a layout, fetch the query in
+the layout route's `beforeLoad`, which runs before any page below it
+loads. What it returns joins those pages' context:
+
+```ts
+import { createRoute, Outlet } from "@tanstack/react-router";
+
+import { rootRoute } from "./router.js";
+import { viewer } from "./viewer.js";
+
+export const signedInRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "signed-in",
+  // Redirects to /login when the user isn't signed in.
+  beforeLoad: async ({ context }) => ({
+    user: await context.queryClient.fetch(viewer),
+  }),
+  component: Outlet,
+});
+
+export const profileRoute = createRoute({
+  getParentRoute: () => signedInRoute,
+  path: "/profile",
+  loader: ({ context }) => context.user.name,
+});
+```
+
+The
+[`tanstack-start` example](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start)
+does the same with its `_app` layout. The pages' loaders wait for the
+guard, so give its query a `staleTime`: while it's fresh, `fetch` answers
+from the cache at once.
+
+## Options
+
+`connectQueryClient` takes the following options besides `router` and
+`queryClient`:
+
+| Option            | What it does                                                                                                                                                                | Default                       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `dehydrate`       | `queries` to send only some queries, and `failures: "include"` to send failures, as `QueryClient.dehydrate` takes them. Queries still loading are always sent, as promises. | Every query, without failures |
+| `handleRedirects` | In the browser, follow a `redirect()` a query or mutation fails or dies with, unless an Effect awaits the fetch, as a loader's `client.fetch` does.                         | `true`                        |
+| `wrapQueryClient` | Wrap the router's `Wrap` in a `QueryProvider` for the client. With `false`, render your own.                                                                                | `true`                        |
+
+## What's next
+
+- [The `tanstack-start` example](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start):
+  a whole Start app, with sign-in, a guarded layout and streamed pages.
+  [`tanstack-start-httpclient`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start-httpclient)
+  is the same app with Effect's `HttpClient`.
+- [Stream the cache](/docs/server-rendering/streaming): what happens to a
+  query still loading when the page is sent.
+- [Sign out and switch accounts](/docs/cache/accounts): keep one user's
+  cached data away from the next.

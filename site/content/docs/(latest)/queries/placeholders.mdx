@@ -3,14 +3,23 @@ title: Show a placeholder
 description: Show placeholder data while a query loads.
 ---
 
-A detail page can show what the list already has while the detail loads.
-`placeholder` returns `Option.some` of a value to show, or
-`Option.none()` for nothing. On `api.query`, it gets the call's `params`
-and `query`:
+A todo's detail page can show what the list already has, its title and
+whether it's done, while the full todo loads. A placeholder is that value:
+something to show until the query's own fetch settles. This page shows how
+to give a query one, and what a placeholder is and isn't.
 
-The examples import `todos.ts` from [Getting started](/docs/getting-started), and `entities.ts` from [Entities](/docs/mutations/entities).
+The example imports `todos.ts` from
+[Getting started](/docs/getting-started), and `entities.ts` from
+[Entities](/docs/cache/entities).
 
-```ts todo-detail.ts
+## Give a query a placeholder
+
+`placeholder` returns `Option.some` of a value to show, or `Option.none()`
+for nothing. On `api.query`, it gets the call's `params` and `query`. Here
+is `todo` from `todos.ts` with one. In your app, it replaces the `todo`
+that `todos.ts` defines:
+
+```ts
 import { Entity } from "@monarcode/effetch-query";
 
 import { Todos } from "./entities.js";
@@ -23,42 +32,47 @@ export const todo = api.query(getTodo, {
 });
 ```
 
-`Entity.get` reads the newest cached copy of the todo
-([Entities](/docs/mutations/entities)); any Effect that reads the cache works, such as
-`Query.get` of a list. `Query.make` takes `placeholder` as an Effect, and
-`Query.family` as a function of the member's argument. Keep it
-synchronous, reading the cache: an asynchronous one shows only once it's
-done, if the fetch hasn't settled first. If it dies, the defect is logged
-and nothing shows.
+`Entity.get` reads the newest cached copy of the todo, from any cached
+query whose schema holds todos, such as the list. Any Effect that reads
+the cache works, such as `Query.get` of a list. On `Query.make`,
+`placeholder` is an Effect, and on `Query.family` a function of the
+member's argument.
 
-The placeholder shows as a waiting `Success`, so `useSuspenseQuery`
-doesn't suspend on it. Once the fetch settles, its value or its failure
-replaces it. It's never cached: `Query.get`, `Query.update` and
-`Query.fetch` don't see it, `QueryClient.dehydrate` doesn't send it, and
-a query reading this one through `ctx.result` waits for the real value. A
-server render doesn't show it.
+Keep it synchronous, reading the cache. An asynchronous one shows only
+after it's done, if the fetch hasn't settled first, and a suspense reader
+that's already suspended doesn't get it: it waits for the fetch. If a
+placeholder dies, the defect is logged and nothing shows.
 
-To tell a placeholder from the query's own value, read `isPlaceholder`
-from `useQueryState` ([Read a query as an object](/docs/react/as-object)).
-It's true for the placeholder, and for the value `keepPrevious` keeps
-from the query shown before, until the query's own value or failure
-replaces it. A `paused` reader fetches nothing, so it keeps showing the
-placeholder, not fetching, until it resumes:
+## What a placeholder is
 
-```tsx
-import { useQueryState } from "@monarcode/effetch-query/react";
+A placeholder is shown, never cached. It shows as a waiting `Success`, so
+a component renders it as it would the value, and `useSuspenseQuery`
+doesn't suspend on it. When the fetch settles, its value or its failure
+replaces the placeholder.
 
-import { todo } from "./todo-detail.js";
+Since it isn't cached:
 
-export function TodoTitleInput({ id }: { readonly id: number }) {
-  const state = useQueryState(todo({ params: { id } }));
+- `Query.get`, `Query.update` and `Query.fetch` don't see it;
+- `QueryClient.dehydrate` doesn't send it, and a server render doesn't
+  show it;
+- a query that reads this one through `ctx.result` waits for the real
+  value.
 
-  if (state.status !== "success") {
-    return null;
-  }
-  // Editing waits for the todo itself, not the list's copy.
-  return (
-    <input defaultValue={state.data.title} disabled={state.isPlaceholder} />
-  );
-}
-```
+After `Query.reset`, the placeholder shows again until the next fetch
+settles.
+
+## Tell a placeholder from a value
+
+Sometimes a component needs to know which one it shows: an edit form
+shouldn't open on the list's copy of a todo. `useQueryState` returns an
+`isPlaceholder` flag for this. [Read a query as an object](/docs/react/as-object)
+shows it, and how it works with `keepPrevious` and `paused`.
+
+## What's next
+
+- [Entities](/docs/cache/entities): find one record's copies across every
+  cached query.
+- [Read a query as an object](/docs/react/as-object): tell a placeholder
+  from the query's own value in a component.
+- [Suspense and error boundaries](/docs/react/suspense): suspend until a
+  query has a value.

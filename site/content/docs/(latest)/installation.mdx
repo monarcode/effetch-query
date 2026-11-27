@@ -3,8 +3,8 @@ title: Installation
 description: Add Effetch Query to a project, with Effetch, Effect and React.
 ---
 
-This page shows how to install Effetch Query and the packages it works
-with. After it, you can define your first query.
+Effetch Query is one package. You add it beside Effect, and beside Effetch,
+React and your router if you use them. This page shows the command for each.
 
 ## Before you begin
 
@@ -24,39 +24,61 @@ command:
 pnpm add @monarcode/effetch-query @monarcode/effetch effect
 ```
 
-With Effetch, Effetch Query needs Effetch `0.1.0-rc.4` or later in 0.1,
-which you import as `import { Fetch } from "@monarcode/effetch"`. Effetch
-is optional: see [Queries without Effetch](/docs/queries/without-effetch) to
-use any Effect instead.
+If you use Effetch, you need `0.1.0-rc.4` or later in 0.1. You import it
+as `import { Fetch } from "@monarcode/effetch"`. Effetch is optional: to
+use any Effect instead, see
+[Queries from any Effect](/docs/queries/without-effetch).
 
 ## Add React
 
-For React, add `@effect/atom-react` and `react` (19):
+For React, add `@effect/atom-react` 4.1 or later and `react` 19:
 
 ```bash
 pnpm add @effect/atom-react react
 ```
 
+## Add TanStack Router
+
+To connect a client to TanStack Router or TanStack Start, add
+`@tanstack/react-router` 1.170.33 or later in 1.x:
+
+```bash
+pnpm add @tanstack/react-router
+```
+
+[TanStack Router and Start](/docs/frameworks/tanstack-start) shows the
+setup.
+
+## Add React Native's signals
+
+In React Native, the client hears that the app came back into focus or
+online from React Native's `AppState` and NetInfo. Effetch Query doesn't
+depend on either: you pass them in. Add NetInfo if your app doesn't have
+it:
+
+```bash
+pnpm add @react-native-community/netinfo
+```
+
+[React Native](/docs/react/react-native) shows the setup.
+
 ## Import the entry points
 
-Each entry point is a subpath of the one package. Import only the ones you
-use:
-
-| Entry point                                      | What it has                                                                                     |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | The core, with no framework in it: `Query`, `Mutation`, `QueryClient` and the other namespaces. |
-| `@monarcode/effetch-query/react`                 | The provider, the hooks and the boundaries.                                                     |
-| `@monarcode/effetch-query/effetch`               | `fromClient`, which turns Effetch endpoints into queries and mutations.                         |
-| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`, from React Native modules you pass in.                                    |
-| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`, which connects a client to TanStack Router and Start.                     |
-
-The core entry point exports namespaces:
+Each entry point is a subpath of the one package, such as
+`@monarcode/effetch-query/react`, so you import only what you use. The core
+entry point exports namespaces:
 
 ```ts
 import { Mutation, Query, QueryClient } from "@monarcode/effetch-query";
 ```
 
+If this line compiles, the package is installed.
+[Entry points](/docs/reference) lists every entry point and what it
+exports.
+
 ## What's next
 
-- Build a small todo app, end to end, in [Getting
-  started](/docs/getting-started).
+- [Getting started](/docs/getting-started): build a small todo app, end
+  to end.
+- [Coming from TanStack Query](/docs/coming-from-tanstack-query): if you
+  know TanStack Query, the same ideas under their names here.

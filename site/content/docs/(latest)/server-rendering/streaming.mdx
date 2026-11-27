@@ -1,12 +1,14 @@
 ---
 title: Stream the cache
-description: Stream queries to the browser as they finish.
+description: Send the page before every query has loaded, and stream each one as it finishes.
 ---
 
-When you [send the cache](/docs/server-rendering) with
-`pending: "promise"`, a query the server is still loading is sent as
-a promise of its result. The browser waits for it instead of fetching, and
-Suspense shows the query when it lands:
+Some queries take longer than the rest of the page. Rather than hold the
+whole page for them, the server can send it at once and stream each query
+to the browser as it finishes. With `pending: "promise"`,
+`QueryClient.dehydrate` sends a query still loading as a promise of its
+result. The browser waits for it instead of fetching, and Suspense shows
+the query when it lands:
 
 ```ts
 import { QueryClient } from "@monarcode/effetch-query";
@@ -16,18 +18,95 @@ declare const client: QueryClient.QueryClient;
 export const state = QueryClient.dehydrate(client, { pending: "promise" });
 ```
 
-A promise doesn't survive `JSON.stringify`: use it where your framework
-streams promises to the browser, as React's, TanStack Start's and React
-Router's serializers do. The frameworks in [Frameworks](/docs/frameworks) all
-work this way.
+This page builds on [Send the cache](/docs/server-rendering). The
+examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
+
+## Where a promise can go
+
+A promise doesn't survive `JSON.stringify`, so the `renderToString` recipe
+in Send the cache can't stream. Use `pending: "promise"` where your
+framework streams promises to the browser, as React's server components,
+TanStack Start's and React Router's serializers do. Each page in
+[Frameworks](/docs/frameworks) works this way.
+
+## Start a prefetch without awaiting it
+
+To stream a query, start its fetch and don't wait for it, then dehydrate
+with `pending: "promise"`. The page renders at once, and the value
+follows:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { todos } from "./todos.js";
+
+declare const client: QueryClient.QueryClient;
+
+// Starts the fetch, and doesn't wait for it.
+void client.prefetch(todos());
+
+export const state = QueryClient.dehydrate(client, { pending: "promise" });
+```
+
+`prefetch` never rejects, so a prefetch cut short when the client is
+disposed isn't an unhandled rejection. Load a query that may redirect
+with `client.fetch` instead, as
+[Redirect from a query](/docs/frameworks#redirect-from-a-query) explains.
+
+## Queries started while the server renders
+
+Only a query that has started when `dehydrate` runs is sent. In a server
+render, `useSuspenseQuery` fetches a query the cache doesn't have and
+suspends on it. If you dehydrated before the render, that query isn't
+sent, and the browser fetches it again.
+
+Load what the page reads before you dehydrate, or dehydrate after the
+render has started the rest. The
+[TanStack Router integration](/docs/frameworks/tanstack-start) does this
+for you: it sends each query as it starts.
+
+## When a streamed query fails
+
+A promise settles when the server's fetch does:
+
+- **A success** goes to the browser, which shows it.
+- **A failure** goes with its error if you send failures
+  (`failures: "include"`). Otherwise the promise settles with nothing,
+  and the browser fetches the query itself.
+- **A client disposed first** settles the promise with nothing, and the
+  browser fetches the query itself.
+
+## Dispose the client after the response
 
 Keep the client until its promises settle. On a server that answers with
 a streamed `Response`, the request's handler returns before the streamed
-results are sent. `QueryClient.disposeAfter(client, response)` wraps the
-response's body so that the client is disposed once the body has been
-sent: when it ends, fails or the reader cancels it (a client that
-disconnects). It suits React Router's middleware, Hono, `Bun.serve` and
-`Deno.serve`, and [React Router](/docs/frameworks/react-router) shows it in use. A few
+results are sent, so it can't dispose the client there.
+`QueryClient.disposeAfter(client, response)` wraps the response's body so
+that the client is disposed after the body has been sent:
+
+```ts
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+// Your app's server render, which streams the page.
+declare const render: (client: QueryClient.QueryClient) => Promise<Response>;
+
+const appRuntime = ManagedRuntime.make(ApiClientLive);
+
+export const handle = async (): Promise<Response> => {
+  const client = QueryClient.make({ runtime: appRuntime });
+  return QueryClient.disposeAfter(client, await render(client));
+};
+```
+
+The client is disposed when the body ends, fails, or the reader cancels
+it, as when a browser disconnects. `disposeAfter` suits React Router's
+middleware, Hono, `Bun.serve` and `Deno.serve`, and
+[React Router](/docs/frameworks/react-router) shows it in use. A few
 things to know about it:
 
 - **Send the response it returns.** One that's discarded is never read,
@@ -40,3 +119,11 @@ things to know about it:
 - **A failed `dispose()` is logged** with `console.error`, not thrown.
 - **The core uses `ReadableStream` and `Response` only when it's called,**
   so it still loads where they don't exist, such as React Native.
+
+## What's next
+
+- [TanStack Router and Start](/docs/frameworks/tanstack-start): stream
+  every query the page starts, with no code of your own.
+- [Next.js](/docs/frameworks/nextjs): stream from server components.
+- [React Router](/docs/frameworks/react-router): stream loader data, and
+  dispose the client in a middleware.

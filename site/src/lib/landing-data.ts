@@ -591,7 +591,7 @@ export async function landingData(build: boolean): Promise<LandingData> {
 			["// A cached query", '" },\n);'],
 			["function Todos()", "useMutation(toggleTodo)"],
 		]),
-		errors: show(errorsExample, [["const findTodo"]]),
+		errors: show(errorsExample, [["const todo = api.query("]]),
 		services: show(byName("api.ts"), [["// Sends requests"]]),
 		entities: show(optimistic, [["export const toggleTodo"]]),
 		live: show(byName("live-todos.ts"), [["// A change as an update"]]),

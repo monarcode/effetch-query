@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Writes the docs site's API reference from the JSDoc: a page per namespace
-// and entry point, listing every export with the first paragraph of its docs
-// (plus, for a value, the paragraphs that say what it needs and how it
-// fails), grouped by the guide that covers it.
+// and entry point, listing every export with its docs (examples aside) and,
+// for an interface, a table of its properties (`ownShape` says which),
+// grouped by the guide that covers it.
 //
 //   pnpm run docs:reference
 //
@@ -10,7 +10,7 @@
 // reference can't fall behind the code. Don't edit the pages by hand.
 
 import { execFileSync } from "node:child_process";
-import { realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -79,17 +79,17 @@ const PAGES = [
 		qualifier: "Query",
 		importLine: 'import { Query } from "@monarcode/effetch-query";',
 		intro: "`Query` defines queries, and reads and writes the cache from Effect. Import it from the core entry point:",
-		first: ["make", "family"],
+		first: ["make", "family", "Query"],
 		groups: [
 			[
 				"Define queries",
 				["Define queries", "/docs/getting-started#3-define-your-queries"],
 			],
-			["Queries", ["Queries from endpoints", "/docs/queries"]],
+			["Queries", ["Queries", "/docs/queries/without-effetch"]],
 			["Query options", ["Query options", "/docs/queries/options"]],
 			[
 				"Keep copies in sync",
-				["Keep copies in sync", "/docs/mutations/entity-sync"],
+				["Keep copies in sync", "/docs/cache/entity-sync"],
 			],
 			["Query keys", ["Query keys", "/docs/queries/keys"]],
 			[
@@ -214,7 +214,7 @@ const PAGES = [
 		importLine: 'import { Entity } from "@monarcode/effetch-query";',
 		intro: "`Entity` describes a record that can sit in many queries at once, and writes every cached copy of it. Import it from the core entry point:",
 		first: ["make"],
-		groups: [["Entities", ["Entities", "/docs/mutations/entities"]]],
+		groups: [["Entities", ["Entities", "/docs/cache/entities"]]],
 		names: {
 			make: "Entities",
 			MakeOptions: "Entities",
@@ -241,29 +241,37 @@ const PAGES = [
 		first: ["make", "QueryClient"],
 		groups: [
 			["The client", ["The client", "/docs/client"]],
-			["Testing", ["Testing", "/docs/testing"]],
 			[
 				"Defaults and app-wide hooks",
 				["Defaults and app-wide hooks", "/docs/client/defaults"],
 			],
 			[
 				"Keep copies in sync",
-				["Keep copies in sync", "/docs/mutations/entity-sync"],
+				["Keep copies in sync", "/docs/cache/entity-sync"],
 			],
 			[
 				"Use the cache outside Effect",
-				["Use the cache outside Effect", "/docs/cache/outside-effect"],
+				[
+					"Use the cache outside Effect",
+					"/docs/cache#read-and-write-outside-effect",
+				],
 			],
 			["Send the cache", ["Send the cache", "/docs/server-rendering"]],
 			[
 				"Load the cache in the browser",
-				["Load the cache in the browser", "/docs/server-rendering/hydrate"],
+				[
+					"Load the cache in the browser",
+					"/docs/server-rendering#3-load-the-cache-in-the-browser",
+				],
 			],
-			["Client members", ["Client members", "/docs/client/members"]],
+			[
+				"Client members",
+				["Client members", "/docs/client#dispose-a-client"],
+			],
 		],
 		names: {
 			make: "The client",
-			layer: "Testing",
+			layer: "The client",
 			QueryClient: "The client",
 			Options: "The client",
 			LayerOptions: "The client",
@@ -310,7 +318,10 @@ const PAGES = [
 		groups: [
 			[
 				"Focus and online signals",
-				["Focus and online signals", "/docs/client/signals"],
+				[
+					"Focus and online signals",
+					"/docs/client#focus-and-online-signals",
+				],
 			],
 		],
 		names: {
@@ -328,7 +339,7 @@ const PAGES = [
 		module: "src/react/index.ts",
 		entry: "src/react/index.ts",
 		intro: "`@monarcode/effetch-query/react` exports the provider, the hooks and the boundaries. Import what you use:",
-		first: ["QueryProvider"],
+		first: ["QueryProvider", "useQueryState", "UseQueryStateResult"],
 		groups: [
 			[
 				"Provide the client",
@@ -340,18 +351,17 @@ const PAGES = [
 			],
 			["Read a query", ["Read a query", "/docs/react"]],
 			[
-				"Pause screens you can't see",
-				["Pause screens you can't see", "/docs/react/pause"],
-			],
-			[
 				"Select part of a value",
-				["Select part of a value", "/docs/react/select"],
+				["Select part of a value", "/docs/react#select-part-of-a-value"],
 			],
 			[
 				"Read a query as an object",
 				["Read a query as an object", "/docs/react/as-object"],
 			],
-			["Read many queries", ["Read many queries", "/docs/react/many"]],
+			[
+				"Read many queries",
+				["Read many queries", "/docs/react#read-several-queries"],
+			],
 			[
 				"Suspense and error boundaries",
 				["Suspense and error boundaries", "/docs/react/suspense"],
@@ -362,7 +372,10 @@ const PAGES = [
 			["Show activity", ["Show activity", "/docs/mutations/activity"]],
 			[
 				"Load the cache in the browser",
-				["Load the cache in the browser", "/docs/server-rendering/hydrate"],
+				[
+					"Load the cache in the browser",
+					"/docs/server-rendering#3-load-the-cache-in-the-browser",
+				],
 			],
 		],
 		names: {
@@ -372,7 +385,7 @@ const PAGES = [
 			useQueryClient: "Read a query",
 			MissingQueryProviderError: "Read a query",
 			useQuery: "Read a query",
-			UseQueryOptions: "Pause screens you can't see",
+			UseQueryOptions: "Read a query",
 			UseQuerySelectOptions: "Select part of a value",
 			useQueryState: "Read a query as an object",
 			UseQueryStateResult: "Read a query as an object",
@@ -425,10 +438,7 @@ const PAGES = [
 			],
 			["Query keys", ["Query keys", "/docs/queries/keys"]],
 			["Query errors", ["Query errors", "/docs/queries/errors"]],
-			[
-				"Errors by status",
-				["Errors by status", "/docs/queries/status-errors"],
-			],
+			["Errors by status", ["Errors by status", "/docs/queries/errors"]],
 			[
 				"Queries from a stream",
 				["Queries from a stream", "/docs/queries/streams"],
@@ -501,12 +511,6 @@ const PAGES = [
 ];
 
 /**
- * Interfaces that get a table of their properties: the options and props an
- * app passes in.
- */
-const TABLE_SUFFIX = /(?:Options|Props)$/;
-
-/**
  * The reference: its pages by path from the repository root, formatted as
  * Oxfmt writes them, and every export they list, as `entry:name`, such as
  * `src/index.ts:Query.make` or `src/react/index.ts:useQuery`. `program` must
@@ -540,6 +544,9 @@ export function renderReference(program = createProgram()) {
 	return { files, names };
 }
 
+/** Options and props interfaces get a table even when they extend another package's. */
+const OPTIONS_NAME = /(?:Options|Props)$/;
+
 /** A page's entries, each with its symbol, group, anchor and declaration. */
 function collect(page, program, checker) {
 	const file = program.getSourceFile(path.join(root, page.module));
@@ -572,10 +579,12 @@ function collect(page, program, checker) {
 			throw new Error(
 				`reference-docs: ${prefix}${exported.name} is in the "${group}" group, which the "${page.slug}" page doesn't have`,
 			);
+		const shape = typeDocs(symbol, declaration);
 		entries.push({
 			deprecated: ts
 				.getJSDocTags(declaration)
 				.some((tag) => tag.tagName.text === "deprecated"),
+			shape,
 			name: `${prefix}${exported.name}`,
 			short: exported.name,
 			symbol,
@@ -583,8 +592,16 @@ function collect(page, program, checker) {
 			group,
 			value: Boolean(symbol.flags & ts.SymbolFlags.Value),
 			table:
-				ts.isInterfaceDeclaration(declaration) &&
-				TABLE_SUFFIX.test(exported.name),
+				(ts.isInterfaceDeclaration(declaration) &&
+					OPTIONS_NAME.test(exported.name)) ||
+				[declaration, shape].some(
+					(node) =>
+						node &&
+						ts.isInterfaceDeclaration(node) &&
+						hasDocs(node) &&
+						node.members.length > 0 &&
+						ownShape(node, checker),
+				),
 			source,
 		});
 	}
@@ -647,12 +664,12 @@ ${importLine}
 				body += `- [\`${other.qualifier}\`](/docs/reference/${other.slug}): ${other.related}\n`;
 	}
 	body += `
-${page.namespaces ? "Its two top-level names follow" : "Its exports follow"}, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+${page.namespaces ? "Its two top-level names follow" : "Its exports follow"}, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 `;
 	for (const [title, [guide, guideUrl]] of page.groups) {
-		body += `\n## ${title} [#${slug(title)}]\n\nGuide: [${guide}](${guideUrl}).\n`;
+		body += `\n## ${title} [#${slug(title)}]\n\nGuide: [${guideTitle(guideUrl, guide)}](${guideUrl}).\n`;
 		const first = (entry) => {
 			const index = (page.first ?? []).indexOf(entry.short);
 			return index === -1 ? Infinity : index;
@@ -666,7 +683,7 @@ editor shows the rest, with an example, when you hover the name.
 					byName(a, b),
 			);
 		for (const entry of entries) {
-			body += `\n### ${entry.name} [#${entry.id}]\n\n${summaryOf(entry, page, checker, targets)}\n`;
+			body += `\n### ${entry.name} [#${entry.id}]\n\n${docsOf(entry, page, checker, targets)}\n`;
 			if (entry.table) {
 				const declared = entry.source
 					.replace(/^src\//, "")
@@ -675,54 +692,25 @@ editor shows the rest, with an example, when you hover the name.
 			}
 		}
 	}
-	body += "\n## Related pages\n\n";
-	body +=
-		"- [Entry points](/docs/reference): what each entry point exports.\n";
-	for (const other of PAGES)
-		if (other.slug !== page.slug)
-			body += `- [${other.qualifier ? `\`${other.qualifier}\`` : `\`${other.title}\``}](/docs/reference/${other.slug}): ${other.related}\n`;
 	return body;
 }
 
 // A list item, bulleted or numbered.
 const LIST_ITEM = /^\s*(?:-|\d+[.)]) /;
 
-/** A paragraph that says what a value needs, or how it fails or dies. */
-const BEHAVIOR = /\b(?:fails|dies|throws|is a defect|needs|requires)\b/i;
-
 /**
- * An entry's first paragraph, and the list after it, such as a type's
- * values or a function's behavior, plus, for a value, each later paragraph
- * that says what it needs or how it fails. An entry with a type table keeps
- * the list only when the paragraph leads into it ("…, and"), since the table
- * lists the properties. A link to an export on the reference becomes a link
- * to its entry; others become code.
+ * An entry's docs without their examples, which the hover shows. For a name
+ * that's both a type and a value, such as `QueryClient`, the type's docs
+ * come first: they say what the thing is, and the value's what it's for.
+ * A link to an export on the reference becomes a link to its entry; others
+ * become code.
  */
-function summaryOf(entry, page, checker, targets) {
-	const node = entry.declaration;
-	const doc = ts.getJSDocCommentsAndTags(node).filter(ts.isJSDoc).at(-1);
-	const text = commentText(doc?.comment, page, checker, targets);
-	const blocks = text
-		.replace(/```[\s\S]*?```/g, "")
-		.trim()
-		.split(/\n\s*\n/);
-	const kept = [blocks[0] ?? ""];
-	const unfinished = !/[.!?]\s*$/.test(blocks[0] ?? "");
-	let next = 1;
-	if ((unfinished || !entry.table) && LIST_ITEM.test(blocks[1] ?? "")) {
-		kept.push(blocks[1]);
-		next = 2;
-	}
-	// A value also keeps what it needs and how it goes wrong, so the page
-	// says when a call fails or dies without opening the declaration.
-	if (entry.value)
-		for (let i = next; i < blocks.length; i++) {
-			const block = blocks[i];
-			if (LIST_ITEM.test(block) || !BEHAVIOR.test(block)) continue;
-			kept.push(block);
-			if (/:\s*$/.test(block) && LIST_ITEM.test(blocks[i + 1] ?? ""))
-				kept.push(blocks[++i]);
-		}
+function docsOf(entry, page, checker, targets) {
+	const parts = [];
+	if (entry.shape)
+		parts.push(...blocksOf(entry.shape, page, checker, targets));
+	parts.push(...blocksOf(entry.declaration, page, checker, targets));
+	const doc = jsDoc(entry.declaration);
 	const deprecated = doc?.tags?.find(
 		(tag) => tag.tagName.text === "deprecated",
 	);
@@ -733,9 +721,101 @@ function summaryOf(entry, page, checker, targets) {
 			checker,
 			targets,
 		).trim();
-		kept.unshift(`**Deprecated.**${note ? ` ${note}` : ""}`);
+		parts.unshift(`**Deprecated.**${note ? ` ${note}` : ""}`);
 	}
-	return kept.map(toMarkdown).join("\n\n");
+	return parts.map(toMarkdown).join("\n\n");
+}
+
+/** A declaration's JSDoc paragraphs and lists, without code blocks. */
+function blocksOf(node, page, checker, targets) {
+	const text = commentText(jsDoc(node)?.comment, page, checker, targets);
+	return text
+		.replace(/```[\s\S]*?```/g, "")
+		.trim()
+		.split(/\n\s*\n/)
+		.filter((block) => block.trim() !== "");
+}
+
+function jsDoc(node) {
+	return ts.getJSDocCommentsAndTags(node).filter(ts.isJSDoc).at(-1);
+}
+
+/**
+ * Whether an interface extends nothing from another package. A table of one
+ * that does, such as `Query` extending Effect's `Atom.Writable`, lists that
+ * package's internals as if they were this one's API.
+ */
+function ownShape(node, checker, seen = new Set()) {
+	if (seen.has(node)) return true;
+	seen.add(node);
+	return (node.heritageClauses ?? []).every((clause) =>
+		clause.types.every((type) => {
+			const base = checker.getSymbolAtLocation(type.expression);
+			return (base ? (resolve(base, checker).declarations ?? []) : []).every(
+				(declaration) =>
+					!declaration
+						.getSourceFile()
+						.fileName.includes("/node_modules/") &&
+					(!ts.isInterfaceDeclaration(declaration) ||
+						ownShape(declaration, checker, seen)),
+			);
+		}),
+	);
+}
+
+function hasDocs(node) {
+	return Boolean(ts.getTextOfJSDocComment(jsDoc(node)?.comment)?.trim());
+}
+
+/**
+ * The documented interface of a name that's also a value,
+ * such as the `QueryClient` interface beside its service tag.
+ */
+function typeDocs(symbol, declaration) {
+	if (!(symbol.flags & ts.SymbolFlags.Value)) return undefined;
+	return (symbol.declarations ?? []).find(
+		(node) =>
+			node !== declaration &&
+			ts.isInterfaceDeclaration(node) &&
+			hasDocs(node),
+	);
+}
+
+/**
+ * A guide link's text: the title of the page it points to, or the heading
+ * its anchor names. A link to a page or heading that doesn't exist fails
+ * the render.
+ */
+function guideTitle(url, fallback) {
+	const [route, anchor] = url.replace(/^\/docs\/?/, "").split("#");
+	const pages = path.join(root, "site/content/docs/(latest)");
+	const file = [`${route}.mdx`, `${route}/index.mdx`, "index.mdx"]
+		.slice(0, route ? 2 : 3)
+		.map((candidate) => path.join(pages, candidate))
+		.find((candidate) => existsSync(candidate));
+	if (!file) {
+		if (!existsSync(pages)) return fallback;
+		throw new Error(
+			`reference-docs: a guide link points to ${url}, which isn't a page`,
+		);
+	}
+	const content = readFileSync(file, "utf8");
+	if (!anchor) {
+		const title = /^title: (.+)$/m.exec(content)?.[1];
+		if (!title) throw new Error(`reference-docs: ${url} has no title`);
+		return title.replace(/^"(.*)"$/, "$1");
+	}
+	for (const [, text] of content.matchAll(/^#{2,4} (.+)$/gm)) {
+		const plain = text.replace(/`/g, "").trim();
+		const id = plain
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N}\s-]/gu, "")
+			.replace(/\s/g, "-");
+		if (id === anchor) return plain;
+	}
+	throw new Error(
+		`reference-docs: a guide link points to ${url}, which has no such heading`,
+	);
 }
 
 /** A JSDoc comment's text, its `{@link}`s as Markdown links. */

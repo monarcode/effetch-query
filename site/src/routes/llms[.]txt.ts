@@ -7,35 +7,43 @@ import { currentFolder, docsLlms } from "@/lib/source";
 const GITHUB = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
 
 /**
- * The docs in the sidebar's order, one H2 section per folder, as llms.txt
- * sections its links. The pages before the first folder are the place to
- * start; a page after it is a section of its own, as is a separator.
+ * The docs in the sidebar's order as llms.txt sections of links. Pages
+ * under a separator are listed under its name, and each folder is a
+ * section of its own, as is a page that follows a folder.
  */
 function sections(folder: Folder): string[] {
-	const lines = ["", "## Get started", ""];
+	const lines: string[] = [];
 	const nodes: Node[] = folder.index ? [folder.index] : [];
-	let started = false;
+	let separator: string | undefined = "Get started";
+	let listing = false;
+	const section = (name: string) => {
+		if (lines.length > 0) lines.push("");
+		lines.push(`## ${name}`, "");
+	};
 	for (const node of [...nodes, ...folder.children]) {
 		if (node.type === "separator") {
-			lines.push("", `## ${String(node.name)}`, "");
-			started = true;
+			separator = String(node.name);
+			listing = false;
 			continue;
 		}
-		if (node.type === "folder" || started) {
-			started = true;
-			if (lines.at(-1) !== "") lines.push("");
-			const children =
-				node.type === "folder"
-					? [...(node.index ? [node.index] : []), ...node.children]
-					: [node];
-			lines.push(`## ${String(node.name)}`, "");
-			for (const child of children) lines.push(docsLlms.indexNode(child));
-			lines.push("");
+		if (node.type === "folder") {
+			section(String(node.name));
+			for (const child of node.index
+				? [node.index, ...node.children]
+				: node.children)
+				if (child.type !== "separator")
+					lines.push(docsLlms.indexNode(child));
+			separator = undefined;
+			listing = false;
 			continue;
+		}
+		if (!listing) {
+			section(separator ?? String(node.name));
+			listing = separator !== undefined;
 		}
 		lines.push(docsLlms.indexNode(node));
 	}
-	return lines;
+	return ["", ...lines, ""];
 }
 
 export const Route = createFileRoute("/llms.txt")({

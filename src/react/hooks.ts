@@ -180,9 +180,9 @@ const useSelected = <A, E, B>(
 /**
  * Reads a query and keeps it up to date while the component is mounted. On
  * mount, and when `query` changes, it refetches the query if it's stale
- * (`refetchOnMount`) or failed (`retryOnMount`), and while mounted it
- * refetches on focus, reconnect and `refetchInterval` as the query's options
- * say.
+ * (`refetchOnMount`) or failed (`retryOnMount`), the mount policy, and
+ * while mounted it refetches on focus, reconnect and `refetchInterval` as
+ * the query's options say.
  *
  * With `select`, it returns the result of the selection instead
  * ({@link UseQuerySelectOptions.select}), and the component doesn't re-render
@@ -625,9 +625,9 @@ export type UseQueryStateResult<A, E> =
 /**
  * Reads a query as {@link useQuery} does, and returns its result as an object
  * of fields: `status`, `data`, `error`, `isFetching`, `isPlaceholder`,
- * `refetch` and more, TanStack Query's shape. It fetches, refetches and
- * takes options as {@link useQuery} does, `select` and `keepPrevious`
- * included.
+ * `refetch` and more, close to TanStack Query's shape. It fetches,
+ * refetches and takes options as {@link useQuery} does, `select` and
+ * `keepPrevious` included.
  *
  * Check `status` before reading `data`: it narrows the object
  * ({@link UseQueryStateResult}). A failure keeps the last success as `data`,
@@ -1198,7 +1198,9 @@ export const useMutationState = <Variables, A, E>(
  * changes.
  *
  * A server render counts none, and so does the first render while the page
- * hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`.
+ * hydrates. Throws a `MissingQueryProviderError` outside a `QueryProvider`,
+ * and a `Query.KeyHoldsTargetError` for a key that holds a query, a family
+ * or a group.
  *
  * @example
  * ```tsx

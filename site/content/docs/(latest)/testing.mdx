@@ -1,29 +1,46 @@
 ---
 title: Testing
-description: Test queries, mutations and components with a fresh client.
+description: Test queries, mutations and components with a fake backend and a fresh client.
 ---
 
-Your tests can run every query against a fake backend, with no network
-and no React. Your queries run against whatever `HttpClient` your client's
-layer gets, so in tests, give it `FetchTest.layer` from
-`@monarcode/effetch/test`: a fake backend made from your endpoints, with
-`params`, `body` and the response typed by each endpoint.
-`QueryClient.layer` gives an Effect program a client, disposed when the
-program ends:
+You want tests for your queries, mutations and components that run fast
+and don't touch the network. Your queries run against whatever
+`HttpClient` your client's layer gets, so a test gives it a fake backend,
+and a fresh client for each test, so no test sees another's cache. This
+page uses [Vitest](https://vitest.dev); the same setup works with any test
+runner.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts`, `todos.ts`, `toggle-todo.ts` and
+`open-todos.tsx` from [Getting started](/docs/getting-started).
 
-```ts
+## Fake the backend
+
+Effetch's `FetchTest.layer`, from `@monarcode/effetch/test`, is a fake
+backend made from your endpoints. Each handler answers one endpoint, with
+its `params`, `body` and response typed by the endpoint. Provide it to your
+client's layer in place of `FetchHttpClient.layer`:
+
+```ts backend.ts
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
-import { Query, QueryClient } from "@monarcode/effetch-query";
+import { Fetch } from "@monarcode/effetch";
 import { FetchTest } from "@monarcode/effetch/test";
 
-import { ApiClient } from "./api.js";
-import { getTodo, listTodos, todo } from "./todos.js";
+import { ApiClient, Todo } from "./api.js";
+import { getTodo, listTodos } from "./todos.js";
+
+// The route toggleTodo calls, for its handler.
+const patchTodo = Fetch.endpoint("PATCH /todos/:id", {
+  input: Schema.Struct({ done: Schema.Boolean }),
+  output: Todo,
+});
 
 const Backend = FetchTest.layer([
+  FetchTest.respond(listTodos, () =>
+    Effect.succeed([{ id: 1, title: "Write tests", done: false }]),
+  ),
   FetchTest.respond(getTodo, ({ params }) =>
     // params are strings, as they are in the URL
     Effect.succeed({
@@ -32,29 +49,210 @@ const Backend = FetchTest.layer([
       done: false,
     }),
   ),
-  FetchTest.fail(listTodos, 503),
+  FetchTest.respond(patchTodo, ({ params, body }) =>
+    Effect.succeed({ id: Number(params.id), title: "Write tests", ...body }),
+  ),
 ]);
 
-const ApiClientTest = ApiClient.layer.pipe(Layer.provide(Backend));
-
-export const test = Query.fetch(todo({ params: { id: 1 } })).pipe(
-  Effect.provide(QueryClient.layer({ layer: ApiClientTest })),
-);
+export const ApiClientTest = ApiClient.layer.pipe(Layer.provide(Backend));
 ```
 
-Notice that the fake is provided under the client's own `layer`, as here.
-A class that overrides `layer` to provide its own `HttpClient` ignores one
-given from outside.
+Provide the fake to `ApiClient.layer`, as `ApiClientTest` does, not around
+the client. A class that overrides `layer` to provide its own `HttpClient`
+ignores one given from outside. [Effetch's
+docs](https://effetch.pages.dev) cover `FetchTest` in full, including
+recording the requests a test sent.
 
-**React tests.** Render under a `QueryProvider` with a fresh client, and
-dispose it after each test.
+## Test a query
 
-**Time.** To control `staleTime`, `refetchInterval` and `gcTime`, fake
-only the timers. Leave `setImmediate` real, since Effect's scheduler runs
-on it:
+`QueryClient.layer` gives an Effect program a client, disposed when the
+program ends. Give it `Signals.none`, which never reports a focus or a
+reconnect, so nothing in a test refetches on its own:
 
 ```ts
-import { vi } from "vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
-vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+import { FetchTest } from "@monarcode/effetch/test";
+import { Query, QueryClient, Signals } from "@monarcode/effetch-query";
+import { expect, it } from "vitest";
+
+import { ApiClient } from "./api.js";
+import { ApiClientTest } from "./backend.js";
+import { listTodos, todo, todos } from "./todos.js";
+
+const TestClient = QueryClient.layer({
+  layer: ApiClientTest,
+  signals: Signals.none,
+});
+
+it("loads a todo", async () => {
+  const loaded = await Effect.runPromise(
+    Query.fetch(todo({ params: { id: 1 } })).pipe(Effect.provide(TestClient)),
+  );
+  expect(loaded).toEqual({ id: 1, title: "Write tests", done: false });
+});
+
+it("fails when the server is down", async () => {
+  const Down = ApiClient.layer.pipe(
+    Layer.provide(FetchTest.layer([FetchTest.fail(listTodos, 503)])),
+  );
+  const error = await Effect.runPromise(
+    Effect.flip(Query.fetch(todos())).pipe(
+      Effect.provide(QueryClient.layer({ layer: Down, signals: Signals.none })),
+    ),
+  );
+  expect(error._tag).toBe("HttpError");
+});
 ```
+
+The second test gives the client a backend that answers `GET /todos` with
+a 503. `Effect.flip` turns the query's typed error into the value, so the
+test can check it.
+
+## Test a mutation
+
+`Mutation.run` runs a mutation from Effect, with your services and the
+client. `queryClient.runPromise` provides both:
+
+```ts
+import { Mutation, QueryClient, Signals } from "@monarcode/effetch-query";
+import { expect, it } from "vitest";
+
+import { ApiClientTest } from "./backend.js";
+import { toggleTodo } from "./toggle-todo.js";
+
+it("saves a toggle", async () => {
+  const queryClient = QueryClient.make({
+    layer: ApiClientTest,
+    signals: Signals.none,
+  });
+  const saved = await queryClient.runPromise(
+    Mutation.run(toggleTodo, { params: { id: 1 }, body: { done: true } }),
+  );
+  expect(saved).toEqual({ id: 1, title: "Write tests", done: true });
+  await queryClient.dispose();
+});
+```
+
+A run goes through every step a component's run does: its optimistic
+writes, its `invalidates` and its callbacks. So a test can run a mutation,
+then read the queries it changed with `Query.get` or `Query.fetch`.
+
+## Test a component
+
+Render the component under a `QueryProvider` with a fresh client, and
+dispose the client after each test. The test needs a DOM, such as
+Vitest's `happy-dom` or `jsdom` environment, and React Testing Library:
+
+```tsx
+// @vitest-environment happy-dom
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it } from "vitest";
+
+import { QueryClient, Signals } from "@monarcode/effetch-query";
+import { QueryProvider } from "@monarcode/effetch-query/react";
+
+import { ApiClientTest } from "./backend.js";
+import { OpenTodos } from "./open-todos.js";
+
+let queryClient: QueryClient.QueryClient;
+
+beforeEach(() => {
+  queryClient = QueryClient.make({
+    layer: ApiClientTest,
+    signals: Signals.none,
+  });
+});
+
+afterEach(async () => {
+  cleanup();
+  await queryClient.dispose();
+});
+
+it("lists the open todos", async () => {
+  render(
+    <QueryProvider client={queryClient}>
+      <OpenTodos />
+    </QueryProvider>,
+  );
+  expect(screen.getByText("Loading…")).toBeDefined();
+  expect(await screen.findByText("Write tests")).toBeDefined();
+});
+```
+
+`findByText` waits for the fetch to settle and the list to render.
+Disposing the client in `afterEach` stops what it still runs, so
+nothing from one test reaches the next.
+
+## Control time
+
+To test `staleTime`, `refetchInterval` or `gcTime`, fake only the timers
+and `Date`, then move them with `vi.advanceTimersByTimeAsync`. Leave
+`setImmediate` real: Effect's scheduler runs on it, so faking it stalls
+every Effect until the timers move. Effect's own `TestClock` doesn't reach
+the cache, whose timers run with the client's layer rather than the test's
+services.
+
+This test counts the requests the backend answers, and checks that `todo`,
+whose `staleTime` is 1 minute, refetches only after a minute:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+
+import { FetchTest } from "@monarcode/effetch/test";
+import { QueryClient, Signals } from "@monarcode/effetch-query";
+import { afterEach, expect, it, vi } from "vitest";
+
+import { ApiClient } from "./api.js";
+import { getTodo, todo } from "./todos.js";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it("refetches a todo after its staleTime", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  let requests = 0;
+  const Counting = ApiClient.layer.pipe(
+    Layer.provide(
+      FetchTest.layer([
+        FetchTest.respond(getTodo, ({ params }) =>
+          Effect.sync(() => {
+            requests++;
+            return { id: Number(params.id), title: "Write tests", done: false };
+          }),
+        ),
+      ]),
+    ),
+  );
+  const queryClient = QueryClient.make({
+    layer: Counting,
+    signals: Signals.none,
+  });
+  const load = () => queryClient.fetch(todo({ params: { id: 1 } }));
+
+  await load();
+  await load();
+  expect(requests).toBe(1);
+
+  await vi.advanceTimersByTimeAsync(60_000);
+  await load();
+  expect(requests).toBe(2);
+
+  await queryClient.dispose();
+});
+```
+
+The second `load()` returns the cached value, since it's still fresh. A
+minute later, the value is stale, so the third fetches again.
+
+## What's next
+
+- [Examples](/docs/examples): complete apps, with the tests that drive them
+  in a browser environment.
+- [The query client](/docs/client): the options a test client takes, and
+  what `dispose()` releases.
+- [Focus and online signals](/docs/client#focus-and-online-signals): what
+  `Signals.none` replaces.

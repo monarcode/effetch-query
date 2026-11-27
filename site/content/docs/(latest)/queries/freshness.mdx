@@ -3,37 +3,116 @@ title: Freshness and refetching
 description: When a value is fresh, when it's refetched, and when it's let go.
 ---
 
+A list of todos on screen goes out of date: the user edits one in another
+tab, or comes back to the app an hour later. Effetch Query refetches a
+query's value in the background, at moments that depend on how old the
+value is and on whether anything shows it. This page explains those
+moments, and the options that change them.
+
+## Fresh and stale
+
 A query's value is **fresh** for its `staleTime` after it's fetched, and
-**stale** after that. A stale value is still shown, and refetched in the
-background when:
+**stale** after that. A stale value is still shown: it's a candidate for
+a refetch, not an error. While a refetch runs, the query keeps showing its
+value with `waiting: true`, so a component can keep it on screen and add a
+spinner.
 
-The examples import `api.ts` and `client.ts` from [Getting started](/docs/getting-started).
+The defaults are the same as TanStack Query's, apart from `retry`, which
+[Query errors](/docs/queries/errors#retry-a-failed-fetch) explains:
 
-- a component starts using the query (`refetchOnMount`);
-- the app comes back into focus (`refetchOnFocus`) or the device comes
-  back online (`refetchOnReconnect`), for queries in use;
-- it's invalidated, or its `refetchInterval` passes.
+| Option                                 | Default                                       |
+| -------------------------------------- | --------------------------------------------- |
+| `staleTime`                            | `0`: a value is stale as soon as it's fetched |
+| `gcTime`                               | 5 minutes                                     |
+| `refetchOnMount`, `retryOnMount`       | `true`                                        |
+| `refetchOnFocus`, `refetchOnReconnect` | `true`                                        |
+| `refetchInterval`                      | No polling                                    |
 
-While it refetches, the query keeps showing its value, with
-`waiting: true`. A query that failed is fetched again when a component
-starts using it (`retryOnMount`), however recent the failure. A query
-invalidated while nothing uses it refetches the next time something does.
-A query not in use is dropped after its `gcTime`.
+## Queries in use
 
-`refetchInterval` polls only while the query is in use: polling pauses
-when nothing uses it, and resumes when something starts using it. A tick
-that finds a fetch in progress doesn't start another.
+Most refetches happen only to queries something shows, so Effetch Query
+tracks which queries are in use.
 
-**Focus and online come from the client's `signals`.** The default,
-`Signals.browser`, takes focus from the page becoming visible again and
-online from `navigator.onLine`; without a DOM, they never change. React
-Native gives the client its own ([Focus and online signals](/docs/client/signals),
-[React Native](/docs/react/react-native)).
+A query is **in use** while something subscribes to it, or to a query or
+atom that depends on it:
 
-**Refetch on Effect's `Reactivity` keys.** `effect/reactivity`'s
-`Reactivity` service invalidates queries by keys of its own, and Effect's
-SQL clients publish them. A query's `reactivityKeys` refetches it when
-those keys are invalidated, through the client's `Reactivity`:
+- a mounted component that reads it;
+- a query in use that reads it through `ctx.result`, as
+  [Queries that read other queries](/docs/queries/dependent) shows.
+
+A query that's only cached isn't in use, and a dependent query that's only
+cached doesn't keep the query it reads in use either. A query that isn't
+in use keeps its value for its `gcTime`, then the client drops it.
+
+## When a value is refetched
+
+A stale value is refetched in the background when:
+
+- a component starts using the query, as
+  [the mount policy](#the-mount-policy) decides;
+- the app comes back into focus (`refetchOnFocus`), or the device comes
+  back online (`refetchOnReconnect`), while the query is in use.
+
+Any value, fresh or stale, is refetched when:
+
+- it's invalidated: at once if the query is in use, otherwise the next
+  time something uses it;
+- its `refetchInterval` passes, while the query is in use.
+
+## The mount policy
+
+A component that starts reading a query may find a value that's old, or a
+failure. The mount policy decides whether that component's mount
+refetches it:
+
+- **A failure is fetched again** (`retryOnMount`), however recent it is.
+  This includes a failure the server sent with the page.
+- **A stale success is refetched** (`refetchOnMount`). A fresh one is
+  shown as it is.
+- **A query that's fetching is left alone,** as is one that was fetched
+  since the component first rendered it.
+- **A query that `Query.clear` emptied is fetched.**
+
+Set `refetchOnMount` or `retryOnMount` to `false` to show what's cached
+without fetching it again.
+
+<Accordions type="multiple">
+  <Accordion title="Details: suspense readers">
+    `useSuspenseQuery` treats a value younger than one second as fresh when it
+    mounts, so the value it suspended on isn't fetched again. A suspense reader
+    of a failure with no earlier value throws it to an error boundary instead of
+    retrying it, as [Suspense and error boundaries](/docs/react/suspense)
+    explains.
+  </Accordion>
+</Accordions>
+
+## Poll on an interval
+
+`refetchInterval` refetches a query on a timer, fresh or not. It polls
+only while the query is in use: polling pauses when nothing uses it, and
+resumes when something starts using it. A tick that finds a fetch in
+progress doesn't start another.
+
+## Focus and reconnect
+
+The client hears that the app regained focus or the device came back
+online through its `signals`, as
+[Focus and online signals](/docs/client#focus-and-online-signals)
+describes. React Native gives the client its own, as
+[React Native](/docs/react/react-native) shows.
+
+On either signal, each query in use that's stale is refetched. A failure
+counts as stale when it has no earlier success, or when that success is
+older than `staleTime`.
+
+## Refetch on Effect's Reactivity keys
+
+Effect has a `Reactivity` service of its own (`effect/reactivity`), which
+invalidates by keys of its own, and Effect's SQL clients publish them. A query's `reactivityKeys` refetches it when those keys are
+invalidated through the client's `Reactivity`.
+
+The example imports `api.ts` and `client.ts` from
+[Getting started](/docs/getting-started):
 
 ```ts
 import * as Reactivity from "effect/reactivity/Reactivity";
@@ -57,8 +136,25 @@ export const onTodosSynced = () =>
   queryClient.runPromise(Reactivity.invalidate(["todos"]));
 ```
 
-**Defaults for every query.** The client's `queries.defaults` sets all
-the options in [Query options](/docs/queries/options) but `gcTime` and
-`reactivityKeys`, and a query's own options win. The client in
-[2. Create the query client](/docs/getting-started#2-create-the-query-client) makes every
-query fresh for 30 seconds this way.
+## Set defaults for every query
+
+The client's `queries.defaults` sets seven options for every query:
+`staleTime`, `retry`, `refetchOnMount`, `retryOnMount`, `refetchOnFocus`,
+`refetchOnReconnect` and `refetchInterval`. A query's own options win.
+The rest, such as `gcTime` and `reactivityKeys`, are set per query.
+
+The client in
+[2. Create the query client](/docs/getting-started#2-create-the-query-client)
+makes every query fresh for 30 seconds this way, and `todo` in `todos.ts`
+raises its own to a minute.
+
+## What's next
+
+- [Query options](/docs/queries/options): every option a query takes,
+  with its default.
+- [Focus and online signals](/docs/client#focus-and-online-signals): where
+  focus and reconnect come from, and how to replace them.
+- [Defaults and app-wide hooks](/docs/client/defaults): set defaults and
+  hooks for every query on the client.
+- [Refetch on demand](/docs/react/refetch): refetch from a component,
+  such as for pull to refresh.

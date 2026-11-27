@@ -2,19 +2,23 @@
 	"title": "Latest",
 	"root": "version",
 	"pages": [
+		"---Get started---",
 		"index",
 		"installation",
 		"getting-started",
 		"coming-from-tanstack-query",
+		"examples",
+		"---Guides---",
 		"queries",
 		"react",
 		"mutations",
 		"cache",
+		"---Going further---",
 		"client",
 		"server-rendering",
 		"frameworks",
 		"testing",
-		"examples",
+		"---Resources---",
 		"reference"
 	]
 }

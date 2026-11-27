@@ -3,60 +3,86 @@ title: Invalidate after a mutation
 description: Mark the queries a mutation changes as out of date.
 ---
 
-A mutation invalidates nothing unless you say so. There are three ways to
-say it, from the most precise to the most automatic. A mutation can also
-wait for the refetch it causes.
+After a todo is saved, the lists that show it are out of date. A mutation
+invalidates nothing unless you say so: invalidating a query, TanStack
+Query's `invalidateQueries`, marks it stale, so the queries on screen
+refetch and the rest refetch when they're next used. This page shows the
+three ways to say what a mutation invalidates, from the most precise to
+the most automatic, and how to wait for the refetch.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-**Per mutation.** `invalidates` lists the targets the mutation changes:
-queries, families, keys or groups. `toggleTodo` in
-[5. Change data](/docs/getting-started#5-change-data) invalidates `[todos]`. To pick targets
-from what the server sent back, give a function of the run's value and
-variables that returns them. A failed run invalidates nothing.
+## Invalidate per mutation
 
-Each entry of the list is one target. An entry that's an array holding a
-query, a family or a group is a key, and matches nothing:
-`invalidates: [[todos, todo]]` is a mistake. In a list, the run dies with
-a `Query.KeyHoldsTargetError` before it starts. From the function, the change is
-already saved, so the target is logged and skipped. Write
-`invalidates: [todos, todo]` instead, or `Query.group(todos, todo)` where
-one target is needed ([Targets](/docs/queries/keys#targets)).
-
-**Wait for the refetch.** `invalidates` doesn't wait: it marks the
-queries stale and the run settles, while the ones in use refetch in the
-background. To settle the run only once they have the new data, call
-`Query.refetch` in `onSuccess` instead. It refetches the matching queries
-in use, and completes when they've all settled:
+`invalidates` lists the targets the mutation changes: queries, families,
+keys or groups. Getting started's `toggleTodo` invalidates `[todos]`:
 
 ```ts
 import * as Schema from "effect/Schema";
 
 import { Fetch } from "@monarcode/effetch";
-import { Query } from "@monarcode/effetch-query";
 
 import { Todo } from "./api.js";
 import { api, todos } from "./todos.js";
 
-// The run settles once every todos list in use has the new todo.
-export const createTodo = api.mutation(
-  Fetch.endpoint("POST /todos", {
-    input: Schema.Struct({ title: Schema.String }),
+export const toggleTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ done: Schema.Boolean }),
     output: Todo,
   }),
-  { onSuccess: () => Query.refetch(todos) },
+  { invalidates: [todos] },
 );
 ```
 
-That matters when the screen shows something until the server's data
-arrives, as [Optimistic updates](/docs/mutations/optimistic) does. A refetch
-reaches only queries in use. The others aren't marked stale, so the next
-time they're used they refetch only if their `staleTime` has passed.
+`todos` is the family for `GET /todos`, and a family matches exactly its
+own queries. So `[todos]` marks every cached todo list stale, whatever its
+filter, and leaves `todo`, the `GET /todos/:id` query, as it was, though
+its key `["todos", 1]` starts the same way. To reach the detail too, list
+both, `[todos, todo]`, or give the key `["todos"]`, which reaches every
+query whose key starts with it.
 
-**By route.** Give `fromClient` `invalidates: "route"`, and an endpoint
-mutation that succeeds invalidates its route's queries: those under the
-route's literals before its first param. `PATCH /todos/:id` invalidates
-`["todos"]`, so every todo list and every todo refetches:
+To pick targets from what the server sent back, give a function of the
+run's value and variables. This one invalidates the lists and the one
+todo it saved:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api, todo, todos } from "./todos.js";
+
+export const renameTodo = api.mutation(
+  Fetch.endpoint("PATCH /todos/:id", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  {
+    invalidates: (saved) => [todos, todo({ params: { id: saved.id } })],
+  },
+);
+```
+
+A failed run invalidates nothing.
+
+Each entry of the list is one target. An entry that's an array holding a
+query, a family or a group is a key, and matches nothing:
+`invalidates: [[todos, todo]]` is a mistake. In a list, the run dies with
+a `Query.KeyHoldsTargetError` before `optimistic` or the request. From the
+function, the change is already saved, so the target is logged and
+skipped. Write `invalidates: [todos, todo]` instead, or
+`Query.group(todos, todo)` where one target is needed.
+[Targets](/docs/queries/keys#targets) lists what each kind of target
+matches.
+
+## Invalidate by route
+
+Give `fromClient` `invalidates: "route"`, and an endpoint mutation that
+succeeds invalidates its route's queries: those under the route's literals
+before its first param. `PATCH /todos/:id` invalidates `["todos"]`, so
+every todo list and every todo is marked stale:
 
 ```ts
 import * as Schema from "effect/Schema";
@@ -69,7 +95,7 @@ import { ApiClient, Todo } from "./api.js";
 const api = fromClient(ApiClient, { invalidates: "route" });
 
 // Invalidates ["todos"] when it succeeds.
-export const renameTodo = api.mutation(
+export const editTodo = api.mutation(
   Fetch.endpoint("PATCH /todos/:id", {
     input: Schema.Struct({ title: Schema.String }),
     output: Todo,
@@ -83,19 +109,21 @@ export const markSeen = api.mutation(Fetch.endpoint("POST /todos/:id/seen"), {
 ```
 
 It invalidates more than a write changes, on purpose:
-`DELETE /todos/:id/comments/:cid` refetches every query under `["todos"]`.
-A needless refetch costs a request; a missed one shows stale data. Two
-kinds of route need care:
+`DELETE /todos/:id/comments/:cid` invalidates every query under
+`["todos"]`. A needless refetch costs a request; a missed one shows stale
+data. Two kinds of route need care:
 
 - A route with no param invalidates its whole path: `POST /todos/reorder`
   invalidates `["todos", "reorder"]`, which no list is keyed under. Give it
   `invalidates: [todos]`.
 - A route that starts with a param, such as `/:tenant/todos`, invalidates
-  every query under the `key` given to `fromClient`, or every query
-  without one.
+  every query under the `key` given to `fromClient`, or every query on the
+  client if `fromClient` was given no `key`.
 
-**Everything.** To refetch everything after any mutation succeeds, say it
-once, on the client:
+## Invalidate everything
+
+To invalidate every query after any mutation succeeds, say it once, on
+the client:
 
 ```ts
 import { Query, QueryClient } from "@monarcode/effetch-query";
@@ -108,5 +136,47 @@ export const queryClient = QueryClient.make({
 });
 ```
 
-`[]` is the empty key, which every key starts with. Queries in use refetch
-at once, and the rest when they're next used.
+`[]` is the empty key, which every key starts with.
+
+## Wait for the refetch
+
+`invalidates` doesn't wait: it marks the queries stale and the run
+settles, while the ones in use refetch in the background. To settle the
+run only after they have the new data, call `Query.refetch` in
+`onSuccess` instead. It refetches the matching queries in use, and
+completes when they've all settled:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+// The run settles after every todos list in use has the new todo.
+export const createTodo = api.mutation(
+  Fetch.endpoint("POST /todos", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  { onSuccess: () => Query.refetch(todos) },
+);
+```
+
+That matters when the screen shows something until the server's data
+arrives, as [Optimistic updates](/docs/mutations/optimistic) does. A
+refetch reaches only queries in use. The others aren't marked stale, so
+the next time they're used they refetch only if their `staleTime` has
+passed. [Freshness and refetching](/docs/queries/freshness) defines "in
+use".
+
+## What's next
+
+- [Optimistic updates](/docs/mutations/optimistic): show the change
+  before the server confirms it, and undo it if the run fails.
+- [Targets](/docs/queries/keys#targets): what a query, a family, a key and
+  a group each match.
+- [Defaults and app-wide hooks](/docs/client/defaults): hooks that run for
+  every mutation.

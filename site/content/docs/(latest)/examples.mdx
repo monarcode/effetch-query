@@ -1,22 +1,85 @@
 ---
 title: Examples
-description: Complete apps that use Effetch Query, on GitHub.
+description: Complete apps that use Effetch Query, on GitHub, and how to run them.
 ---
 
-The [`examples/`](https://github.com/monarcode/effetch-query/tree/main/examples) folder has complete programs, typechecked with
-the package. `effect-only` and the full apps are also tested, in
-[`test/examples/`](https://github.com/monarcode/effetch-query/tree/main/test/examples). There are five:
+Getting started builds one page. The examples are whole apps, with sign-in,
+server rendering and paged lists, that you can read, run and copy from.
+They live in the repository's
+[`examples/`](https://github.com/monarcode/effetch-query/tree/main/examples)
+folder and are typechecked with the package, so they match its API.
 
-- [`effect-only.ts`](https://github.com/monarcode/effetch-query/blob/main/examples/effect-only/effect-only.ts): queries, a live
-  query, the cache and mutations from Effect code, with no UI.
-- [`basic/`](https://github.com/monarcode/effetch-query/tree/main/examples/basic): the smallest React app, with dummyjson.com's
-  todos and an optimistic toggle.
-- [`tanstack-start/`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start): a full TanStack Start app on
-  Effetch endpoints: sign-in, a user's todos, a list with "Load more", a
-  streamed detail page and a missing one.
-- [`tanstack-start-httpclient/`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start-httpclient): the
-  same app on Effect's `HttpClient`, without Effetch.
-- [`react-router/`](https://github.com/monarcode/effetch-query/tree/main/examples/react-router): the same app in React Router's
-  framework mode, on Effetch endpoints.
+## The apps
 
-[The examples README](https://github.com/monarcode/effetch-query/blob/main/examples/README.md) walks through each one.
+There are five examples:
+
+- [`effect-only.ts`](https://github.com/monarcode/effetch-query/blob/main/examples/effect-only/effect-only.ts):
+  queries, a stream query, cache reads and writes, and a mutation, from
+  Effect code with no UI.
+- [`basic/`](https://github.com/monarcode/effetch-query/tree/main/examples/basic):
+  the smallest React app, with dummyjson.com's todos and an optimistic
+  toggle.
+- [`tanstack-start/`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start):
+  a full TanStack Start app on Effetch endpoints: sign-in, a user's todos,
+  a list with "Load more", a streamed detail page, and what that page
+  shows for a todo that doesn't exist.
+- [`tanstack-start-httpclient/`](https://github.com/monarcode/effetch-query/tree/main/examples/tanstack-start-httpclient):
+  the same app on Effect's `HttpClient`, without Effetch.
+- [`react-router/`](https://github.com/monarcode/effetch-query/tree/main/examples/react-router):
+  the same app in React Router's framework mode, on Effetch endpoints.
+
+`effect-only` and the three full apps are also tested, in
+[`test/examples/`](https://github.com/monarcode/effetch-query/tree/main/test/examples).
+[The examples README](https://github.com/monarcode/effetch-query/blob/main/examples/README.md)
+walks through each one.
+
+## Run one
+
+The examples run from the repository, and use the package from its source,
+so there's nothing to build first. You need Node 24 or later and pnpm.
+
+1. Clone the repository and install its dependencies:
+
+   ```bash
+   git clone https://github.com/monarcode/effetch-query.git
+   cd effetch-query
+   pnpm install
+   ```
+
+2. Start the app you want, from the repository's root:
+
+   ```bash
+   pnpm exec vite examples/basic
+   ```
+
+   ```bash
+   pnpm exec vite dev examples/tanstack-start
+   ```
+
+   ```bash
+   pnpm exec vite dev examples/tanstack-start-httpclient
+   ```
+
+   ```bash
+   pnpm exec react-router dev examples/react-router
+   ```
+
+3. Open the address the command prints. In the full apps, sign in as
+   `emilys`, with the password `emilyspass`.
+
+The apps call dummyjson.com, which answers writes but saves nothing, so a
+reload shows its todos as they were.
+
+`effect-only` has no UI. Its test runs the program and checks what each
+step saw:
+
+```bash
+pnpm exec vitest run test/examples/effect-only
+```
+
+## What's next
+
+- [Frameworks](/docs/frameworks): set up TanStack Start, Next.js or React
+  Router the way the full apps do.
+- [Testing](/docs/testing): test your own queries and components, as the
+  examples' tests do.

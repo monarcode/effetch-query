@@ -1,43 +1,51 @@
 ---
 title: Send the cache
-description: Fill the cache on the server and send it with the page.
+description: Fill the cache on the server, send it with the page, and load it in the browser.
 ---
 
-Server rendering sends a page with its data already in the HTML. The
-server loads what the page needs into a query client and renders the
-page, then sends the client's cache along as JSON. The browser loads that cache
-into its own client before it renders, so its first render matches the
-server's HTML, and nothing is fetched again while the values are fresh.
+Your app renders on the server, and you want each page to arrive with its
+data in the HTML rather than a loading state. The server loads what the
+page needs into a query client, renders the page, and sends the client's
+cache with it. The browser loads that cache into its own client before it
+renders, so its first render matches the server's HTML, and nothing is
+fetched again while the values are fresh.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+Two words name the round trip, as in TanStack Query. To **dehydrate** is
+to read a client's cache as JSON, to send with the page. To **hydrate** is
+to load that JSON into the browser's client. This page shows the three
+steps with any React server renderer (`renderToString`,
+`renderToPipeableStream`, a framework's), and how to hydrate without React.
+If you use a framework, read this page first, then
+[Frameworks](/docs/frameworks).
 
-It works with any React server renderer (`renderToString`,
-`renderToPipeableStream`, a framework's), and without React through
-`QueryClient.hydrate`. If you use a framework, read this page first,
-then [Frameworks](/docs/frameworks).
+The examples import `api.ts`, `client.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-**A query needs a schema to cross.** Values travel as JSON, so a query
-needs a schema to encode its value on the server and decode it in the
-browser. An Effetch endpoint's `output` is its schema, so endpoint
-queries need nothing more; an endpoint without an `output` isn't sent. A
-query of your own needs a `schema` ([Queries without Effetch](/docs/queries/without-effetch)). A
-schema that transforms must encode as well as decode
-([Schemas that transform](/docs/server-rendering/transforming-schemas)).
+## Before you begin
 
-**Failures stay on the server.** By default a failed query is left out,
-so server errors never reach the page, and the browser fetches it again.
-You can choose to send failures, and then an Effetch `HttpError` goes with
-its request URL and response text, so keep secrets out of the URLs your
-server calls.
+Two things decide whether a value reaches the browser and stays there:
 
-Server rendering takes three steps: a component that reads its data with
-Suspense, a server render that loads the data and sends it with the page,
-then a browser render that picks it up. This page covers the first two;
-[Load the cache in the browser](/docs/server-rendering/hydrate) covers the
-third.
+- **Give your queries a `staleTime`.** The default is zero, so a value is
+  already stale when it reaches the browser. `useQuery` refetches it as it
+  mounts, and `useSuspenseQuery` does when it mounts more than a second
+  after the server fetched it. Getting started's `client.ts` sets 30
+  seconds for every query. See
+  [Freshness and refetching](/docs/queries/freshness).
+- **A query needs a schema to be sent.** Values travel as JSON, so a query
+  needs a schema to encode its value on the server and decode it in the
+  browser. An Effetch endpoint's `output` is its schema, so endpoint
+  queries need nothing more. A query of your own needs a `schema`, as
+  [Queries from any Effect](/docs/queries/without-effetch) shows.
 
-**1. Read the query with Suspense.** Here's a component that reads the
-todos with `useSuspenseQuery`:
+A failed query stays on the server unless you ask to send it.
+[What's sent](/docs/server-rendering/whats-sent) has the rules for
+schemas, keys and failures.
+
+## 1. Read the query with Suspense
+
+Here's a component that reads the todos with `useSuspenseQuery`. When the
+cache already holds them, as it will on the server, it renders the list
+straight away:
 
 ```tsx todo-list.tsx
 import { useSuspenseQuery } from "@monarcode/effetch-query/react";
@@ -56,8 +64,9 @@ export function TodoList() {
 }
 ```
 
-**2. Load the data on the server, and send it with the HTML.** Make a
-client for the request, load what the page needs, and send
+## 2. Load the data on the server
+
+Make a client for the request, load what the page needs, and send
 `QueryClient.dehydrate`'s result with the HTML:
 
 ```tsx
@@ -105,51 +114,100 @@ Here's what each part does:
 - **A client per request.** One server process serves many requests, and
   each gets its own client, so one user's data never reaches another's
   page. It's cheap: with a `runtime`, every request's client shares your
-  services. `dispose()` releases it when the request is done.
+  services, as [Share your runtime](/docs/client#share-your-runtime)
+  explains. `dispose()` releases the client when the request is done.
 - **`client.prefetch` loads the todos** into the client before the
   render.
-- **`QueryClient.dehydrate` reads the cache without fetching.** Values
-  carry their timestamp, so a query is as fresh in the browser as it was
-  on the server. A stale query is sent stale, and refetches in the
-  browser.
+- **`QueryClient.dehydrate` reads the cache without fetching.** Each value
+  carries the time it was fetched, so a query is as fresh in the browser
+  as it was on the server, as long as the two clocks agree. A stale query
+  is sent stale, and refetches in the browser.
 
-**What `dehydrate` sends.** Each query with a schema, encoded with it. A
-value its schema can't encode is left out, with no error
-([Schemas that transform](/docs/server-rendering/transforming-schemas)), and so is a
-[placeholder](/docs/queries/placeholders), which is never cached. On the
-server, `Query.prefetch` runs a [stream query](/docs/queries/streams) to
-its first element, which `dehydrate` sends when the query has a
-`schema`.
+## 3. Load the cache in the browser
 
-**Keys must be JSON.** The browser finds each query by its key, so
-`dehydrate` turns keys into strings. A key that holds something JSON
-can't carry, such as a `Date`, a class instance, `undefined` in an array,
-`NaN`, `Infinity`, a function, a `bigint` or a symbol, throws a
-`NonJsonKeyError`. Two cached queries with one key throw a
-`DuplicateQueryKeyError`: two definitions with the same key, such as two
-`api.query` of one Effetch endpoint. Give one of them another key (an
-Effetch builder takes a `key` prefix). Both errors are on the
-`QueryClient` namespace, with a `_tag` to match on.
+In the browser, render the same tree under a `HydrationBoundary`, and give
+it what the server sent:
 
-**Sending failures.** With `failures: "include"`, a failed query goes with
-its error, encoded with the query's `schema.error`, and a defect as
-`Schema.Defect`. For an Effetch endpoint:
+```tsx
+import { QueryClient } from "@monarcode/effetch-query";
+import {
+  HydrationBoundary,
+  QueryProvider,
+} from "@monarcode/effetch-query/react";
+import { hydrateRoot } from "react-dom/client";
 
-- an `HttpError` goes without its headers, but with its request URL and
-  response text;
-- a `NetworkError` goes without its `cause`, and a `DecodeError` without
-  its `issue`;
-- errors from `statusErrors` go as their schemas encode them. The
-  client's go only when `fromClient` has them: it reads them from a
-  `Fetch.Service` class, and a `Context.Service` key needs them given
-  ([Errors by status](/docs/queries/status-errors));
-- a query that failed with a plugin's error isn't sent.
+import { queryClient } from "./client.js";
+import { TodoList } from "./todo-list.js";
 
-`QueryClient.dehydrate` takes the following options as its second
-argument:
+const state = JSON.parse(
+  document.getElementById("query-state")?.textContent ?? "[]",
+) as QueryClient.DehydratedState;
 
-| Option     | What it does                                                                                                                                                                                    |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `queries`  | A target: only the queries it matches are sent, as `Query.invalidate` matches them. `queries: ["todos"]` sends those under `["todos"]`. Default: every query.                                   |
-| `pending`  | A query still loading: `"promise"` sends a promise of its result ([Stream the cache](/docs/server-rendering/streaming)); `"omit"` leaves it out, and the browser fetches it. Default: `"omit"`. |
-| `failures` | A failed query: `"include"` sends it with its error; `"omit"` leaves it out. Default: `"omit"`.                                                                                                 |
+const root = document.getElementById("root");
+if (root !== null) {
+  hydrateRoot(
+    root,
+    <QueryProvider client={queryClient}>
+      <HydrationBoundary state={state}>
+        <TodoList />
+      </HydrationBoundary>
+    </QueryProvider>,
+  );
+}
+```
+
+The first render shows the server's values, so it matches the server's
+HTML, and nothing is fetched until they're stale. The browser keeps one
+client, `queryClient` from `client.ts`, for the page's lifetime.
+
+## How a boundary loads
+
+A boundary can sit anywhere, such as one per route, given each page's
+state as you navigate. It loads into the client of the nearest
+`QueryProvider`, and throws a `MissingQueryProviderError` without one.
+How it loads depends on what's cached:
+
+- **A query that isn't cached** loads during render, so the children read
+  it in the same pass.
+- **A query already cached** takes the new value only if it's newer. It
+  loads after commit, so a transition that brings new state doesn't change
+  the page it leaves until React shows the new one.
+- **A query the server was still loading** waits for its result instead
+  of fetching, as [Stream the cache](/docs/server-rendering/streaming)
+  explains.
+- **A value its schema can't decode** is dropped, and the query fetches.
+
+Under a `QueryProvider` whose `resetKey` changes, a boundary loads only
+what the server dehydrated after the change, as
+[Sign out and switch accounts](/docs/cache/accounts) explains.
+
+## Load the cache without React
+
+Call `QueryClient.hydrate(client, state)` before reading the queries:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { queryClient } from "./client.js";
+
+const state = JSON.parse(
+  document.getElementById("query-state")?.textContent ?? "[]",
+) as QueryClient.DehydratedState;
+
+QueryClient.hydrate(queryClient, state);
+```
+
+`hydrate` loads each query by a boundary's rules for what's cached,
+except that everything loads at once, and no `resetKey` filters it. It also loads state from Effect's own `Hydration.dehydrate`, for
+other atoms.
+
+## What's next
+
+- [What's sent](/docs/server-rendering/whats-sent): which queries cross,
+  schemas that transform, keys, and sending failures.
+- [Stream the cache](/docs/server-rendering/streaming): send the page
+  before every query has loaded.
+- [Frameworks](/docs/frameworks): the same round trip in TanStack Start,
+  Next.js and React Router.
+- [Sign out and switch accounts](/docs/cache/accounts): keep one user's
+  server state away from the next.

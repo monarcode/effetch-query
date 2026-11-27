@@ -118,7 +118,7 @@ function plainProse(text: string, url: string) {
 						.join("\n");
 				},
 			)
-			.replace(/^<\/?Accordions>\n/gm, "")
+			.replace(/^<\/?Accordions\b[^>]*>\n/gm, "")
 			.replace(/^<Accordion title="([^"]*)">$/gm, "**$1**\n")
 			.replace(/^<\/Accordion>\n/gm, "")
 			// A type table's Markdown repeats the entry's heading and docs
