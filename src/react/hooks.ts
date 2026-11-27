@@ -19,7 +19,7 @@ import {
 import { matcher } from "../internal/keyIndex.js";
 import { makeHandle } from "../internal/mutationHandle.js";
 import { makeQueriesUse } from "../internal/queriesUse.js";
-import { queryState } from "../internal/queryState.js";
+import { mutationState, queryState } from "../internal/queryState.js";
 import { makeQueryUse, type QueryUse } from "../internal/queryUse.js";
 import { makeRefetchHandle } from "../internal/refetchHandle.js";
 import { resetQueryFailure } from "../internal/suspense.js";
@@ -430,21 +430,46 @@ export const useQueries = <
 export const useSuspenseQuery = <A, E, B = A>(
 	query: Query.Query<A, E>,
 	options?: UseSuspenseQueryOptions<A, B> | undefined,
-): AsyncResult.Success<B, E> => {
+): AsyncResult.Success<B, E> => useSuspenseRead(query, options?.select).shown;
+
+/**
+ * A suspense reader's read: the query's result with `select` applied, and
+ * the success it shows. Suspends and throws as {@link useSuspenseQuery}
+ * does, so `result` is a success, or a failure after one.
+ */
+const useSuspenseRead = <A, E, B>(
+	query: Query.Query<A, E>,
+	select: ((value: A) => B) | undefined,
+): {
+	readonly result: AsyncResult.AsyncResult<B, E>;
+	readonly shown: AsyncResult.Success<B, E>;
+} => {
 	const registry = useRegistry();
 	const use = useHandle(
 		() => makeQueryUse(registry, suspenseStaleTime),
 		[registry],
 	);
 	use.read(query, false);
-	const result = useSelected(use, query, options?.select);
+	const result = useSelected(use, query, select);
 	React.useEffect(
 		function revalidateOnMount() {
 			use.mounted(query);
 		},
 		[use, query],
 	);
-	return use.suspend(query, result);
+	return { result, shown: use.suspend(query, result) };
+};
+
+/** A `refetch` for a query's state object, as {@link UseQueryStateSuccess.refetch}. */
+const useRefetchQuery = (
+	query: Query.Query<any, any> | null,
+): (() => Promise<void>) => {
+	const registry = useRegistry();
+	const handle = useHandle(() => makeRefetchHandle(registry), [registry]);
+	return React.useCallback(
+		() => (query === null ? Promise.resolve() : handle.refetch(query)),
+		[handle, query],
+	);
 };
 
 /**
@@ -667,11 +692,7 @@ export const useQueryState = <A, E, B = A>(
 ): UseQueryStateResult<B, E> => {
 	const registry = useRegistry();
 	const result = useQuery(query, options);
-	const handle = useHandle(() => makeRefetchHandle(registry), [registry]);
-	const refetch = React.useCallback(
-		() => (query === null ? Promise.resolve() : handle.refetch(query)),
-		[handle, query],
-	);
+	const refetch = useRefetchQuery(query);
 	return React.useMemo(
 		() => ({
 			...queryState(registry, result),
@@ -679,6 +700,267 @@ export const useQueryState = <A, E, B = A>(
 		}),
 		[registry, result, refetch],
 	);
+};
+
+/**
+ * What {@link useSuspenseQueryState} returns after a refetch fails: the
+ * failure, with the value shown before it as `data`, since a suspense
+ * reader only throws a failure that has no value before it.
+ *
+ * @example
+ * ```ts
+ * import type { UseSuspenseQueryStateFailure } from "@monarcode/effetch-query/react";
+ *
+ * export const stale = (state: UseSuspenseQueryStateFailure<string, Error>) =>
+ *   `${state.data} (couldn't refresh)`;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export interface UseSuspenseQueryStateFailure<
+	A,
+	E,
+> extends UseQueryStateFailure<A, E> {
+	/** The last success before the failure: there always is one. */
+	readonly data: A;
+}
+
+/**
+ * What {@link useSuspenseQueryState} returns: the success, or a failed
+ * refetch with the earlier value. `data` is there either way, so it needs
+ * no check; `status` tells the two apart.
+ *
+ * @example
+ * ```ts
+ * import type { UseSuspenseQueryStateResult } from "@monarcode/effetch-query/react";
+ *
+ * export const label = (state: UseSuspenseQueryStateResult<number, Error>) =>
+ *   state.status === "failure" ? `${state.data} todos (offline)` : `${state.data} todos`;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseSuspenseQueryStateResult<A, E> =
+	| UseQueryStateSuccess<A, E>
+	| UseSuspenseQueryStateFailure<A, E>;
+
+/**
+ * Reads a query through React Suspense, as {@link useSuspenseQuery} does,
+ * and returns its result as an object of fields, as {@link useQueryState}
+ * does: close to TanStack Query's `useSuspenseQuery`. It suspends until the
+ * query has a value and throws a failure with no value before it to the
+ * error boundary, so `data` is always there.
+ *
+ * Unlike {@link useSuspenseQuery}, which keeps showing the earlier success
+ * after a refetch fails, the object says so: its `status` is `"failure"`,
+ * with the typed `error` beside the earlier `data`. It fetches and takes
+ * `select` as {@link useSuspenseQuery} does. The object keeps its identity
+ * while nothing in it changes. Throws a `MissingQueryProviderError` outside
+ * a `QueryProvider`.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ * import { useSuspenseQueryState } from "@monarcode/effetch-query/react";
+ *
+ * const todos = Query.make({
+ *   key: ["todos"],
+ *   run: Effect.succeed([{ id: 1, title: "Buy milk" }]),
+ * });
+ *
+ * export function TodoCount() {
+ *   const state = useSuspenseQueryState(todos, { select: (list) => list.length });
+ *   return (
+ *     <p>
+ *       {state.data} todos{state.isFetching ? " (updating)" : ""}
+ *       {state.isFailure ? <button onClick={() => void state.refetch()}>Retry</button> : null}
+ *     </p>
+ *   );
+ * }
+ * ```
+ *
+ * @see {@link useSuspenseQuery} for the `Success` itself
+ *
+ * @since 0.1.0
+ */
+export const useSuspenseQueryState = <A, E, B = A>(
+	query: Query.Query<A, E>,
+	options?: UseSuspenseQueryOptions<A, B> | undefined,
+): UseSuspenseQueryStateResult<B, E> => {
+	const registry = useRegistry();
+	const { result } = useSuspenseRead(query, options?.select);
+	const refetch = useRefetchQuery(query);
+	return React.useMemo(
+		() =>
+			({
+				...queryState(registry, result),
+				refetch,
+			}) as UseSuspenseQueryStateResult<B, E>,
+		[registry, result, refetch],
+	);
+};
+
+/**
+ * What {@link useQueriesState} returns for one entry of its list: the
+ * query's state object, typed by the query, or a pending one for `null`.
+ *
+ * @example
+ * ```ts
+ * import type { Query } from "@monarcode/effetch-query";
+ * import type { UseQueriesStateEntry } from "@monarcode/effetch-query/react";
+ *
+ * declare const me: Query.Query<string, Error>;
+ *
+ * // UseQueryStateResult<string, Error>
+ * export type Me = UseQueriesStateEntry<typeof me>;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseQueriesStateEntry<Q> = [Exclude<Q, null>] extends [never]
+	? UseQueryStateResult<never, never>
+	: Exclude<Q, null> extends infer Each
+		? Each extends Query.Query<infer A, infer E>
+			? UseQueryStateResult<A, E>
+			: never
+		: never;
+
+/**
+ * What {@link useQueriesState} returns: a state object per query, in the
+ * same order, as a tuple for a tuple of queries and an array for an array.
+ *
+ * @example
+ * ```ts
+ * import type { Query } from "@monarcode/effetch-query";
+ * import type { UseQueriesStateResult } from "@monarcode/effetch-query/react";
+ *
+ * declare const me: Query.Query<string, Error>;
+ * declare const count: Query.Query<number, never>;
+ *
+ * // readonly [UseQueryStateResult<string, Error>, UseQueryStateResult<number, never>]
+ * export type Both = UseQueriesStateResult<readonly [typeof me, typeof count]>;
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseQueriesStateResult<
+	Queries extends ReadonlyArray<Query.Query<any, any> | null>,
+> = { readonly [K in keyof Queries]: UseQueriesStateEntry<Queries[K]> };
+
+/** A state object {@link useQueriesState} keeps while its query's result does. */
+interface KeptState {
+	readonly result: AsyncResult.AsyncResult<any, any>;
+	readonly refetch: () => Promise<void>;
+	readonly state: UseQueryStateResult<any, any>;
+}
+
+/** What {@link useQueriesState} keeps: an object per query, and the array it last returned. */
+interface KeptStates {
+	readonly byQuery: Map<Query.Query<any, any> | null, KeptState>;
+	shown: ReadonlyArray<UseQueryStateResult<any, any>>;
+}
+
+const resolved = () => Promise.resolve();
+
+/**
+ * Reads a list of queries as {@link useQueries} does, and returns each
+ * query's result as an object of fields, as {@link useQueryState} does:
+ * close to TanStack Query's `useQueries`. A `null` entry is pending, and its
+ * `refetch` resolves at once.
+ *
+ * Each object keeps its identity while its query's result does, and its
+ * `refetch` while the query stays in the list. The array keeps its identity
+ * while every object in it does. A query listed twice shows the same object
+ * in both places. It fetches, pauses and throws as {@link useQueries} does.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { Query } from "@monarcode/effetch-query";
+ * import { useQueriesState } from "@monarcode/effetch-query/react";
+ *
+ * const todo = Query.family({
+ *   key: ["todos", "detail"],
+ *   run: (id: number) => Effect.succeed({ id, title: `Todo ${id}` }),
+ * });
+ *
+ * export function SelectedTodos({ ids }: { ids: ReadonlyArray<number> }) {
+ *   const states = useQueriesState(ids.map((id) => todo(id)));
+ *   return (
+ *     <ul>
+ *       {states.map((state, index) => (
+ *         <li key={ids[index]}>
+ *           {state.status === "success" ? state.data.title : "Loading…"}
+ *         </li>
+ *       ))}
+ *     </ul>
+ *   );
+ * }
+ * ```
+ *
+ * @see {@link useQueries} for the `AsyncResult`s themselves
+ *
+ * @since 0.1.0
+ */
+export const useQueriesState = <
+	const Queries extends ReadonlyArray<Query.Query<any, any> | null>,
+>(
+	queries: Queries,
+	options?: UseQueriesOptions | undefined,
+): UseQueriesStateResult<Queries> => {
+	const registry = useRegistry();
+	const results: ReadonlyArray<AsyncResult.AsyncResult<any, any>> = useQueries(
+		queries,
+		options,
+	);
+	const handle = useHandle(() => makeRefetchHandle(registry), [registry]);
+	// A new client starts afresh.
+	const kept = useHandle(
+		(): KeptStates => ({ byQuery: new Map(), shown: [] }),
+		[handle],
+	);
+	// Built on every render, not memoized on `results`: different queries
+	// can share one result object (a paused or server read of an uncached
+	// query), so the list can change while `results` doesn't. Render only
+	// adds to `byQuery`; the effect prunes it once a list commits.
+	const listed = new Set<Query.Query<any, any> | null>();
+	const states = results.map((result, index) => {
+		const query = queries[index] ?? null;
+		listed.add(query);
+		const before = kept.byQuery.get(query);
+		if (before?.result === result) {
+			return before.state;
+		}
+		const refetch =
+			before?.refetch ??
+			(query === null ? resolved : () => handle.refetch(query));
+		const state = { ...queryState(registry, result), refetch };
+		kept.byQuery.set(query, { result, refetch, state });
+		return state;
+	});
+	if (
+		states.length !== kept.shown.length ||
+		states.some((state, index) => state !== kept.shown[index])
+	) {
+		kept.shown = states;
+	}
+	const shown = kept.shown;
+	React.useEffect(
+		function pruneUnlisted() {
+			for (const query of kept.byQuery.keys()) {
+				if (!listed.has(query)) {
+					kept.byQuery.delete(query);
+				}
+			}
+		},
+		// `shown` changes whenever `listed` does.
+		// eslint-disable-next-line react/exhaustive-deps
+		[kept, shown],
+	);
+	return shown as unknown as UseQueriesStateResult<Queries>;
 };
 
 /**
@@ -939,6 +1221,165 @@ export const useSuspenseInfiniteQuery = <A, E, P>(
 };
 
 /**
+ * What {@link useInfiniteQueryState} returns: {@link useQueryState}'s object
+ * for the pages, narrowed by `status`, with the page controls beside it.
+ *
+ * @example
+ * ```ts
+ * import type { UseInfiniteQueryStateResult } from "@monarcode/effetch-query/react";
+ *
+ * export const items = (state: UseInfiniteQueryStateResult<ReadonlyArray<string>, Error, number>) =>
+ *   state.status === "success" ? state.data.pages.flat() : [];
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseInfiniteQueryStateResult<A, E, P> = UseQueryStateResult<
+	InfiniteQuery.InfiniteData<A, P>,
+	E
+> &
+	InfinitePageControls;
+
+/**
+ * What {@link useSuspenseInfiniteQueryState} returns:
+ * {@link useSuspenseQueryState}'s object for the pages, with the page
+ * controls beside it.
+ *
+ * @example
+ * ```ts
+ * import type { UseSuspenseInfiniteQueryStateResult } from "@monarcode/effetch-query/react";
+ *
+ * export const items = (
+ *   state: UseSuspenseInfiniteQueryStateResult<ReadonlyArray<string>, Error, number>,
+ * ) => state.data.pages.flat();
+ * ```
+ *
+ * @since 0.1.0
+ */
+export type UseSuspenseInfiniteQueryStateResult<A, E, P> =
+	UseSuspenseQueryStateResult<InfiniteQuery.InfiniteData<A, P>, E> &
+		InfinitePageControls;
+
+/**
+ * Reads an {@link InfiniteQuery.InfiniteQuery} as {@link useInfiniteQuery}
+ * does, and returns its result as an object of fields, as
+ * {@link useQueryState} does, with the page controls beside them: close to
+ * TanStack Query's `useInfiniteQuery`. `data.pages` holds the loaded pages
+ * once `status` is `"success"`, and a page that fails makes it a
+ * `"failure"` whose `data` still holds them. The object keeps its identity
+ * while nothing in it changes. It fetches, and throws, as
+ * {@link useInfiniteQuery} does.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { InfiniteQuery } from "@monarcode/effetch-query";
+ * import { useInfiniteQueryState } from "@monarcode/effetch-query/react";
+ *
+ * const numbers = InfiniteQuery.make({
+ *   key: ["numbers"],
+ *   initialPageParam: 0,
+ *   run: (page: number) => Effect.succeed([page * 2, page * 2 + 1]),
+ *   nextPageParam: (_, __, page) => (page < 4 ? page + 1 : undefined),
+ * });
+ *
+ * export function Numbers() {
+ *   const state = useInfiniteQueryState(numbers);
+ *   if (state.status === "pending") return <p>Loading…</p>;
+ *   return (
+ *     <>
+ *       <ul>{state.data?.pages.flat().map((n) => <li key={n}>{n}</li>)}</ul>
+ *       <button
+ *         disabled={!state.hasNextPage || state.isFetchingNextPage}
+ *         onClick={() => void state.fetchNextPage()}
+ *       >
+ *         Load more
+ *       </button>
+ *     </>
+ *   );
+ * }
+ * ```
+ *
+ * @see {@link useInfiniteQuery} for the `AsyncResult` itself
+ *
+ * @since 0.1.0
+ */
+export const useInfiniteQueryState = <A, E, P>(
+	query: InfiniteQuery.InfiniteQuery<A, E, P> | null,
+	options?: UseQueryOptions | undefined,
+): UseInfiniteQueryStateResult<A, E, P> => {
+	const registry = useRegistry();
+	const pages = useInfiniteQuery(query, options);
+	const refetch = useRefetchQuery(query);
+	return React.useMemo(() => {
+		const { result, ...controls } = pages;
+		return { ...controls, ...queryState(registry, result), refetch };
+	}, [registry, pages, refetch]);
+};
+
+/**
+ * Reads an {@link InfiniteQuery.InfiniteQuery} through React Suspense, as
+ * {@link useSuspenseInfiniteQuery} does, and returns its result as an
+ * object of fields, as {@link useSuspenseQueryState} does, with the page
+ * controls beside them: close to TanStack Query's
+ * `useSuspenseInfiniteQuery`. `data.pages` is always there. A page that
+ * fails makes `status` `"failure"`, with the loaded pages still in `data`.
+ * The object keeps its identity while nothing in it changes. It fetches,
+ * and throws, as {@link useSuspenseInfiniteQuery} does.
+ *
+ * @example
+ * ```tsx
+ * import * as Effect from "effect/Effect";
+ *
+ * import { InfiniteQuery } from "@monarcode/effetch-query";
+ * import { useSuspenseInfiniteQueryState } from "@monarcode/effetch-query/react";
+ *
+ * const numbers = InfiniteQuery.make({
+ *   key: ["numbers"],
+ *   initialPageParam: 0,
+ *   run: (page: number) => Effect.succeed([page * 2, page * 2 + 1]),
+ *   nextPageParam: (_, __, page) => (page < 4 ? page + 1 : undefined),
+ * });
+ *
+ * export function Numbers() {
+ *   const state = useSuspenseInfiniteQueryState(numbers);
+ *   return (
+ *     <ul>
+ *       {state.data.pages.flat().map((n) => <li key={n}>{n}</li>)}
+ *       {state.hasNextPage ? <li onClick={() => void state.fetchNextPage()}>More</li> : null}
+ *     </ul>
+ *   );
+ * }
+ * ```
+ *
+ * @see {@link useSuspenseInfiniteQuery} for the `Success` itself
+ *
+ * @since 0.1.0
+ */
+export const useSuspenseInfiniteQueryState = <A, E, P>(
+	query: InfiniteQuery.InfiniteQuery<A, E, P>,
+): UseSuspenseInfiniteQueryStateResult<A, E, P> => {
+	const registry = useRegistry();
+	const { result, shown } = useSuspenseRead<
+		InfiniteQuery.InfiniteData<A, P>,
+		E,
+		InfiniteQuery.InfiniteData<A, P>
+	>(query, undefined);
+	const controls = usePageControls(query, shown);
+	const refetch = useRefetchQuery(query);
+	return React.useMemo(
+		() =>
+			({
+				...controls,
+				...queryState(registry, result),
+				refetch,
+			}) as UseSuspenseInfiniteQueryStateResult<A, E, P>,
+		[registry, result, controls, refetch],
+	);
+};
+
+/**
  * Callbacks for one run of {@link useMutation}, which its `run` takes:
  * TanStack's `mutate(variables, { onSuccess, onError, onSettled })`. They're
  * called after the mutation's own callbacks, `invalidates` and the client's
@@ -1019,6 +1460,33 @@ export interface UseMutationResult<Variables, A, E> {
 	 * and after {@link UseMutationResult.reset}.
 	 */
 	readonly result: AsyncResult.AsyncResult<A, E>;
+	/**
+	 * Where the latest run is, as TanStack Query's mutation `status`:
+	 * `"idle"` before the first run and after `reset`, `"pending"` while it
+	 * runs, then `"success"` or `"failure"`. Unlike {@link useQueryState}'s,
+	 * it doesn't narrow `data` and `error`: check them, or match on `result`.
+	 */
+	readonly status: "idle" | "pending" | "success" | "failure";
+	/**
+	 * The latest run's value once it succeeds; `undefined` otherwise,
+	 * including while a newer run is pending.
+	 */
+	readonly data: A | undefined;
+	/**
+	 * The latest run's typed error once it fails; `undefined` otherwise, and
+	 * for a run that died or was interrupted, which only `cause` holds.
+	 */
+	readonly error: E | undefined;
+	/** The latest run's failure, defects and interruptions included, once it fails. */
+	readonly cause: Cause.Cause<E> | undefined;
+	/** True before the first run and after `reset`. */
+	readonly isIdle: boolean;
+	/** True while the latest run is in progress: `result.waiting`. */
+	readonly isPending: boolean;
+	/** True once the latest run has succeeded. */
+	readonly isSuccess: boolean;
+	/** True once the latest run has failed. */
+	readonly isFailure: boolean;
 	/**
 	 * The variables of the run {@link UseMutationResult.result} shows:
 	 * `undefined` before the first run and after
@@ -1101,7 +1569,13 @@ export const useMutation = <Variables, A, E>(
 		[handle],
 	);
 	return React.useMemo(
-		() => ({ result, variables, run: handle.run, reset: handle.reset }),
+		() => ({
+			...mutationState(result),
+			result,
+			variables,
+			run: handle.run,
+			reset: handle.reset,
+		}),
 		[result, variables, handle],
 	);
 };

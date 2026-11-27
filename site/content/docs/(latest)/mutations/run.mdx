@@ -55,7 +55,17 @@ export function DoneCheckbox({ todo }: { readonly todo: Todo }) {
 - `run(variables, options?)`, which starts a run and returns a `Promise` of
   its `Exit`, Effect's value for a success or a failure with its `Cause`;
 - `reset()`, which puts `result` back to `Initial`. Runs in progress carry
-  on.
+  on;
+- `status`, `data`, `error` and `cause`, the latest run as fields, as
+  TanStack Query's `useMutation` returns them, with `isIdle`, `isPending`,
+  `isSuccess` and `isFailure` to match.
+
+`status` is `"idle"` before the first run and after `reset`, `"pending"`
+while a run is in progress, then `"success"` or `"failure"`. `data` and
+`error` are `undefined` while a newer run is pending, and `error` is
+`undefined` for a run that died or was interrupted, which only `cause`
+holds. Unlike [`useQueryState`](/docs/react/as-object)'s, `status` doesn't
+narrow `data` and `error`, so check them, or match on `result`.
 
 `run` never rejects: check the `Exit` it resolves with. A run carries on if
 the component unmounts, so the mutation's `onSuccess` and `invalidates`

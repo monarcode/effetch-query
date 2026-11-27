@@ -334,18 +334,22 @@ const expected = [
 	"QueryFailure",
 	"QueryProvider",
 	"useInfiniteQuery",
+	"useInfiniteQueryState",
 	"useIsFetching",
 	"useIsMutating",
 	"useMutation",
 	"useMutationState",
 	"useQueries",
+	"useQueriesState",
 	"useQuery",
 	"useQueryClient",
 	"useQueryState",
 	"useRefetch",
 	"useResetQueryFailure",
 	"useSuspenseInfiniteQuery",
+	"useSuspenseInfiniteQueryState",
 	"useSuspenseQuery",
+	"useSuspenseQueryState",
 ];
 if (Object.keys(React).sort().join() !== expected.join()) {
 	throw new Error(`Unexpected react exports: ${Object.keys(React).join()}`);

@@ -37,6 +37,7 @@ Defining and fetching queries maps as follows:
 | `retry: 3`                                                          | [`retry: Schedule`](/docs/queries/options) (default none)                                                                                       |
 | `placeholderData` from the cache                                    | [`placeholder`](/docs/queries/placeholders) on `api.query`, `Query.make` / `Query.family`                                                       |
 | `useInfiniteQuery`, `fetchNextPage`                                 | [`api.infiniteQuery`](/docs/queries/infinite), `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                                                |
+| `useInfiniteQuery`'s fields, `useSuspenseInfiniteQuery`'s           | [`useInfiniteQueryState`, `useSuspenseInfiniteQueryState`](/docs/react/as-object#read-pages): the fields with the page controls                 |
 | `getNextPageParam`, `getPreviousPageParam`                          | [`nextPageParam`, `previousPageParam`](/docs/queries/infinite) (return `undefined` / `null` for none)                                           |
 | `experimental_streamedQuery`                                        | [`Query.stream`, `Query.streamFamily`](/docs/queries/streams); `api.query` of an SSE or NDJSON endpoint                                         |
 | `setQueryData` from a WebSocket's messages                          | [`live`](/docs/queries/pushes) on `api.query`, `Query.make` / `Query.family`                                                                    |
@@ -51,11 +52,13 @@ Reading queries in components maps as follows:
 | `useQueryClient`                                                   | [`useQueryClient`](/docs/react), which returns the nearest provider's client                                                                                                             |
 | `useQuery`, `useSuspenseQuery`                                     | [`useQuery`](/docs/react) returns an `AsyncResult`; [`useSuspenseQuery`](/docs/react/suspense) returns its `Success`                                                                     |
 | `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch` | [`useQueryState`](/docs/react/as-object): the same fields, with `status` narrowing `data` and `error`. `status` is `"pending"`, `"success"` or `"failure"`, and `isError` is `isFailure` |
+| `useSuspenseQuery`'s fields                                        | [`useSuspenseQueryState`](/docs/react/as-object#read-with-suspense): the same fields, with `data` always there                                                                           |
 | `select`                                                           | [`select`](/docs/react#select-part-of-a-value) on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it                                                             |
 | `enabled: false`                                                   | [`useQuery(null)`](/docs/react#read-nothing-until-youre-ready)                                                                                                                           |
 | `placeholderData: keepPreviousData`                                | [`useQuery(query, { keepPrevious: true })`](/docs/react#keep-the-last-value-while-the-next-loads)                                                                                        |
 | `isPlaceholderData`                                                | [`isPlaceholder`](/docs/react/as-object) on `useQueryState`                                                                                                                              |
 | `useQueries`                                                       | [`useQueries`](/docs/react#read-several-queries)                                                                                                                                         |
+| `useQueries`'s fields                                              | [`useQueriesState`](/docs/react/as-object#read-several-queries): an object of fields per query                                                                                           |
 | `subscribed: false`                                                | [`paused: true`](/docs/react/pause) on `useQuery`, `useQueryState`, `useQueries` and `useInfiniteQuery`                                                                                  |
 | `useQueryErrorResetBoundary` with an error boundary and `Suspense` | [`QueryBoundary`](/docs/react/suspense); with a router's boundary, `useResetQueryFailure`                                                                                                |
 | `useIsFetching`                                                    | [`useIsFetching`](/docs/mutations/activity)                                                                                                                                              |
@@ -64,14 +67,15 @@ Reading queries in components maps as follows:
 
 Defining and running mutations maps as follows:
 
-| TanStack Query                                  | Effetch Query                                                                                                                     |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `useMutation`, `mutationOptions`                | [`useMutation(api.mutation(endpoint, { … }))`](/docs/mutations), or `Mutation.make`                                               |
-| `mutate(variables, { onSuccess, onError })`     | [`run(variables, { onSuccess, onFailure })`](/docs/mutations/run)                                                                 |
-| `useMutation`'s `variables`; mutation `scope`   | [`variables`](/docs/mutations/run); [`concurrent: "queue"`](/docs/mutations/run#when-runs-overlap) (per `useMutation`)            |
-| `invalidateQueries` in a mutation's `onSuccess` | [`invalidates`](/docs/mutations/invalidate) on the mutation; `fromClient(ApiClient, { invalidates: "route" })` for every endpoint |
-| `onMutate` returning a rollback context         | [`optimistic`](/docs/mutations/optimistic), undone automatically                                                                  |
-| `useIsMutating`, `useMutationState`             | [Same names](/docs/mutations/activity); `useMutationState(mutation)` lists one mutation's runs in progress                        |
+| TanStack Query                                         | Effetch Query                                                                                                                                                                              |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `useMutation`, `mutationOptions`                       | [`useMutation(api.mutation(endpoint, { … }))`](/docs/mutations), or `Mutation.make`                                                                                                        |
+| `mutate(variables, { onSuccess, onError })`            | [`run(variables, { onSuccess, onFailure })`](/docs/mutations/run)                                                                                                                          |
+| `useMutation`'s `status`, `data`, `error`, `isPending` | [The same fields](/docs/mutations/run#run-from-a-component) on `useMutation`, beside `result`. `status` is `"idle"`, `"pending"`, `"success"` or `"failure"`, and `isError` is `isFailure` |
+| `useMutation`'s `variables`; mutation `scope`          | [`variables`](/docs/mutations/run); [`concurrent: "queue"`](/docs/mutations/run#when-runs-overlap) (per `useMutation`)                                                                     |
+| `invalidateQueries` in a mutation's `onSuccess`        | [`invalidates`](/docs/mutations/invalidate) on the mutation; `fromClient(ApiClient, { invalidates: "route" })` for every endpoint                                                          |
+| `onMutate` returning a rollback context                | [`optimistic`](/docs/mutations/optimistic), undone automatically                                                                                                                           |
+| `useIsMutating`, `useMutationState`                    | [Same names](/docs/mutations/activity); `useMutationState(mutation)` lists one mutation's runs in progress                                                                                 |
 
 ## The cache
 

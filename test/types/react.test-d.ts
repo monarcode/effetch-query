@@ -20,6 +20,8 @@ import {
 	type QueryProviderProps,
 	useInfiniteQuery,
 	type UseInfiniteQueryResult,
+	useInfiniteQueryState,
+	type UseInfiniteQueryStateResult,
 	useIsFetching,
 	useIsMutating,
 	useMutation,
@@ -28,6 +30,8 @@ import {
 	type UseMutationStateRun,
 	useQueries,
 	type UseQueriesResult,
+	useQueriesState,
+	type UseQueriesStateResult,
 	useQuery,
 	useQueryClient,
 	useQueryState,
@@ -35,7 +39,11 @@ import {
 	useRefetch,
 	useResetQueryFailure,
 	useSuspenseInfiniteQuery,
+	useSuspenseInfiniteQueryState,
+	type UseSuspenseInfiniteQueryStateResult,
 	useSuspenseQuery,
+	useSuspenseQueryState,
+	type UseSuspenseQueryStateResult,
 } from "../../src/react/index.js";
 
 class Missing {
@@ -153,6 +161,56 @@ describe("useQueryState", () => {
 	});
 });
 
+describe("useSuspenseQueryState", () => {
+	it("always has data, and narrows error and cause by status", () => {
+		const state = useSuspenseQueryState(todo(1));
+		expectTypeOf(state).toEqualTypeOf<
+			UseSuspenseQueryStateResult<{ id: number }, Missing>
+		>();
+		expectTypeOf(state.data).toEqualTypeOf<{ id: number }>();
+		expectTypeOf(state.status).toEqualTypeOf<"success" | "failure">();
+		if (state.status === "failure") {
+			expectTypeOf(state.error).toEqualTypeOf<Missing | undefined>();
+			expectTypeOf(state.cause).toEqualTypeOf<Cause.Cause<Missing>>();
+		} else {
+			expectTypeOf(state.error).toEqualTypeOf<undefined>();
+		}
+	});
+
+	it("takes select, and not null", () => {
+		expectTypeOf(
+			useSuspenseQueryState(todo(1), { select: (value) => value.id }).data,
+		).toEqualTypeOf<number>();
+		// @ts-expect-error a suspense reader always reads a query
+		useSuspenseQueryState(null);
+	});
+});
+
+describe("useQueriesState", () => {
+	it("types each entry by its query, as a tuple for a tuple", () => {
+		const count = Query.make({ key: ["count"], run: Effect.succeed(1) });
+		const [first, second, none] = useQueriesState([todo(1), count, null]);
+		expectTypeOf(first).toEqualTypeOf<
+			UseQueryStateResult<{ id: number }, Missing>
+		>();
+		expectTypeOf(second).toEqualTypeOf<UseQueryStateResult<number, never>>();
+		expectTypeOf(none).toEqualTypeOf<UseQueryStateResult<never, never>>();
+		if (first.status === "success") {
+			expectTypeOf(first.data).toEqualTypeOf<{ id: number }>();
+		}
+	});
+
+	it("returns an array for an array", () => {
+		const list = [1, 2].map((id) => todo(id));
+		expectTypeOf(useQueriesState(list)).toEqualTypeOf<
+			UseQueriesStateResult<Array<Query.Query<{ id: number }, Missing>>>
+		>();
+		expectTypeOf(useQueriesState(list)[0]).toEqualTypeOf<
+			UseQueryStateResult<{ id: number }, Missing> | undefined
+		>();
+	});
+});
+
 describe("QueryBoundary", () => {
 	type Props = Parameters<typeof QueryBoundary>[0];
 
@@ -212,6 +270,26 @@ describe("useMutation", () => {
 		expectTypeOf(reset).toEqualTypeOf<() => void>();
 		// @ts-expect-error: the variables are a string
 		void run(1);
+	});
+
+	it("types the latest run's fields by the mutation", () => {
+		const save = Mutation.make({
+			run: (title: string) =>
+				title === ""
+					? Effect.fail(new Missing())
+					: Effect.succeed(title.length),
+		});
+		const state = useMutation(save);
+
+		expectTypeOf(state.status).toEqualTypeOf<
+			"idle" | "pending" | "success" | "failure"
+		>();
+		expectTypeOf(state.data).toEqualTypeOf<number | undefined>();
+		expectTypeOf(state.error).toEqualTypeOf<Missing | undefined>();
+		expectTypeOf(state.cause).toEqualTypeOf<
+			Cause.Cause<Missing> | undefined
+		>();
+		expectTypeOf(state.isPending).toEqualTypeOf<boolean>();
 	});
 
 	it("types variables by the mutation, undefined before a run", () => {
@@ -294,6 +372,35 @@ describe("useInfiniteQuery and useSuspenseInfiniteQuery", () => {
 		expectTypeOf(useInfiniteQuery(pages).fetchNextPage).toEqualTypeOf<
 			() => Promise<void>
 		>();
+	});
+
+	it("useInfiniteQueryState narrows the pages by status, beside the controls", () => {
+		const state = useInfiniteQueryState(pages);
+		expectTypeOf(state).toEqualTypeOf<
+			UseInfiniteQueryStateResult<Array<number>, Missing, number>
+		>();
+		expectTypeOf(state.fetchNextPage).toEqualTypeOf<() => Promise<void>>();
+		if (state.status === "success") {
+			expectTypeOf(state.data).toEqualTypeOf<
+				InfiniteQuery.InfiniteData<Array<number>, number>
+			>();
+		}
+		expectTypeOf(
+			useInfiniteQueryState(Math.random() > 0.5 ? pages : null),
+		).toEqualTypeOf<
+			UseInfiniteQueryStateResult<Array<number>, Missing, number>
+		>();
+	});
+
+	it("useSuspenseInfiniteQueryState always has the pages", () => {
+		const state = useSuspenseInfiniteQueryState(pages);
+		expectTypeOf(state).toEqualTypeOf<
+			UseSuspenseInfiniteQueryStateResult<Array<number>, Missing, number>
+		>();
+		expectTypeOf(state.data).toEqualTypeOf<
+			InfiniteQuery.InfiniteData<Array<number>, number>
+		>();
+		expectTypeOf(state.hasNextPage).toEqualTypeOf<boolean>();
 	});
 
 	it("useSuspenseInfiniteQuery returns a Success", () => {

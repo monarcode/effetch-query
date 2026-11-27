@@ -7,8 +7,9 @@ If you'd rather check fields than match on an `AsyncResult`, as you would
 with TanStack Query's `useQuery`, read the query with `useQueryState`. It
 fetches and takes options as `useQuery` does, `select`, `keepPrevious` and
 `paused` included, and returns `status`, `data`, `error`, `isFetching`,
-`refetch` and a few more fields. This page shows how to read them, and
-where they differ from TanStack Query's.
+`refetch` and a few more fields. This page shows how to read them, where
+they differ from TanStack Query's, and the hooks that return the same
+object for Suspense, infinite queries and lists of queries.
 
 The examples import `todos.ts` from [Getting started](/docs/getting-started).
 
@@ -136,6 +137,119 @@ Suspense treats a placeholder as a value. In the browser,
 `Success`. A server render doesn't show a placeholder, so there, and while
 the page hydrates, `useSuspenseQuery` suspends until the query's own value
 arrives.
+
+## Read with Suspense
+
+`useSuspenseQueryState` reads a query as
+[`useSuspenseQuery`](/docs/react/suspense) does, and returns the same
+fields. It suspends until the query has a value, so `data` is always
+there:
+
+```tsx
+import { useSuspenseQueryState } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoHeading({ id }: { readonly id: number }) {
+  const state = useSuspenseQueryState(todo({ params: { id } }));
+
+  return (
+    <h1>
+      {state.data.title}
+      {state.isFailure ? (
+        <button onClick={() => void state.refetch()}>Couldn't refresh</button>
+      ) : null}
+    </h1>
+  );
+}
+```
+
+`status` is `"success"` or `"failure"`, never `"pending"`. A failure with
+no value before it goes to the error boundary, as with `useSuspenseQuery`.
+A refetch that fails after a success doesn't: `useSuspenseQuery` keeps
+showing the success, and `useSuspenseQueryState` shows the failure, with
+the earlier value as `data` and the typed `error` beside it. Its only
+option is `select`.
+
+## Read pages
+
+`useInfiniteQueryState` and `useSuspenseInfiniteQueryState` read an
+[infinite query](/docs/queries/infinite) as `useInfiniteQuery` and
+`useSuspenseInfiniteQuery` do. They return the fields, with `data.pages`
+for the pages, beside the page controls:
+
+```tsx
+import { useInfiniteQueryState } from "@monarcode/effetch-query/react";
+
+import { activity } from "./activity.js";
+
+export function ActivityList() {
+  const state = useInfiniteQueryState(activity({ query: { team: "web" } }));
+
+  if (state.status === "pending") {
+    return <p>Loading…</p>;
+  }
+  return (
+    <>
+      <ul>
+        {state.data?.pages
+          .flatMap((page) => page.events)
+          .map((event) => (
+            <li key={event.id}>{event.text}</li>
+          ))}
+      </ul>
+      {state.hasNextPage ? (
+        <button
+          disabled={state.isFetchingNextPage}
+          onClick={() => void state.fetchNextPage()}
+        >
+          Load more
+        </button>
+      ) : null}
+    </>
+  );
+}
+```
+
+A page that fails makes `status` `"failure"`, with the pages loaded before
+it still in `data`. A failure on the first page has no pages, so `data` is
+`undefined` there. `useSuspenseInfiniteQueryState` throws that one to the
+error boundary instead, so its `data` is always there.
+
+## Read several queries
+
+`useQueriesState` reads a list of queries as
+[`useQueries`](/docs/react#read-several-queries) does, and returns an
+object for each, in the same order:
+
+```tsx
+import { useQueriesState } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function SelectedTodos({
+  ids,
+}: {
+  readonly ids: ReadonlyArray<number>;
+}) {
+  const states = useQueriesState(ids.map((id) => todo({ params: { id } })));
+
+  return (
+    <ul>
+      {states.map((state, index) => (
+        <li key={ids[index]}>
+          {state.status === "success" ? state.data.title : "Loading…"}
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+Each object keeps its identity while its query's result does, and its
+`refetch` while the query stays in the list. A `null` entry is pending,
+and its `refetch` resolves at once. It takes `paused`, as `useQueries`
+does.
 
 ## What's next
 
