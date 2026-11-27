@@ -3,23 +3,28 @@ title: Mutation options
 description: Every option a mutation takes.
 ---
 
-`api.mutation` and `Mutation.make` take the following options:
+`api.mutation` and `Mutation.make` take the following options. They're
+listed in no particular order;
+[What a run does](/docs/mutations#what-a-run-does) gives the order a run
+calls them in.
 
-| Option        | What it does                                                                                                 | Default                                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `run`         | `(variables) => Effect`: performs the mutation. `api.mutation` takes none: the endpoint is the run.          | Required by `Mutation.make`                    |
-| `optimistic`  | `(variables) => Effect`: cache writes to show at once, undone if the run fails.                              | None                                           |
-| `onSuccess`   | `(value, variables) => Effect`, after a success, before `invalidates`.                                       | None                                           |
-| `onFailure`   | `(cause, variables) => Effect`, after a failure and the rollback.                                            | None                                           |
-| `onSettled`   | `(exit, variables) => Effect`, after either.                                                                 | None                                           |
-| `invalidates` | Targets to invalidate after `onSuccess`, or `(value, variables) => targets`.                                 | None, or the route's with `"route"`            |
-| `retry`       | A `Schedule` to retry a failed run with. Defects aren't retried.                                             | The client's `mutations.defaults`, else none   |
-| `concurrent`  | How one use's runs overlap: `true`, `false`, `"queue"` or `"drop"` ([Run modes](/docs/mutations/run-modes)). | The client's `mutations.defaults`, else `true` |
+| Option        | What it does                                                                                                                                                                   | Default                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `run`         | `(variables) => Effect`: performs the mutation. `api.mutation` takes none: the endpoint is the run.                                                                            | Required by `Mutation.make`                    |
+| `optimistic`  | `(variables) => Effect`: cache writes to show at once, undone if the run fails.                                                                                                | None                                           |
+| `onSuccess`   | `(value, variables) => Effect`, after a success, before `invalidates`.                                                                                                         | None                                           |
+| `onFailure`   | `(cause, variables) => Effect`, after a failure and the rollback.                                                                                                              | None                                           |
+| `onSettled`   | `(exit, variables) => Effect`, after either.                                                                                                                                   | None                                           |
+| `invalidates` | Targets to invalidate after `onSuccess`, or `(value, variables) => targets`.                                                                                                   | None, or the route's with `"route"`            |
+| `retry`       | A `Schedule` to retry a failed run with. Defects aren't retried.                                                                                                               | The client's `mutations.defaults`, else none   |
+| `concurrent`  | How one use's runs overlap: `true`, `false`, `"queue"` or `"drop"`, as [When runs overlap](/docs/mutations/run#when-runs-overlap) describes.                                   | The client's `mutations.defaults`, else `true` |
+| `headers`     | `api.mutation` only: headers for every run, over the endpoint's, as Effetch's `client.bind` takes them. A run's own header of the same name wins.                              | None                                           |
+| `plugins`     | `api.mutation` only: plugin overrides for every run, as Effetch's `client.bind` takes them. A run's own override of a plugin wins, and when both give options, they're merged. | None                                           |
 
 `run` and the callbacks run with your services and the client, so they can
 use the cache. `optimistic` runs with the client only. The callbacks can't
 fail: they return an Effect whose error type is `never`.
 
 `retry` and `concurrent` can be set once for every mutation, in the
-client's `mutations.defaults`, and a mutation's own options override them
-([Defaults and app-wide hooks](/docs/client/defaults)).
+client's `mutations.defaults`, and a mutation's own options override them.
+[Defaults and app-wide hooks](/docs/client/defaults) shows how.

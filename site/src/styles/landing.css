@@ -1,0 +1,1896 @@
+/*
+ * The landing page. Its tokens are scoped to `.landing` until the docs
+ * frame is redesigned to match.
+ */
+
+.landing {
+	--void: #0c0d11;
+	--ink: #16171d;
+	--lime: #d5f70d;
+	--paper: #edeee8;
+	--stale: #5b5f6b;
+	--muted: #a2a6b0;
+	/* Quiet text: --stale is for beams and data, too dark to read. */
+	--note: #868a95;
+	--rule: #262832;
+	--display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+	--mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
+	--gutter: clamp(1rem, 3.4vw, 3rem);
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+	min-height: 100svh;
+	background: var(--void);
+	color: var(--paper);
+	font-family: var(--display);
+	-webkit-font-smoothing: antialiased;
+}
+
+.landing ::selection {
+	background: var(--lime);
+	color: var(--ink);
+}
+
+.landing :focus-visible {
+	outline: 2px solid var(--lime);
+	outline-offset: 3px;
+}
+
+/* Navigation */
+
+.landing-nav {
+	position: absolute;
+	inset: 0 0 auto;
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	gap: 2rem;
+	height: 4rem;
+	padding-inline: var(--gutter);
+}
+
+.landing-brand {
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+	margin-right: auto;
+	font-weight: 600;
+	font-size: 1.0625rem;
+	letter-spacing: -0.01em;
+}
+
+.landing-mark {
+	width: auto;
+	height: 1.5rem;
+}
+
+.landing-links {
+	display: flex;
+	gap: 1.75rem;
+	font-size: 0.9375rem;
+	color: var(--muted);
+}
+
+.landing-links a {
+	transition: color 160ms var(--ease-out);
+}
+
+.landing-links a:hover {
+	color: var(--paper);
+}
+
+.landing-search {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: 2.25rem;
+	padding: 0 0.5rem 0 0.75rem;
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--void) 70%, transparent);
+	color: var(--muted);
+	font-size: 0.875rem;
+	transition:
+		border-color 160ms var(--ease-out),
+		color 160ms var(--ease-out);
+}
+
+.landing-search:hover {
+	border-color: var(--stale);
+	color: var(--paper);
+}
+
+.landing-search kbd {
+	padding: 0.125rem 0.375rem;
+	border-radius: 4px;
+	background: var(--ink);
+	font-family: var(--mono);
+	font-size: 0.75rem;
+}
+
+/* Buttons */
+
+.hero-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem;
+	margin-top: 0.5rem;
+}
+
+.button-primary {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: 3rem;
+	padding: 0 1.25rem;
+	border-radius: 6px;
+	background: var(--lime);
+	color: var(--ink);
+	font-weight: 600;
+	font-size: 1rem;
+	transition: transform 200ms var(--ease-out);
+}
+
+.button-primary:hover {
+	transform: translateY(-1px);
+}
+
+.button-primary:hover svg {
+	transform: translateX(2px);
+}
+
+.button-primary svg {
+	transition: transform 200ms var(--ease-out);
+}
+
+.copy-command {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	min-width: 0;
+	max-width: 100%;
+	height: 3rem;
+	padding: 0 0.25rem 0 1rem;
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--void) 78%, transparent);
+	backdrop-filter: blur(6px);
+	font-family: var(--mono);
+	font-size: 0.8125rem;
+	color: var(--paper);
+}
+
+.copy-command code {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.copy-command button {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 2.5rem;
+	height: 2.5rem;
+	border-radius: 4px;
+	color: var(--muted);
+	transition: color 160ms var(--ease-out);
+}
+
+.copy-command button:hover {
+	color: var(--lime);
+}
+
+/* The stage: a headline, then the docs' code at display size, running
+   beside what it renders. Line numbers hang in the margin; one cursor
+   line; a status bar keeps the clock. */
+
+.stage {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-height: max(100svh, 52rem);
+	padding: 7.5rem var(--gutter) 0;
+	--numbers: 3rem;
+	/* How far the code's lines start from the page's edge. */
+	--code-left: max(var(--gutter), var(--numbers));
+	--code-size: clamp(0.8125rem, 1.18vw, 1.25rem);
+	isolation: isolate;
+}
+
+.stage-light {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
+
+.stage-head {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem);
+	align-items: end;
+	gap: 2.5rem clamp(2.5rem, 5vw, 5rem);
+}
+
+/* The title fills its column: two lines at any width. */
+.stage-heading {
+	container-type: inline-size;
+}
+
+.stage-title {
+	font-size: clamp(2.375rem, 16.6cqi, 8.875rem);
+	font-weight: 620;
+	line-height: 0.9;
+	letter-spacing: -0.035em;
+}
+
+/* Each line rises out of its own mask as the page opens. */
+.stage-title > span {
+	display: block;
+	overflow: clip;
+	padding-bottom: 0.08em;
+	margin-bottom: -0.08em;
+}
+
+.stage-title > span > span {
+	display: block;
+	animation: rise 800ms var(--ease-out) both;
+}
+
+.stage-title > span + span > span {
+	animation-delay: 120ms;
+	color: var(--muted);
+}
+
+/* Effect<A, E, R>: the three things a query keeps typed. */
+.signature {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	margin-top: clamp(1.5rem, 3svh, 2.25rem);
+	font-family: var(--mono);
+	font-size: clamp(1.0625rem, 1.7vw, 1.5rem);
+	line-height: 1.2;
+	color: var(--stale);
+	animation: fade-up 700ms var(--ease-out) 420ms both;
+}
+
+.signature-type {
+	white-space: pre;
+}
+
+.signature-param {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.5em;
+}
+
+.signature-param b {
+	font-weight: 500;
+	color: var(--paper);
+	transition: color 200ms var(--ease-out);
+	animation: light-up 900ms var(--ease-out) both;
+	animation-delay: calc(700ms + var(--i) * 200ms);
+}
+
+/* Each parameter names itself, in the type: Effect<A the value, …>. */
+.signature-param span {
+	font-family: var(--display);
+	font-size: 0.6em;
+	letter-spacing: 0;
+	white-space: nowrap;
+	color: var(--note);
+	transition: color 200ms var(--ease-out);
+}
+
+.signature-param:hover b,
+.signature-param:hover span {
+	color: var(--lime);
+}
+
+.stage-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem;
+	padding-bottom: 0.5rem;
+	animation: fade-up 800ms var(--ease-out) 260ms both;
+}
+
+.stage-sub {
+	flex: 1 0 100%;
+	max-width: 42ch;
+	margin-bottom: 0.75rem;
+	font-size: 1.0625rem;
+	line-height: 1.55;
+	color: var(--muted);
+}
+
+.stage-actions .copy-command {
+	flex: 1 0 100%;
+	font-size: 0.75rem;
+}
+
+.stage-run {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
+	column-gap: clamp(2.5rem, 5vw, 5rem);
+	align-items: start;
+	margin: clamp(5rem, 12svh, 8.5rem) 0 3rem;
+	padding-left: calc(var(--code-left) - var(--gutter));
+}
+
+.stage-code {
+	min-width: 0;
+}
+
+.stage-code pre {
+	margin: 0;
+	padding: 0;
+	overflow: visible;
+	background: transparent !important;
+	font-family: var(--mono);
+	font-size: var(--code-size);
+	line-height: 1.7;
+	letter-spacing: -0.01em;
+}
+
+.stage-code pre code {
+	display: grid;
+	counter-reset: stage-line;
+}
+
+.stage-code .line {
+	position: relative;
+	counter-increment: stage-line;
+	min-height: 1.7em;
+	white-space: pre;
+	animation: line-in 700ms var(--ease-out) both;
+	animation-delay: calc(520ms + var(--n, 0) * 45ms);
+}
+
+/* The hidden code leaves an empty last line. */
+.stage-code .line:empty:last-child {
+	display: none;
+}
+
+/* Line numbers sit in the margin, outside the text. */
+.stage-code .line::before {
+	content: counter(stage-line);
+	position: absolute;
+	right: 100%;
+	width: var(--numbers);
+	padding-right: 1.25rem;
+	font-size: 0.6875rem;
+	letter-spacing: 0;
+	line-height: inherit;
+	text-align: right;
+	color: var(--stale);
+}
+
+/* At this size the hover targets keep quiet until they're pointed at. */
+.stage .stage-code .twoslash .twoslash-hover {
+	border-color: transparent;
+}
+
+.stage .stage-code .twoslash .twoslash-hover:hover {
+	border-color: var(--note);
+}
+
+/* The line that runs: a lime rule in the margin, a faint wash across. */
+.stage-code [data-line="read"]::after {
+	content: "";
+	position: absolute;
+	z-index: -1;
+	inset: 0 -1rem 0 calc(-1 * var(--code-left));
+	border-left: 3px solid var(--lime);
+	background: linear-gradient(
+		90deg,
+		color-mix(in srgb, var(--lime) 9%, transparent),
+		color-mix(in srgb, var(--lime) 3%, transparent) 70%,
+		transparent
+	);
+}
+
+.stage-code [data-line="read"]::before {
+	color: var(--lime);
+}
+
+.stage-edit {
+	position: relative;
+	color: var(--lime);
+	font: inherit;
+	letter-spacing: inherit;
+	cursor: pointer;
+	transition: color 160ms var(--ease-out);
+}
+
+.stage-edit:hover {
+	color: var(--paper);
+}
+
+/* The value's freshness, draining under the staleTime that sets it. */
+.stage-edit-meter {
+	position: absolute;
+	inset: auto 0.5ch -0.12em;
+	height: 2px;
+	background: color-mix(in srgb, var(--lime) 22%, transparent);
+}
+
+.stage-edit-meter i {
+	display: block;
+	height: 100%;
+	background: var(--lime);
+	transform-origin: left;
+	animation-name: drain;
+	animation-timing-function: linear;
+	animation-fill-mode: both;
+}
+
+.stage-code figcaption {
+	margin-top: 1.5rem;
+	max-width: 62ch;
+	font-size: 0.875rem;
+	line-height: 1.55;
+	color: var(--note);
+	animation: fade-up 700ms var(--ease-out) 1100ms both;
+}
+
+.stage-code figcaption a {
+	color: var(--paper);
+	text-decoration: underline;
+	text-decoration-color: var(--stale);
+	text-underline-offset: 0.2em;
+}
+
+.stage-code figcaption a:hover {
+	text-decoration-color: var(--lime);
+}
+
+/* What the code renders: the docs' components, reading one query. */
+.stage-app {
+	display: grid;
+	gap: 0.75rem;
+	font-size: 0.875rem;
+	animation: fade-up 800ms var(--ease-out) 700ms both;
+}
+
+.stage-app-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	color: var(--note);
+}
+
+.stage-app-head h2 {
+	font-size: inherit;
+	font-weight: 400;
+}
+
+.stage-app-head code {
+	color: var(--paper);
+}
+
+.stage-mounts {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+}
+
+.stage-mounts > [data-kind="list"] {
+	grid-column: 1 / -1;
+	min-height: 9.5rem;
+}
+
+.stage-reader,
+.stage-mount {
+	min-height: 9.25rem;
+	border-radius: 6px;
+}
+
+.stage-reader {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	padding: 0.75rem 1rem 1rem;
+	border: 1px solid var(--rule);
+	background: var(--ink);
+	overflow: hidden;
+	transition:
+		border-color 300ms var(--ease-out),
+		opacity 300ms var(--ease-out);
+	animation: mount-in 520ms var(--ease-out) both;
+}
+
+/* A refetch in the background: the old value stays, a line runs along
+   the top. */
+.stage-reader[data-waiting]::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto;
+	height: 2px;
+	background: linear-gradient(90deg, transparent, var(--lime), transparent);
+	background-size: 50% 100%;
+	background-repeat: no-repeat;
+	animation: waiting 900ms linear infinite;
+}
+
+.stage-reader[data-paused] {
+	border-style: dashed;
+	opacity: 0.62;
+}
+
+.stage-reader-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	column-gap: 0.75rem;
+	margin-bottom: 0.625rem;
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	color: var(--note);
+}
+
+.stage-reader-head code {
+	color: var(--paper);
+}
+
+.stage-reader-head code {
+	white-space: nowrap;
+}
+
+.stage-reader-got {
+	margin-left: auto;
+	white-space: nowrap;
+}
+
+/* In a narrow card, how it got its value goes under its name. */
+.stage-reader:not([data-kind="list"]) .stage-reader-got {
+	order: 3;
+	flex-basis: 100%;
+	margin-left: 0;
+}
+
+.stage-reader[data-waiting] .stage-reader-got {
+	color: var(--lime);
+}
+
+.stage-unmount {
+	display: grid;
+	place-items: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	margin: -0.25rem -0.375rem -0.25rem -0.25rem;
+	border-radius: 4px;
+	color: var(--note);
+	transition:
+		color 160ms var(--ease-out),
+		background-color 160ms var(--ease-out);
+}
+
+.stage-reader:not([data-kind="list"]) .stage-unmount {
+	margin-left: auto;
+}
+
+.stage-unmount:hover {
+	color: var(--paper);
+	background: var(--rule);
+}
+
+.stage-reader-body {
+	color: var(--muted);
+}
+
+.stage-todos {
+	display: grid;
+	gap: 0.125rem;
+	margin-inline: -0.5rem;
+}
+
+.stage-todos li {
+	animation: arrive 900ms var(--ease-out);
+}
+
+.stage-todos button {
+	display: flex;
+	align-items: baseline;
+	gap: 0.625rem;
+	width: 100%;
+	padding: 0.3125rem 0.5rem;
+	border-radius: 4px;
+	text-align: left;
+	color: var(--paper);
+	transition:
+		background-color 160ms var(--ease-out),
+		color 300ms var(--ease-out),
+		opacity 300ms var(--ease-out);
+}
+
+.stage-todos button:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--lime) 7%, transparent);
+}
+
+.stage-todos button:active:not(:disabled) {
+	transform: scale(0.99);
+}
+
+.stage-check {
+	flex: none;
+	width: 1em;
+	font-family: var(--mono);
+	color: var(--note);
+}
+
+.stage-todos [data-done] .stage-todo-title {
+	color: var(--note);
+	text-decoration: line-through;
+	text-decoration-color: var(--stale);
+}
+
+.stage-todos [data-done] .stage-check {
+	color: var(--lime);
+}
+
+.stage-todos [data-busy] {
+	opacity: 0.7;
+}
+
+.stage-todo-busy {
+	margin-left: auto;
+	font-family: var(--mono);
+	font-size: 0.6875rem;
+	color: var(--lime);
+	animation: blink 700ms steps(2, jump-none) infinite;
+}
+
+.stage-number {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.25rem 0.5rem;
+	margin-top: auto;
+	color: var(--muted);
+}
+
+.stage-number b {
+	display: inline-block;
+	font-size: clamp(2.5rem, 3.4vw, 3.25rem);
+	font-weight: 600;
+	line-height: 0.9;
+	letter-spacing: -0.04em;
+	color: var(--paper);
+	animation: count-in 600ms var(--ease-out);
+}
+
+.stage-switch {
+	display: inline-flex;
+	flex: 1 0 100%;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+	font-size: 0.75rem;
+	color: var(--note);
+	cursor: pointer;
+}
+
+.stage-switch input {
+	appearance: none;
+	position: relative;
+	flex: none;
+	width: 1.75rem;
+	height: 1rem;
+	border-radius: 999px;
+	background: var(--rule);
+	cursor: pointer;
+	transition: background-color 200ms var(--ease-out);
+}
+
+.stage-switch input::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 0.75rem;
+	height: 0.75rem;
+	border-radius: 50%;
+	background: var(--paper);
+	transition: transform 240ms var(--ease-out);
+}
+
+.stage-switch input:checked {
+	background: var(--lime);
+}
+
+.stage-switch input:checked::after {
+	background: var(--ink);
+	transform: translateX(0.75rem);
+}
+
+.stage-mount {
+	display: grid;
+	border: 1px dashed var(--rule);
+}
+
+.stage-mount button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.375rem;
+	border-radius: inherit;
+	color: var(--muted);
+	transition:
+		background-color 160ms var(--ease-out),
+		color 160ms var(--ease-out);
+}
+
+.stage-mount code {
+	color: var(--lime);
+}
+
+.stage-mount button:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--lime) 6%, transparent);
+	color: var(--paper);
+}
+
+.stage-mount button:disabled {
+	opacity: 0.5;
+}
+
+/* The status bar keeps the clock, as an editor's does. */
+.stage-status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 2rem;
+	margin: auto calc(-1 * var(--gutter)) 0;
+	padding: 0.75rem var(--gutter);
+	border-top: 1px solid var(--rule);
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+	color: var(--note);
+}
+
+.stage-status b {
+	display: inline-block;
+	font-weight: 500;
+	color: var(--paper);
+	animation: count-in 500ms var(--ease-out);
+}
+
+.stage-running {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	color: var(--paper);
+}
+
+.stage-running::before {
+	content: "";
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--stale);
+	transition: background-color 400ms var(--ease-out);
+}
+
+.stage-running[data-live]::before {
+	background: var(--lime);
+}
+
+/* The dot pulses only while a request is out. */
+.stage-running[data-busy]::before {
+	animation: live 1200ms var(--ease-out) infinite;
+}
+
+.stage-freshness[data-state="fresh"] {
+	color: var(--paper);
+}
+
+.stage-freshness[data-state="fetching"] {
+	color: var(--lime);
+}
+
+.stage-invalidate {
+	margin-left: auto;
+	color: var(--paper);
+	transition: color 160ms var(--ease-out);
+}
+
+.stage-invalidate code {
+	color: var(--lime);
+	font-size: inherit;
+}
+
+.stage-invalidate:hover:not(:disabled) {
+	color: var(--lime);
+}
+
+.stage-invalidate:disabled {
+	opacity: 0.45;
+	cursor: progress;
+}
+
+@keyframes rise {
+	from {
+		transform: translateY(105%);
+	}
+}
+
+@keyframes fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(0.75rem);
+	}
+}
+
+@keyframes line-in {
+	from {
+		opacity: 0;
+		transform: translateX(-0.5rem);
+	}
+}
+
+@keyframes light-up {
+	30% {
+		color: var(--lime);
+	}
+}
+
+@keyframes mount-in {
+	from {
+		opacity: 0;
+		transform: translateY(0.5rem) scale(0.98);
+	}
+}
+
+@keyframes arrive {
+	from {
+		color: var(--lime);
+	}
+}
+
+@keyframes count-in {
+	from {
+		opacity: 0;
+		transform: translateY(40%);
+		color: var(--lime);
+	}
+}
+
+@keyframes drain {
+	to {
+		transform: scaleX(0);
+	}
+}
+
+@keyframes waiting {
+	from {
+		background-position: -50% 0;
+	}
+	to {
+		background-position: 150% 0;
+	}
+}
+
+@keyframes blink {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+@keyframes live {
+	0% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--lime) 45%, transparent);
+	}
+	60%,
+	100% {
+		box-shadow: 0 0 0 0.375rem transparent;
+	}
+}
+
+@media (max-width: 64rem) {
+	.stage-head,
+	.stage-run {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.stage-run {
+		row-gap: 3rem;
+	}
+
+	.stage {
+		--code-size: clamp(0.75rem, 1.9vw, 1.0625rem);
+	}
+}
+
+@media (max-width: 40rem) {
+	/* No line numbers on a phone: the code starts at the gutter, as the
+	   rest of the page does. */
+	.stage {
+		--numbers: 0px;
+		padding-top: 6rem;
+	}
+
+	.stage-code .line::before {
+		display: none;
+	}
+
+	.stage-head {
+		row-gap: 2rem;
+	}
+
+	.signature {
+		font-size: 0.9375rem;
+	}
+
+	.signature-param span {
+		font-size: 0.6875rem;
+	}
+
+	.stage-run {
+		margin-top: 4rem;
+	}
+
+	/* A phone scrolls the code sideways rather than wrap it. */
+	.stage-code pre {
+		overflow-x: auto;
+		margin-inline: calc(-1 * var(--gutter));
+		padding-inline: var(--gutter);
+		scrollbar-width: none;
+	}
+
+	.stage-code [data-line="read"]::after {
+		left: calc(-1 * var(--gutter));
+		right: calc(-1 * var(--gutter));
+	}
+
+	.stage-status {
+		gap: 0.5rem 1.25rem;
+	}
+
+	.stage-invalidate {
+		margin-left: 0;
+	}
+}
+
+/* A phone keeps the docs link; search finds the rest. */
+@media (max-width: 40rem) {
+	.landing-links {
+		gap: 0;
+	}
+
+	.landing-links > :not(:first-child),
+	.landing-search span,
+	.landing-search kbd {
+		display: none;
+	}
+}
+
+/* Sections rise into place as they scroll in, where the browser can
+   tie an animation to scrolling; elsewhere they're simply there. */
+@supports (animation-timeline: view()) {
+	.reveal {
+		animation: reveal linear both;
+		animation-timeline: view();
+		animation-range: entry 0% entry 70%;
+	}
+}
+
+@keyframes reveal {
+	from {
+		opacity: 0;
+		transform: translateY(2.5rem);
+	}
+}
+
+/* Without motion, nothing moves, but what changes still flashes lime,
+   and the freshness meter still drains: it's the clock, not a flourish. */
+@media (prefers-reduced-motion: reduce) {
+	.landing *,
+	.landing *::before,
+	.landing *::after {
+		animation-name: none !important;
+		transition-duration: 0ms !important;
+		transition-delay: 0ms !important;
+	}
+
+	.landing .stage-edit-meter i {
+		animation-name: drain !important;
+	}
+
+	.landing
+		:is(.stage-todos li, .effect-rendered-body, .live-list li[data-changed]) {
+		animation-name: arrive !important;
+	}
+
+	.landing :is(.stage-number b, .stage-status b) {
+		animation-name: flash !important;
+	}
+
+	.landing .entity-written {
+		animation-name: written !important;
+	}
+
+	.landing :is(.stage-reader, .entity-query)[data-waiting] {
+		border-color: var(--lime);
+	}
+}
+
+@keyframes flash {
+	from {
+		color: var(--lime);
+	}
+}
+
+.landing :where(:not(pre) > code) {
+	font-family: var(--mono);
+	font-size: 0.875em;
+	color: var(--paper);
+}
+
+/* A file from the docs. */
+
+.code-file {
+	margin-top: 0.5rem;
+	border: 1px solid var(--rule);
+	border-radius: 8px;
+	background: var(--ink);
+	overflow: hidden;
+}
+
+.code-file figcaption {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.625rem 1rem;
+	border-bottom: 1px solid var(--rule);
+	font-family: var(--mono);
+	font-size: 0.75rem;
+}
+
+.code-file-name {
+	color: var(--paper);
+}
+
+.code-file-note {
+	color: var(--note);
+}
+
+.code-file-body pre {
+	margin: 0;
+	padding: 1rem 0;
+	overflow-x: auto;
+	background: transparent !important;
+	font-family: var(--mono);
+	font-size: 0.8125rem;
+	line-height: 1.7;
+}
+
+.code-file-body pre code {
+	display: grid;
+	color: inherit;
+	font-size: inherit;
+}
+
+.code-file-body .line {
+	padding: 0 1rem;
+}
+
+/* Bands below the stage. */
+
+.band {
+	position: relative;
+	padding: clamp(5rem, 12vw, 9rem) var(--gutter);
+	border-top: 1px solid var(--rule);
+	background: var(--void);
+}
+
+.band-title {
+	max-width: 18ch;
+	font-size: clamp(2.25rem, 4.6vw, 4rem);
+	font-weight: 600;
+	line-height: 1;
+	letter-spacing: -0.035em;
+	text-wrap: balance;
+}
+
+/* Effect<A, E, R>, set large: each parameter lights its path through
+   the docs' code. */
+.band-effect {
+	display: grid;
+	gap: clamp(2.5rem, 5vw, 4rem);
+}
+
+.band-head {
+	display: grid;
+	grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+	align-items: end;
+	gap: 1.5rem clamp(2.5rem, 7vw, 7rem);
+}
+
+.band-lead {
+	max-width: 46ch;
+	font-size: 1.0625rem;
+	line-height: 1.6;
+	color: var(--muted);
+}
+
+.effect-signature {
+	display: flex;
+	align-items: flex-start;
+	font-family: var(--mono);
+	font-size: clamp(2.75rem, 12vw, 11rem);
+	font-weight: 300;
+	line-height: 1;
+	letter-spacing: -0.05em;
+	color: var(--rule);
+	user-select: none;
+}
+
+.effect-signature-type {
+	white-space: pre;
+}
+
+.effect-channel {
+	position: relative;
+	display: inline-grid;
+	justify-items: center;
+	padding-bottom: 2.25rem;
+	font: inherit;
+	letter-spacing: inherit;
+	color: var(--stale);
+	cursor: pointer;
+	transition: color 120ms var(--ease-out);
+}
+
+.effect-channel[aria-selected="true"] {
+	transition: color 240ms var(--ease-out) 80ms;
+}
+
+.effect-channel b {
+	font-weight: inherit;
+}
+
+.effect-channel span {
+	position: absolute;
+	bottom: 0;
+	font-family: var(--display);
+	font-size: 0.875rem;
+	font-weight: 500;
+	letter-spacing: 0;
+	white-space: nowrap;
+	color: var(--note);
+	transition: color 300ms var(--ease-out);
+}
+
+/* A rule grows under the parameter that's picked. */
+.effect-channel::after {
+	content: "";
+	position: absolute;
+	bottom: 1.625rem;
+	left: 0.12em;
+	right: 0.12em;
+	height: 3px;
+	background: var(--lime);
+	transform: scaleX(0);
+	transition: transform 200ms var(--ease-out);
+}
+
+.effect-channel[aria-selected="true"]::after {
+	transition-duration: 450ms;
+}
+
+.effect-channel:hover {
+	color: var(--muted);
+}
+
+.effect-channel[aria-selected="true"] {
+	color: var(--lime);
+}
+
+.effect-channel[aria-selected="true"] span {
+	color: var(--paper);
+}
+
+.effect-channel[aria-selected="true"]::after {
+	transform: scaleX(1);
+}
+
+.effect-trace {
+	display: grid;
+	grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 1fr);
+	align-items: start;
+	gap: clamp(2rem, 4vw, 4rem);
+}
+
+.effect-trace .code-file {
+	margin: 0;
+}
+
+.effect-trace .code-file-body .line {
+	position: relative;
+	transition: opacity 400ms var(--ease-out);
+}
+
+/* The picked parameter's lines light; the rest of the file steps back. */
+.effect-trace .code-file-body .line {
+	opacity: 0.42;
+}
+
+.effect-trace[data-channel="a"]
+	:is([data-line="a-output"], [data-line="read"], [data-line="a-success"]),
+.effect-trace[data-channel="e"] :is([data-line="e-status"], [data-line="read"]),
+.effect-trace[data-case="e-404"]
+	:is([data-line="e-404"], [data-line="e-catch"]),
+.effect-trace[data-case="e-403"] [data-line="e-403"],
+.effect-trace[data-case="e-other"] [data-line="e-other"],
+.effect-trace[data-channel="r"]
+	:is([data-line="r-layer"], [data-line="r-http"], [data-line="r-services"]) {
+	opacity: 1;
+	background:
+		linear-gradient(
+				90deg,
+				color-mix(in srgb, var(--lime) 16%, transparent),
+				transparent 60%
+			)
+			0 0 / 200% 100% no-repeat,
+		color-mix(in srgb, var(--lime) 5%, transparent);
+	box-shadow: inset 3px 0 var(--lime);
+	animation: trace 900ms var(--ease-out) both;
+}
+
+/* Lines light one after another, top to bottom. */
+.effect-trace .code-file-body .line {
+	animation-delay: calc(var(--n, 0) * 22ms);
+}
+
+.effect-out {
+	display: grid;
+	gap: 1rem;
+	padding-top: 0.25rem;
+}
+
+.effect-out-name {
+	font-size: 1.375rem;
+	font-weight: 500;
+	letter-spacing: -0.01em;
+}
+
+.effect-out-name b {
+	margin-right: 0.375rem;
+	font-family: var(--mono);
+	font-weight: 400;
+	color: var(--lime);
+}
+
+.effect-out-note {
+	max-width: 40ch;
+	line-height: 1.6;
+	color: var(--muted);
+}
+
+.effect-statuses {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.effect-statuses button {
+	height: 2.25rem;
+	padding: 0 0.875rem;
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	font-family: var(--mono);
+	font-size: 0.875rem;
+	color: var(--muted);
+	transition:
+		border-color 160ms var(--ease-out),
+		color 160ms var(--ease-out),
+		background-color 160ms var(--ease-out);
+}
+
+.effect-statuses button:hover {
+	border-color: var(--stale);
+	color: var(--paper);
+}
+
+.effect-statuses button[aria-checked="true"] {
+	border-color: var(--lime);
+	background: color-mix(in srgb, var(--lime) 10%, transparent);
+	color: var(--lime);
+}
+
+.effect-rendered {
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	background: var(--ink);
+	animation: mount-in 450ms var(--ease-out) both;
+}
+
+.effect-rendered-label {
+	padding: 0.625rem 1rem;
+	border-bottom: 1px solid var(--rule);
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	color: var(--note);
+}
+
+.effect-rendered-body {
+	padding: 1rem;
+	font-size: 1rem;
+	color: var(--paper);
+	animation: arrive 900ms var(--ease-out);
+}
+
+.effect-rendered-title {
+	font-size: 1.5rem;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+.effect-out-aside {
+	font-size: 0.875rem;
+	line-height: 1.55;
+	color: var(--note);
+}
+
+/* A feature: the docs' code beside the thing it runs. */
+.band-feature {
+	display: grid;
+	gap: clamp(2.5rem, 5vw, 4rem);
+}
+
+.band-lead code {
+	color: var(--paper);
+}
+
+.feature-run {
+	display: grid;
+	grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 1fr);
+	align-items: start;
+	gap: clamp(2rem, 4vw, 4rem);
+}
+
+.trace .code-file {
+	margin: 0;
+}
+
+.trace .code-file-body .line {
+	position: relative;
+	transition: opacity 400ms var(--ease-out);
+}
+
+/* While a line runs, the rest of the file steps back. */
+.trace[data-live] .code-file-body .line:not([data-on]) {
+	opacity: 0.42;
+}
+
+.trace [data-on] {
+	background:
+		linear-gradient(
+				90deg,
+				color-mix(in srgb, var(--lime) 16%, transparent),
+				transparent 60%
+			)
+			0 0 / 200% 100% no-repeat,
+		color-mix(in srgb, var(--lime) 5%, transparent);
+	box-shadow: inset 3px 0 var(--lime);
+	animation: trace 900ms var(--ease-out) both;
+}
+
+.feature-panel {
+	display: grid;
+	gap: 0.75rem;
+	font-size: 0.875rem;
+}
+
+.entity-queries {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.entity-query {
+	position: relative;
+	overflow: hidden;
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	background: var(--ink);
+}
+
+.entity-query header {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 0.25rem 1rem;
+	padding: 0.625rem 1rem;
+	border-bottom: 1px solid var(--rule);
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	color: var(--note);
+}
+
+.entity-query header code {
+	color: var(--paper);
+}
+
+.entity-query ul {
+	display: grid;
+	gap: 0.125rem;
+	padding: 0.5rem;
+}
+
+/* A query written by the entity flashes as the write lands. */
+.entity-written {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	animation: written 900ms var(--ease-out) both;
+}
+
+.entity-query[data-waiting]::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto;
+	height: 2px;
+	background: linear-gradient(90deg, transparent, var(--lime), transparent)
+		no-repeat;
+	background-size: 50% 100%;
+	animation: waiting 900ms linear infinite;
+}
+
+.entity-query button,
+.entity-row {
+	display: flex;
+	align-items: baseline;
+	gap: 0.625rem;
+	width: 100%;
+	padding: 0.3125rem 0.5rem;
+	border-radius: 4px;
+	text-align: left;
+	color: var(--paper);
+	transition: background-color 160ms var(--ease-out);
+}
+
+.entity-query button:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--lime) 7%, transparent);
+}
+
+.entity-query button:disabled {
+	cursor: progress;
+}
+
+.entity-query [data-done] .stage-todo-title {
+	color: var(--note);
+	text-decoration: line-through;
+	text-decoration-color: var(--stale);
+}
+
+.entity-query [data-done] .stage-check {
+	color: var(--lime);
+}
+
+.entity-empty {
+	padding: 0.3125rem 0.5rem;
+	color: var(--note);
+}
+
+.feature-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.feature-controls .stage-switch {
+	flex: none;
+	margin: 0;
+	font-size: 0.8125rem;
+}
+
+.feature-controls button {
+	height: 2.25rem;
+	padding: 0 0.875rem;
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	font-size: 0.8125rem;
+	color: var(--paper);
+	transition:
+		border-color 160ms var(--ease-out),
+		color 160ms var(--ease-out);
+}
+
+.feature-controls button:hover:not(:disabled) {
+	border-color: var(--lime);
+	color: var(--lime);
+}
+
+.feature-controls button:disabled {
+	opacity: 0.45;
+}
+
+.feature-note {
+	min-height: 3em;
+	line-height: 1.55;
+	color: var(--muted);
+}
+
+.live-socket {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 0.75rem;
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	color: var(--note);
+}
+
+.live-socket::before {
+	content: "";
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--stale);
+}
+
+.live-socket[data-open]::before {
+	background: var(--lime);
+}
+
+.live-socket code {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--paper);
+}
+
+.live-socket span {
+	margin-left: auto;
+}
+
+.live-messages {
+	display: grid;
+	gap: 0.25rem;
+	min-height: 7.25rem;
+	align-content: start;
+	padding: 0.625rem 0.75rem;
+	border: 1px dashed var(--rule);
+	border-radius: 6px;
+	font-family: var(--mono);
+	font-size: 0.6875rem;
+}
+
+.live-messages li {
+	display: flex;
+	align-items: baseline;
+	gap: 0.625rem;
+	min-width: 0;
+	color: var(--note);
+	animation: message-in 500ms var(--ease-out) both;
+}
+
+.live-messages li:first-child {
+	color: var(--muted);
+}
+
+.live-messages b {
+	flex: none;
+	font-weight: 500;
+	color: var(--lime);
+}
+
+.live-messages [data-unchanged] b {
+	color: var(--paper);
+}
+
+.live-messages code {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.live-messages span {
+	flex: none;
+	margin-left: auto;
+}
+
+.live-list li[data-changed] {
+	animation: arrive 1100ms var(--ease-out);
+}
+
+@keyframes written {
+	from {
+		background: color-mix(in srgb, var(--lime) 12%, transparent);
+	}
+	to {
+		background: transparent;
+	}
+}
+
+@keyframes message-in {
+	from {
+		opacity: 0;
+		transform: translateY(-0.5rem);
+	}
+}
+
+@keyframes trace {
+	from {
+		background-position:
+			-100% 0,
+			0 0;
+	}
+	to {
+		background-position:
+			100% 0,
+			0 0;
+	}
+}
+
+.band-note {
+	max-width: 60ch;
+	margin-top: 2.5rem;
+	font-size: 1rem;
+	line-height: 1.6;
+	color: var(--muted);
+}
+
+.band-note a,
+.close-thanks a {
+	color: var(--paper);
+	text-decoration: underline;
+	text-decoration-color: var(--stale);
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color 160ms var(--ease-out);
+}
+
+.band-note a:hover,
+.close-thanks a:hover {
+	text-decoration-color: var(--lime);
+}
+
+/* The platforms, as a list of names: each links to its page. */
+.platforms {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	column-gap: clamp(2rem, 6vw, 6rem);
+	margin-top: 3rem;
+	border-top: 1px solid var(--rule);
+}
+
+.platforms li {
+	border-bottom: 1px solid var(--rule);
+}
+
+.platform {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.25rem 1rem;
+	padding: 1.5rem 0 1.375rem;
+}
+
+.platform-name {
+	font-size: clamp(1.75rem, 3.2vw, 2.75rem);
+	font-weight: 600;
+	line-height: 1.05;
+	letter-spacing: -0.03em;
+	text-decoration: underline;
+	text-decoration-color: transparent;
+	text-decoration-thickness: 2px;
+	text-underline-offset: 0.16em;
+	transition: text-decoration-color 200ms var(--ease-out);
+}
+
+.platform-note {
+	font-family: var(--mono);
+	font-size: 0.8125rem;
+	color: var(--note);
+}
+
+.platform-arrow {
+	align-self: center;
+	width: 1.25rem;
+	height: 1.25rem;
+	margin-left: auto;
+	color: var(--note);
+	transition:
+		color 200ms var(--ease-out),
+		transform 300ms var(--ease-out);
+}
+
+.platform:hover .platform-name {
+	text-decoration-color: var(--lime);
+}
+
+.platform:hover .platform-arrow {
+	color: var(--lime);
+	transform: translate(0.125rem, -0.125rem);
+}
+
+@media (max-width: 48rem) {
+	.platforms {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.close {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	align-items: center;
+	gap: 3rem clamp(2.5rem, 7vw, 7rem);
+	padding: clamp(6rem, 14vw, 11rem) var(--gutter);
+	border-top: 1px solid var(--rule);
+	background: var(--void);
+}
+
+.close-lead {
+	container-type: inline-size;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 1.5rem;
+}
+
+/* Getting started's steps, a file each, numbered as the stage's lines are. */
+.close-steps {
+	border-top: 1px solid var(--rule);
+}
+
+.close-steps li {
+	border-bottom: 1px solid var(--rule);
+}
+
+.close-step {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr) auto 1.25rem;
+	align-items: baseline;
+	gap: 1rem;
+	padding: 1.25rem 0;
+	transition: background-color 200ms var(--ease-out);
+}
+
+.close-step-n {
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	color: var(--stale);
+	transition: color 200ms var(--ease-out);
+}
+
+.close-step-title {
+	font-size: clamp(1.25rem, 2vw, 1.625rem);
+	font-weight: 500;
+	letter-spacing: -0.02em;
+}
+
+.close-step code {
+	font-family: var(--mono);
+	font-size: 0.8125rem;
+	color: var(--note);
+}
+
+.close-step-arrow {
+	align-self: center;
+	width: 1.125rem;
+	height: 1.125rem;
+	color: var(--note);
+	transition:
+		color 200ms var(--ease-out),
+		transform 300ms var(--ease-out);
+}
+
+.close-step:hover .close-step-n,
+.close-step:hover .close-step-arrow {
+	color: var(--lime);
+}
+
+.close-step:hover .close-step-arrow {
+	transform: translateX(0.25rem);
+}
+
+@media (max-width: 64rem) {
+	.close {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+@media (max-width: 40rem) {
+	.close-step {
+		grid-template-columns: 1.5rem minmax(0, 1fr) 1.25rem;
+	}
+
+	.close-step code {
+		grid-column: 2;
+		grid-row: 2;
+	}
+
+	.close-step-arrow {
+		grid-column: 3;
+		grid-row: 1;
+	}
+}
+
+.close .hero-actions {
+	max-width: 100%;
+}
+
+/* One line, at whatever width its column has. */
+.close-title {
+	font-size: clamp(2.25rem, 10cqi, 4.5rem);
+	font-weight: 600;
+	line-height: 0.95;
+	letter-spacing: -0.04em;
+}
+
+.close-sub {
+	max-width: 44ch;
+	font-size: 1.1875rem;
+	line-height: 1.5;
+	color: var(--muted);
+}
+
+.close-thanks {
+	margin-top: 2rem;
+	max-width: 60ch;
+	font-size: 0.9375rem;
+	color: var(--muted);
+}
+
+.landing-footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 1rem 2.5rem;
+	padding: 2rem var(--gutter) 2.5rem;
+	border-top: 1px solid var(--rule);
+	font-size: 0.875rem;
+	color: var(--muted);
+}
+
+.landing-footer .landing-brand {
+	margin-right: 0;
+}
+
+.footer-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1.5rem;
+}
+
+.footer-links a:hover {
+	color: var(--paper);
+}
+
+.footer-note {
+	margin-left: auto;
+	color: var(--note);
+}
+
+@media (max-width: 64rem) {
+	.band-head,
+	.effect-trace,
+	.feature-run {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+@media (max-width: 40rem) {
+	.effect-channel {
+		padding-bottom: 1.75rem;
+	}
+
+	.effect-channel::after {
+		bottom: 1.25rem;
+	}
+
+	.effect-channel span {
+		font-size: 0.6875rem;
+	}
+}

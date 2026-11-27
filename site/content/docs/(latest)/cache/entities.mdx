@@ -1,0 +1,195 @@
+---
+title: Entities
+description: Write or read every cached copy of a record with one call.
+---
+
+A todo is often in many queries at the same time: its own detail, a list
+per filter, each loaded page of an infinite list. When it changes, every
+copy should change. An entity is a record's schema with a way to get its
+ID, and one write to it reaches every cached copy. This page shows how to
+define one, write and read through it, and what a write reaches.
+
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
+
+## Define an entity
+
+Define it once, beside its schema, with what identifies a record:
+
+```ts entities.ts
+import { Entity } from "@monarcode/effetch-query";
+
+import { Todo } from "./api.js";
+
+export const Todos = Entity.make(Todo, { id: (todo) => todo.id });
+```
+
+`Entity.make` takes the schema and an `Entity.MakeOptions`, whose `id`
+gets a todo's ID. A `Schema.Class` works as the schema too.
+
+## Write or read a record by ID
+
+Four functions take the entity:
+
+- `Entity.update(Todos, id, f)` writes `f` of the todo into every cached
+  query that holds it.
+- `Entity.set(Todos, todo)` writes a whole todo, such as a mutation's
+  result, over every copy with its ID.
+- `Entity.remove(Todos, id)` drops the todo from every cached query that
+  holds it.
+- `Entity.get(Todos, id)` reads the newest cached copy, as an `Option`.
+  Where copies differ, the one from the query fetched or written last
+  wins. [Show a placeholder](/docs/queries/placeholders) uses it to fill a
+  detail screen from a list.
+
+Writes are recorded like `Query.update`'s, so in a mutation's
+`optimistic` they're undone if the run fails. This mutation drops a todo
+everywhere at once:
+
+```ts
+import { Fetch } from "@monarcode/effetch";
+import { Entity } from "@monarcode/effetch-query";
+
+import { Todos } from "./entities.js";
+import { api, todos } from "./todos.js";
+
+export const deleteTodo = api.mutation(Fetch.endpoint("DELETE /todos/:id"), {
+  optimistic: ({ params }) => Entity.remove(Todos, Number(params.id)),
+  // The lists' totals come from the server.
+  invalidates: [todos],
+});
+```
+
+IDs are compared with `Equal.equals`, so convert a route param first, with
+`Number(params.id)`: a number and a string don't match.
+
+Neither `Entity.set` nor `Entity.remove` changes which records a list
+holds or how many:
+
+- `Entity.set` adds the todo to no list. Invalidate the lists it should
+  join.
+- `Entity.remove` leaves totals as they were, so invalidate the lists
+  too, and count an infinite query's next page from its params, not its
+  length.
+
+<Accordions type="multiple">
+  <Accordion title="Details: where Entity.remove can't drop a record">
+    `Entity.remove` drops the todo from arrays and records. An optional field
+    loses it: an `optionalKey` field loses its key, and a `NullOr` or `optional`
+    field becomes `null` or `undefined`. Where the schema has no way to leave it
+    out, it stays: a required field, a tuple's element, a non-empty array's last
+    item, or a detail query's whole value.
+  </Accordion>
+</Accordions>
+
+## What an entity write reaches
+
+Nothing is normalized: each query keeps its own value, and an entity write
+maps it. A write keeps each query's age, so it doesn't make a stale query
+fresh or stop it from refetching. A query whose value doesn't change isn't
+written. If `f` throws, nothing is written and the Effect dies with the
+defect.
+
+Some queries are left to their next fetch:
+
+- a query that's invalidated and not in use, or that shows a failure;
+- a query without a value;
+- a query without a schema.
+
+A query is found through its schema: an endpoint's `output`, or `schema`
+on `Query.make`, `Query.family` and infinite queries. The entity is found
+by its own schema, `Todo`, or `Todo` with annotations or checks added. A
+schema built from `Todo`'s fields, such as
+`Schema.Struct({ ...Todo.fields, extra })`, is a different schema, and
+isn't the entity.
+
+<Accordions type="multiple">
+  <Accordion title="Details: where in a value an entity is found">
+    The todo is found in arrays, tuples, records, struct fields, optional
+    and `NullOr` fields, unions, nested and recursive schemas,
+    `Schema.Class` instances and infinite queries' pages, on the decoded
+    side of a schema that transforms.
+
+    It isn't found inside `Option`, `Map` or other such types, after a
+    tuple's rest element, or inside another copy of itself.
+
+    A value sent from the server is reached after a query reads it: until
+    then it's JSON, with no schema to search.
+
+  </Accordion>
+</Accordions>
+
+## Responses in other shapes
+
+Endpoints often return one record in different shapes: a search row with
+its own field names, a detail wrapped in `data`. Decode each one to the
+entity's schema with `Schema.decodeTo`. An entity is found on the decoded
+side of a schema, so it's found in every query whose schema decodes to
+it, whatever the wire shape:
+
+```ts
+import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+// What GET /search/todos sends for each todo. Only the fields that are
+// read are declared: a response's other fields are ignored.
+const SearchRow = Schema.Struct({
+  todo_id: Schema.Finite,
+  label: Schema.String,
+  completed: Schema.Boolean,
+});
+
+// A search row as a Todo, so the Todos entity finds it.
+export const TodoFromSearchRow = SearchRow.pipe(
+  Schema.decodeTo(
+    Todo,
+    SchemaTransformation.transform({
+      decode: (row) => ({
+        id: row.todo_id,
+        title: row.label,
+        done: row.completed,
+      }),
+      // The mirror of decode, for server rendering.
+      encode: (todo) => ({
+        todo_id: todo.id,
+        label: todo.title,
+        completed: todo.done,
+      }),
+    }),
+  ),
+);
+
+export const searchResults = api.query(
+  Fetch.endpoint("GET /search/todos", {
+    output: Schema.Array(TodoFromSearchRow),
+  }),
+);
+```
+
+`Entity.update(Todos, …)` writes the search results too, and `Entity.get`
+reads them. Three things make it work:
+
+- **Decode to the entity's own schema.** Import the one `Todo` the entity
+  was made with. Another schema with the same fields isn't the entity.
+- **Decode IDs to one type.** IDs are compared with `Equal.equals`, so a
+  todo whose ID is `"1"` in one response and `1` in another is two todos.
+- **Make `encode` the mirror of `decode` if you render on the server.** A
+  query's value is sent to the browser in its wire shape, so its schema
+  must encode the todo back, as
+  [Schemas that transform](/docs/server-rendering/whats-sent#schemas-that-transform)
+  explains. In an app that only runs in the browser, `encode` is never
+  called.
+
+## What's next
+
+- [Keep copies in sync](/docs/cache/entity-sync): have every fetch update
+  the other cached copies of a record too.
+- [Optimistic updates](/docs/mutations/optimistic): write through an
+  entity before the server confirms a change.
+- [Show a placeholder](/docs/queries/placeholders): fill a detail screen
+  with a list's copy while it loads.

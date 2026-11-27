@@ -3,45 +3,125 @@ title: Coming from TanStack Query
 description: How TanStack Query's ideas and names map to Effetch Query.
 ---
 
-If you know TanStack Query, most of what you know carries over: the
-vocabulary is the same, and so are many of the names. The following table
-maps TanStack Query's APIs to Effetch Query's:
+You know TanStack Query, and you want to know what's the same here and what
+isn't. Most of what you know carries over: the vocabulary is the same, and
+so are many of the names. A few things work differently:
 
-| TanStack Query                                                      | Effetch Query                                                                                    |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `queryOptions({ queryKey, queryFn })`                               | `api.query(endpoint)`, or `Query.make` / `Query.family({ key, run })`                            |
-| `useQuery`, `useSuspenseQuery`                                      | Same names; they return an `AsyncResult`                                                         |
-| `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch`  | `useQueryState`: the same fields, with `status` narrowing `data` and `error`                     |
-| `useMutation`, `mutationOptions`                                    | `useMutation(api.mutation(endpoint, { … }))`, or `Mutation.make`                                 |
-| `getQueryData`, `setQueryData`                                      | `Query.get`, `Query.set` / `Query.update` (Effects); `QueryClient.get(client, query)`            |
-| `mutate(variables, { onSuccess, onError })`                         | `run(variables, { onSuccess, onFailure })`                                                       |
-| `useMutation`'s `variables`; mutation `scope`                       | `variables`; `concurrent: "queue"` (per `useMutation`)                                           |
-| `useIsFetching`, `useIsMutating`, `useMutationState`                | Same names; `useMutationState(mutation)` lists one mutation's runs in progress                   |
-| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | `Query.fetch`; outside Effect, `client.fetch`                                                    |
-| `prefetchQuery` (deprecated since 5.102)                            | `Query.prefetch`; outside Effect, `client.prefetch`                                              |
-| `invalidateQueries`, `refetchQueries`, `resetQueries`               | `Query.invalidate`, `Query.refetch`, `Query.reset`: a query, a family, a key prefix or a group   |
-| `invalidateQueries` in a mutation's `onSuccess`                     | `invalidates` on the mutation; `fromClient(Api, { invalidates: "route" })` for every endpoint    |
-| `removeQueries`, `queryClient.clear()`                              | `Query.clear`, `client.clear()`: drops the values without fetching                               |
-| `useQueryErrorResetBoundary` with an error boundary and `Suspense`  | `QueryBoundary`; with a router's boundary, `useResetQueryFailure`                                |
-| `focusManager`, `onlineManager`                                     | The client's `signals` (`Signals.browser`, `reactNativeSignals`)                                 |
-| `new QueryClient({ defaultOptions })`                               | `QueryClient.make({ queries: { defaults }, mutations: { defaults } })`                           |
-| `QueryCache({ onError, onSuccess, onSettled })`                     | `queries.onFailure`, `queries.onSuccess`, `queries.onSettled`                                    |
-| `MutationCache({ onMutate, onError, … })`                           | `mutations.onMutate`, `mutations.onFailure`, …                                                   |
-| `select`                                                            | `select` on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it           |
-| `enabled: false`                                                    | `useQuery(null)`                                                                                 |
-| `placeholderData: keepPreviousData`                                 | `useQuery(query, { keepPrevious: true })`                                                        |
-| `placeholderData` from the cache                                    | `placeholder` on `api.query`, `Query.make` / `Query.family`                                      |
-| `isPlaceholderData`                                                 | `isPlaceholder` on `useQueryState`                                                               |
-| `useQueries`; `subscribed: false`                                   | `useQueries`; `paused: true` on the reading hooks                                                |
-| `retry: 3`                                                          | `retry: Schedule` (default none)                                                                 |
-| `onMutate` returning a rollback context                             | `optimistic`, undone automatically                                                               |
-| `dehydrate`, `hydrate`, `HydrationBoundary`                         | `QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`; queries need a `schema`     |
-| `setupRouterSsrQueryIntegration`                                    | `connectQueryClient` (`./react/tanstack-router`)                                                 |
-| `useInfiniteQuery`, `fetchNextPage`                                 | `api.infiniteQuery`, `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                           |
-| `getNextPageParam`, `getPreviousPageParam`                          | `nextPageParam`, `previousPageParam` (return `undefined` / `null` for none)                      |
-| `setQueriesData`                                                    | `Query.update(family, (value, args) => …)`                                                       |
-| A record in many queries (normalized caches, TanStack DB)           | `Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`                                     |
-| `setQueryData` on other queries in a query's `onSuccess`            | `entities: { sync: [Todos] }` on the client ([Keep copies in sync](/docs/mutations/entity-sync)) |
-| `experimental_streamedQuery`                                        | `Query.stream`, `Query.streamFamily`; `api.query` of an SSE or NDJSON endpoint                   |
-| `setQueryData` from a WebSocket's messages                          | `live` on `api.query`, `Query.make` / `Query.family`                                             |
-| `cancelQueries`, devtools                                           | Not in 0.1                                                                                       |
+- **A result is an `AsyncResult`.** Reading a query gives Effect's
+  `AsyncResult`: `Initial`, `Success` or `Failure`. A failure holds the
+  full `Cause`, so its error keeps its type, such as `TodoNotFound`.
+- **Nothing retries by default.** A failed fetch fails at once, unless you
+  give `retry` a `Schedule`.
+- **Queries are defined once, at module level.** A query is a value, like a
+  schema: `todos` is defined once and shared, not written out with its key
+  in each component.
+- **Offline pauses nothing.** There's no `networkMode`: a fetch that runs
+  while the device is offline fails, and the queries in use that are
+  stale refetch when it reconnects.
+
+Each of the following sections maps one part of TanStack Query's API to
+Effetch Query's, in the order of the sidebar, and links each to the page
+that explains it.
+
+## Queries
+
+Defining and fetching queries maps as follows:
+
+| TanStack Query                                                      | Effetch Query                                                                                                                                   |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queryOptions({ queryKey, queryFn })`                               | [`api.query(endpoint)`](/docs/queries), or [`Query.make` / `Query.family({ key, run })`](/docs/queries/without-effetch)                         |
+| `query()`; `ensureQueryData`, `fetchQuery` (deprecated since 5.102) | [`Query.fetch`](/docs/cache#read-and-write-from-effect); outside Effect, `client.fetch`                                                         |
+| `prefetchQuery` (deprecated since 5.102)                            | [`Query.prefetch`](/docs/cache#read-and-write-from-effect); outside Effect, `client.prefetch`                                                   |
+| `staleTime`, `gcTime`                                               | [`staleTime`, `gcTime`](/docs/queries/freshness), as Effect durations such as `"30 seconds"`; `gcTime` is set per query, with no client default |
+| `refetchOnWindowFocus`                                              | [`refetchOnFocus`](/docs/queries/freshness#focus-and-reconnect)                                                                                 |
+| `retry: 3`                                                          | [`retry: Schedule`](/docs/queries/options) (default none)                                                                                       |
+| `placeholderData` from the cache                                    | [`placeholder`](/docs/queries/placeholders) on `api.query`, `Query.make` / `Query.family`                                                       |
+| `useInfiniteQuery`, `fetchNextPage`                                 | [`api.infiniteQuery`](/docs/queries/infinite), `useInfiniteQuery`, `InfiniteQuery.fetchNextPage`                                                |
+| `getNextPageParam`, `getPreviousPageParam`                          | [`nextPageParam`, `previousPageParam`](/docs/queries/infinite) (return `undefined` / `null` for none)                                           |
+| `experimental_streamedQuery`                                        | [`Query.stream`, `Query.streamFamily`](/docs/queries/streams); `api.query` of an SSE or NDJSON endpoint                                         |
+| `setQueryData` from a WebSocket's messages                          | [`live`](/docs/queries/pushes) on `api.query`, `Query.make` / `Query.family`                                                                    |
+
+## React
+
+Reading queries in components maps as follows:
+
+| TanStack Query                                                     | Effetch Query                                                                                                                                                                            |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QueryClientProvider`                                              | [`QueryProvider`](/docs/react)                                                                                                                                                           |
+| `useQueryClient`                                                   | [`useQueryClient`](/docs/react), which returns the nearest provider's client                                                                                                             |
+| `useQuery`, `useSuspenseQuery`                                     | [`useQuery`](/docs/react) returns an `AsyncResult`; [`useSuspenseQuery`](/docs/react/suspense) returns its `Success`                                                                     |
+| `useQuery`'s `data`, `error`, `isPending`, `isFetching`, `refetch` | [`useQueryState`](/docs/react/as-object): the same fields, with `status` narrowing `data` and `error`. `status` is `"pending"`, `"success"` or `"failure"`, and `isError` is `isFailure` |
+| `select`                                                           | [`select`](/docs/react#select-part-of-a-value) on `useQuery`, `useSuspenseQuery` and `useQueryState`; `Atom.map` to share it                                                             |
+| `enabled: false`                                                   | [`useQuery(null)`](/docs/react#read-nothing-until-youre-ready)                                                                                                                           |
+| `placeholderData: keepPreviousData`                                | [`useQuery(query, { keepPrevious: true })`](/docs/react#keep-the-last-value-while-the-next-loads)                                                                                        |
+| `isPlaceholderData`                                                | [`isPlaceholder`](/docs/react/as-object) on `useQueryState`                                                                                                                              |
+| `useQueries`                                                       | [`useQueries`](/docs/react#read-several-queries)                                                                                                                                         |
+| `subscribed: false`                                                | [`paused: true`](/docs/react/pause) on `useQuery`, `useQueryState`, `useQueries` and `useInfiniteQuery`                                                                                  |
+| `useQueryErrorResetBoundary` with an error boundary and `Suspense` | [`QueryBoundary`](/docs/react/suspense); with a router's boundary, `useResetQueryFailure`                                                                                                |
+| `useIsFetching`                                                    | [`useIsFetching`](/docs/mutations/activity)                                                                                                                                              |
+
+## Mutations
+
+Defining and running mutations maps as follows:
+
+| TanStack Query                                  | Effetch Query                                                                                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `useMutation`, `mutationOptions`                | [`useMutation(api.mutation(endpoint, { … }))`](/docs/mutations), or `Mutation.make`                                               |
+| `mutate(variables, { onSuccess, onError })`     | [`run(variables, { onSuccess, onFailure })`](/docs/mutations/run)                                                                 |
+| `useMutation`'s `variables`; mutation `scope`   | [`variables`](/docs/mutations/run); [`concurrent: "queue"`](/docs/mutations/run#when-runs-overlap) (per `useMutation`)            |
+| `invalidateQueries` in a mutation's `onSuccess` | [`invalidates`](/docs/mutations/invalidate) on the mutation; `fromClient(ApiClient, { invalidates: "route" })` for every endpoint |
+| `onMutate` returning a rollback context         | [`optimistic`](/docs/mutations/optimistic), undone automatically                                                                  |
+| `useIsMutating`, `useMutationState`             | [Same names](/docs/mutations/activity); `useMutationState(mutation)` lists one mutation's runs in progress                        |
+
+## The cache
+
+Reading and writing the cache maps as follows:
+
+| TanStack Query                                            | Effetch Query                                                                                                                                                  |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getQueryData`, `setQueryData`                            | [`Query.get`, `Query.set` / `Query.update`](/docs/cache) (Effects); `QueryClient.get(client, query)`                                                           |
+| `setQueriesData`                                          | [`Query.update(family, (value, args) => …)`](/docs/cache)                                                                                                      |
+| `invalidateQueries`, `refetchQueries`, `resetQueries`     | [`Query.invalidate`, `Query.refetch`, `Query.reset`](/docs/cache): a query, a family, a key prefix or a group. `Query.refetch` reaches only the queries in use |
+| `removeQueries`, `queryClient.clear()`                    | [`Query.clear`, `client.clear()`](/docs/cache/accounts): drops the values without fetching                                                                     |
+| A record in many queries (normalized caches, TanStack DB) | [`Entity.update`, `Entity.set`, `Entity.remove`, `Entity.get`](/docs/cache/entities)                                                                           |
+| `setQueryData` on other queries in a query's `onSuccess`  | [`entities: { sync: [Todos] }`](/docs/cache/entity-sync) on the client                                                                                         |
+
+## The client
+
+Creating and configuring the client maps as follows:
+
+| TanStack Query                                  | Effetch Query                                                                                                                                                        |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `new QueryClient({ defaultOptions })`           | [`QueryClient.make({ queries: { defaults }, mutations: { defaults } })`](/docs/client/defaults)                                                                      |
+| `QueryCache({ onError, onSuccess, onSettled })` | [`queries.onFailure`, `queries.onSuccess`, `queries.onSettled`](/docs/client/defaults)                                                                               |
+| `MutationCache({ onMutate, onError, … })`       | [`mutations.onMutate`, `mutations.onFailure`, …](/docs/client/defaults)                                                                                              |
+| `focusManager`, `onlineManager`                 | [The client's `signals`](/docs/client#focus-and-online-signals) (`Signals.browser`, `reactNativeSignals`). They trigger refetches only: being offline pauses nothing |
+
+## Server rendering
+
+Sending the cache from a server maps as follows:
+
+| TanStack Query                              | Effetch Query                                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dehydrate`, `hydrate`, `HydrationBoundary` | [`QueryClient.dehydrate`, `QueryClient.hydrate`, `HydrationBoundary`](/docs/server-rendering). A `Query.make` or `Query.family` query needs a `schema`; an endpoint query uses its `output` |
+| `setupRouterSsrQueryIntegration`            | [`connectQueryClient`](/docs/frameworks/tanstack-start) (`./react/tanstack-router`)                                                                                                         |
+
+## Not in 0.1
+
+These have no equivalent in 0.1:
+
+- `cancelQueries`;
+- `networkMode`, and the pausing of queries and mutations while offline;
+- devtools.
+
+[Limitations](/docs/reference/limitations) lists everything 0.1 doesn't
+do, and what to do instead.
+
+## What's next
+
+- [Getting started](/docs/getting-started): build a small todo app, a file
+  at a time.
+- [Queries from endpoints](/docs/queries): define the queries your app
+  reads.
+- [Limitations](/docs/reference/limitations): what Effetch Query 0.1
+  doesn't do.

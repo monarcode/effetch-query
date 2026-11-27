@@ -3,11 +3,9 @@
 	"pages": [
 		"index",
 		"as-object",
-		"select",
-		"many",
 		"suspense",
-		"pause",
 		"refetch",
+		"pause",
 		"atoms",
 		"react-native"
 	]

@@ -11,17 +11,19 @@ description: "Every member of the Entity namespace: records whose cached copies 
 import { Entity } from "@monarcode/effetch-query";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## Entities [#entities]
 
-Guide: [Entities](/docs/mutations/entities).
+Guide: [Entities](/docs/cache/entities).
 
 ### Entity.make [#make]
 
 Defines an entity: a schema, and how to get one's id. Define it once, beside the schema, and use that same schema in your queries: a query is searched for the schema itself (or a copy with annotations or checks added), not for another schema with the same fields.
+
+A query is reached through its `schema` (`Query.MakeOptions.schema`), or an Effetch endpoint's `output`; a query without one is skipped. The entity is found in arrays, tuples, records, struct fields (optional and `NullOr` ones too), unions, nested and recursive (`Schema.suspend`) schemas, `Schema.Class` instances, infinite queries' pages, and the decoded side of schemas that transform. It isn't found inside `Option`, `Map` or other declarations, nor after a tuple's rest element, nor inside another copy of itself. A value hydrated from the server is reached once a query reads it: until then it's JSON with no schema to search.
 
 ### Entity.get [#get]
 
@@ -51,6 +53,13 @@ Writes a value computed from the entity whose id is `id` into every cached query
 
 A record that many queries hold, such as a todo that's in a list, in a page of a search and in its own detail query, made with [`make`](#make). [`update`](#update), [`set`](#set) and [`remove`](#remove) write it in every cached query whose schema holds it, and [`get`](#get) reads it from any of them.
 
+Nothing is normalized: each query keeps its own value, and an entity write maps it, as `Query.update` does.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Entity.d.ts"
+  name="Entity"
+/>
+
 ### Entity.MakeOptions [#makeoptions]
 
 Options for [`make`](#make).
@@ -59,17 +68,3 @@ Options for [`make`](#make).
   path="node_modules/@monarcode/effetch-query/dist/Entity.d.ts"
   name="MakeOptions"
 />
-
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
-- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
-- [`Mutation`](/docs/reference/mutation): defining and running mutations.
-- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
-- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.

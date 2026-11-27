@@ -287,7 +287,8 @@ export interface Schema<A, E, P> {
 }
 
 /**
- * Options for {@link make}.
+ * Options for {@link make}: a query's options and its page options. An
+ * infinite query takes no `placeholder` or `live`.
  *
  * @example
  * ```ts

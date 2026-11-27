@@ -1,4 +1,4 @@
 {
 	"title": "The cache",
-	"pages": ["index", "outside-effect", "accounts"]
+	"pages": ["index", "entities", "entity-sync", "accounts"]
 }

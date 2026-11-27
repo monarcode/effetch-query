@@ -18,6 +18,7 @@ import {
 	sitePages,
 	type Example,
 } from "../../../scripts/docs-examples.mjs";
+import { codeTheme } from "./code-theme.ts";
 
 /*
  * How pages compile, for the build only: `vite.config.ts` hands these to
@@ -151,7 +152,7 @@ function untyped(hover: { text: string; target: string }, source: string) {
 }
 
 /** Every named file in the README and the pages, by name. */
-function namedExamples() {
+export function namedExamples() {
 	const named = new Map<string, Example>();
 	for (const example of markdownExamples(() => {}))
 		if (example.name) named.set(example.name, example);
@@ -201,39 +202,48 @@ function rehypeExamples(build: boolean) {
 			next = found + 1;
 			const example = page[found];
 			if (!example || OPT_OUT.test(meta)) return;
-			const hidden = companions(example, named).map(
-				(other) =>
-					`// @filename: ${other.name}\n${other.code}\nexport {};\n`,
-			);
-			const all = [example, ...companions(example, named)];
-			// As `check-docs` adds them to every program.
-			for (const [module, shim] of Object.entries(shims))
-				hidden.push(shimFile(module, shim));
-			// TypeScript resolves an augmentation's module only once a file of
-			// the program imports it, which a file that only registers its
-			// services, such as `api.ts`, doesn't.
-			if (all.some(augments))
-				hidden.push(
-					`// @filename: package.ts\nimport type {} from "${PACKAGE}";\n`,
-				);
-			const own = example.name ?? `example.${example.extension}`;
-			const lines = [
-				// Twoslash puts blocks with the same compiler options in one
-				// program, where one block's `declare module` would reach the
-				// next. An export condition no package has gives each block a
-				// program of its own.
-				`// @customConditions: ${path.relative(root, pagePath)}#${example.line}`,
-				// The hidden files are `check-docs`' to report.
-				"// @noErrorsCutted",
-				...hidden,
-				// As `check-docs` compiles it: a module, even without imports.
-				`// @filename: ${own}\nexport {};`,
-				CUT + source,
+			code.children = [
+				{ type: "text", value: twoslashSource(example, named) },
 			];
-			code.children = [{ type: "text", value: lines.join("\n") }];
 			code.data = { ...code.data, meta: `${meta} twoslash`.trim() };
 		});
 	};
+}
+
+/**
+ * An example as Twoslash compiles it, the way `check-docs` does: the named
+ * files it imports, and those that augment `Register`, as hidden files
+ * before it, so `./todos.js` resolves and its hovers show the types the
+ * docs' own code gives them. The pages and the landing page both use it.
+ */
+export function twoslashSource(example: Example, named: Map<string, Example>) {
+	const hidden = companions(example, named).map(
+		(other) => `// @filename: ${other.name}\n${other.code}\nexport {};\n`,
+	);
+	const all = [example, ...companions(example, named)];
+	// As `check-docs` adds them to every program.
+	for (const [module, shim] of Object.entries(shims))
+		hidden.push(shimFile(module, shim));
+	// TypeScript resolves an augmentation's module only once a file of the
+	// program imports it, which a file that only registers its services,
+	// such as `api.ts`, doesn't.
+	if (all.some(augments))
+		hidden.push(
+			`// @filename: package.ts\nimport type {} from "${PACKAGE}";\n`,
+		);
+	const own = example.name ?? `example.${example.extension}`;
+	return [
+		// Twoslash puts blocks with the same compiler options in one program,
+		// where one block's `declare module` would reach the next. An export
+		// condition no package has gives each block a program of its own.
+		`// @customConditions: ${path.relative(root, example.file)}#${example.line}`,
+		// The hidden files are `check-docs`' to report.
+		"// @noErrorsCutted",
+		...hidden,
+		// As `check-docs` compiles it: a module, even without imports.
+		`// @filename: ${own}\nexport {};`,
+		CUT + example.code,
+	].join("\n");
 }
 
 /**
@@ -290,74 +300,11 @@ function text(node: ElementContent): string {
 export const mdxOptions = (build: boolean): MDXPresetOptions => ({
 	rehypeCodeOptions: {
 		...rehypeCodeDefaultOptions,
+		// The site is dark only, so both are the site's theme.
+		themes: { light: codeTheme, dark: codeTheme },
 		transformers: [
 			...(rehypeCodeDefaultOptions.transformers ?? []),
-			// Type hovers on every example. A type error fails the build. No
-			// cache: it's keyed by the block, so it would hide a change to the
-			// types.
-			transformerTwoslash({
-				twoslashOptions: {
-					cwd: root,
-					compilerOptions: exampleCompilerOptions(),
-				},
-				rendererRich: { processHoverInfo },
-				onTwoslashError: twoslashErrors(build),
-			}),
-			// A hover shows a name's type and its docs' first paragraph, with
-			// the tags that say how to use it, such as `@default`. The export's
-			// own example and its version stay out: the page is the example,
-			// and every hover ships in the page. Runs before Twoslash renders
-			// its popups.
-			{
-				name: "hover-docs",
-				tokens() {
-					const nodes = this.meta.twoslash?.nodes ?? [];
-					// A namespace named in a type, as `QueryClient` is in
-					// `QueryClient.QueryClient`, hovers as `const QueryClient: any`
-					// under Twoslash's TypeScript 7. It takes the hover the same
-					// name has elsewhere in the block, or else says what it is: a
-					// name that qualifies others is a namespace.
-					const source = this.source;
-					const known = new Map(
-						nodes.flatMap((node) =>
-							node.type === "hover" && !untyped(node, source)
-								? [[node.target, node] as const]
-								: [],
-						),
-					);
-					for (const node of nodes) {
-						if (node.type !== "hover") continue;
-						const same = untyped(node, source)
-							? known.get(node.target)
-							: undefined;
-						if (same)
-							Object.assign(node, {
-								text: same.text,
-								docs: same.docs,
-								tags: same.tags,
-							});
-						else if (
-							untyped(node, source) &&
-							new RegExp(
-								`(?<![\\w$])${node.target.replace(/[$]/g, "\\$&")}\\.`,
-							).test(source)
-						)
-							node.text = `namespace ${node.target}`;
-						if (node.docs) node.docs = firstParagraph(node.docs);
-						if (node.tags)
-							node.tags = node.tags.filter(
-								([name]) => !PAGE_TAGS.has(name),
-							);
-					}
-					// A global named in a type, such as `Promise`, has no hover to
-					// borrow: it shows none rather than a wrong one.
-					for (let index = nodes.length - 1; index >= 0; index--) {
-						const node = nodes[index];
-						if (node?.type === "hover" && untyped(node, source))
-							nodes.splice(index, 1);
-					}
-				},
-			},
+			...twoslashTransformers(build),
 		],
 	},
 	remarkPlugins: (plugins) => [
@@ -375,9 +322,81 @@ export const mdxOptions = (build: boolean): MDXPresetOptions => ({
 				// link `node_modules/@monarcode/effetch-query` points at the
 				// package.
 				options: { basePath: site },
+				// Types in the tables, in the same greys as the code.
+				shiki: { themes: { light: codeTheme, dark: codeTheme } },
 			},
 		],
 	],
 	// Before `rehypeCode`, which highlights what it leaves.
 	rehypePlugins: (plugins) => [[rehypeExamples, build], ...plugins],
 });
+
+/** Type hovers on an example, for the pages and the landing page. */
+export const twoslashTransformers = (
+	build: boolean,
+): ReturnType<typeof transformerTwoslash>[] => [
+	// Type hovers on every example. A type error fails the build. No
+	// cache: it's keyed by the block, so it would hide a change to the
+	// types.
+	transformerTwoslash({
+		twoslashOptions: {
+			cwd: root,
+			compilerOptions: exampleCompilerOptions(),
+		},
+		rendererRich: { processHoverInfo },
+		onTwoslashError: twoslashErrors(build),
+	}),
+	// A hover shows a name's type and its docs' first paragraph, with
+	// the tags that say how to use it, such as `@default`. The export's
+	// own example and its version stay out: the page is the example,
+	// and every hover ships in the page. Runs before Twoslash renders
+	// its popups.
+	{
+		name: "hover-docs",
+		tokens() {
+			const nodes = this.meta.twoslash?.nodes ?? [];
+			// A namespace named in a type, as `QueryClient` is in
+			// `QueryClient.QueryClient`, hovers as `const QueryClient: any`
+			// under Twoslash's TypeScript 7. It takes the hover the same
+			// name has elsewhere in the block, or else says what it is: a
+			// name that qualifies others is a namespace.
+			const source = this.source;
+			const known = new Map(
+				nodes.flatMap((node) =>
+					node.type === "hover" && !untyped(node, source)
+						? [[node.target, node] as const]
+						: [],
+				),
+			);
+			for (const node of nodes) {
+				if (node.type !== "hover") continue;
+				const same = untyped(node, source)
+					? known.get(node.target)
+					: undefined;
+				if (same)
+					Object.assign(node, {
+						text: same.text,
+						docs: same.docs,
+						tags: same.tags,
+					});
+				else if (
+					untyped(node, source) &&
+					new RegExp(
+						`(?<![\\w$])${node.target.replace(/[$]/g, "\\$&")}\\.`,
+					).test(source)
+				)
+					node.text = `namespace ${node.target}`;
+				if (node.docs) node.docs = firstParagraph(node.docs);
+				if (node.tags)
+					node.tags = node.tags.filter(([name]) => !PAGE_TAGS.has(name));
+			}
+			// A global named in a type, such as `Promise`, has no hover to
+			// borrow: it shows none rather than a wrong one.
+			for (let index = nodes.length - 1; index >= 0; index--) {
+				const node = nodes[index];
+				if (node?.type === "hover" && untyped(node, source))
+					nodes.splice(index, 1);
+			}
+		},
+	},
+];

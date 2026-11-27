@@ -3,42 +3,66 @@ title: Query options
 description: Every option a query takes.
 ---
 
-`api.query`, `Query.make` and `Query.family` take the following options:
+`api.query`, `Query.make` and `Query.family` take the options on this
+page. `Query.make` and `Query.family` also take `key` and `run`, as
+[Queries from any Effect](/docs/queries/without-effetch) shows. Stream
+queries take a shorter list, given in
+[Queries from a stream](/docs/queries/streams#stream-query-options), and
+infinite queries add paging options, given in
+[Infinite queries](/docs/queries/infinite#infinite-query-options).
 
-| Option               | Default   | What it does                                                                                                             |
-| -------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `staleTime`          | `0`       | How long a value counts as fresh (a `Duration.Input`, such as `"1 minute"`).                                             |
-| `gcTime`             | 5 minutes | How long a query not in use keeps its value.                                                                             |
-| `retry`              | none      | A `Schedule` to retry failed fetches with.                                                                               |
-| `refetchOnMount`     | `true`    | Refetch a stale query when a component starts using it.                                                                  |
-| `retryOnMount`       | `true`    | Refetch a failed query when a component starts using it.                                                                 |
-| `refetchOnFocus`     | `true`    | Refetch stale queries in use when the app comes back into focus.                                                         |
-| `refetchOnReconnect` | `true`    | Refetch stale queries in use when the device comes back online.                                                          |
-| `refetchInterval`    | none      | Refetch on this interval while the query is in use.                                                                      |
-| `reactivityKeys`     | none      | Also refetch when these `Reactivity` keys are invalidated (`effect/reactivity`).                                         |
-| `entities`           | in sync   | `{ sync: false }` leaves the query out of the client's entity sync ([Keep copies in sync](/docs/mutations/entity-sync)). |
-| `placeholder`        | none      | A value to show until the query has one ([Show a placeholder](/docs/queries/placeholders)).                              |
-| `live`               | none      | Server pushes that keep the value up to date ([Push updates into a query](/docs/queries/pushes)).                        |
-| `schema`             | none      | `Query.make` and `Query.family` only: how the value crosses to the browser.                                              |
-| `headers`, `plugins` | none      | `api.query` only: what Effetch's `client.bind` takes, for every call.                                                    |
+## Options
 
-`schema` is what [Server rendering](/docs/server-rendering) sends the value
-with; an endpoint's `output` is its schema already
-([Queries without Effetch](/docs/queries/without-effetch)).
+A query takes the following options:
 
-Each set of options has a type, for options you define on their own:
+| Option               | Default                              | What it does                                                                                                                                                                       |
+| -------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `staleTime`          | `0`                                  | How long a value counts as fresh (a `Duration.Input`, such as `"1 minute"`).                                                                                                       |
+| `gcTime`             | 5 minutes                            | How long a query not in use keeps its value.                                                                                                                                       |
+| `retry`              | No retries                           | A `Schedule` to retry failed fetches with. Defects aren't retried.                                                                                                                 |
+| `refetchOnMount`     | `true`                               | Refetch a stale query when a component starts using it.                                                                                                                            |
+| `retryOnMount`       | `true`                               | Refetch a failed query when a component starts using it.                                                                                                                           |
+| `refetchOnFocus`     | `true`                               | Refetch stale queries in use when the app comes back into focus.                                                                                                                   |
+| `refetchOnReconnect` | `true`                               | Refetch stale queries in use when the device comes back online.                                                                                                                    |
+| `refetchInterval`    | No polling                           | Refetch on this interval while the query is in use.                                                                                                                                |
+| `reactivityKeys`     | None                                 | Also refetch when Effect code invalidates these `Reactivity` keys, as Effect's SQL clients do.                                                                                     |
+| `entities`           | In sync, if the query has a `schema` | `{ sync: false }` leaves the query out of the client's entity sync, which is off until the client lists entities to sync. See [Keep copies in sync](/docs/cache/entity-sync).      |
+| `placeholder`        | None                                 | A value to show until the query has one. See [Show a placeholder](/docs/queries/placeholders).                                                                                     |
+| `live`               | None                                 | Server pushes that keep the value up to date. See [Push updates into a query](/docs/queries/pushes).                                                                               |
+| `schema`             | None                                 | `Query.make` and `Query.family` only: how the value crosses to the browser in server rendering, and how entities find records in it. An endpoint's `output` is its schema already. |
+| `headers`, `plugins` | None                                 | `api.query` only: what Effetch's `client.bind` takes, for every call.                                                                                                              |
+
+The client's `queries.defaults` can change the defaults of `staleTime`,
+`retry`, `refetchOnMount`, `retryOnMount`, `refetchOnFocus`,
+`refetchOnReconnect` and `refetchInterval`. The rest are set per query.
+See [Defaults and app-wide hooks](/docs/client/defaults), and
+[Freshness and refetching](/docs/queries/freshness) for what "in use"
+and the refetch options mean.
+
+## Option types
+
+Each set of options has a named type. Use it when you define options
+apart from the query, such as a preset several queries share:
 
 - **`Query.Options<E>`**: the options every query takes, from
-  `staleTime` to `reactivityKeys`. It extends
-  `QueryClient.QueryDefaults`, the ones `queries.defaults` sets.
+  `staleTime` to `entities`. It extends `QueryClient.QueryDefaults`, the
+  options `queries.defaults` can set, and adds `gcTime`,
+  `reactivityKeys` and `entities`, which only a query sets.
 - **`Query.MakeOptions<A, E>`**: `Query.make`'s, with `key`, `run`,
   `schema`, `placeholder` and `live`. `placeholder` is an Effect and
   `live` a `Stream`.
 - **`Query.FamilyOptions<Args, A, E>`**: `Query.family`'s, where `run`,
   `placeholder` and `live` are functions of the member's argument.
 - **`Query.Schema<A, E>`**: a `success` schema for the value and, to send
-  failures too, an `error` schema. Each must be a JSON codec that needs
-  no services.
+  failures too, an `error` schema. Pass the schemas themselves: each must
+  encode to JSON and need no services.
 - **`EndpointQueryOptions`**: `api.query`'s, from
   `@monarcode/effetch-query/effetch`. Its `placeholder` and `live` are
   functions of the call's `params` and `query`.
+
+## What's next
+
+- [Freshness and refetching](/docs/queries/freshness): when the refetch
+  options apply.
+- [Defaults and app-wide hooks](/docs/client/defaults): set defaults for
+  every query on the client.

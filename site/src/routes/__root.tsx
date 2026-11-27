@@ -38,7 +38,16 @@ function RootComponent() {
 				<HeadContent />
 			</head>
 			<body className="flex flex-col min-h-screen">
-				<RootProvider components={{ Link }} search={{ SearchDialog }}>
+				<RootProvider
+					components={{ Link }}
+					search={{ SearchDialog }}
+					// Dark only, as the brand is.
+					theme={{
+						forcedTheme: "dark",
+						defaultTheme: "dark",
+						enableSystem: false,
+					}}
+				>
 					<Outlet />
 				</RootProvider>
 				<Scripts />

@@ -3,19 +3,16 @@ title: Queries that read other queries
 description: Build a query from the value of another query.
 ---
 
-A query's `run` can read other queries. `Query.make` can take `run` as a
-function of a `Query.RunContext`, and `Query.family` passes one as the
-second argument of its `run`. Its `ctx.result(query)` returns the other
-query's value, and makes this query depend on it:
+Some requests need what another one returned: the todos of whoever is
+signed in need the session first. A query's `run` can read another query,
+and waits for it. This page shows how, and what the dependency changes.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+The example imports `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-- it waits while the other query has no value yet;
-- it fails as the other query does, with its typed error;
-- when the other query's value changes, this one refetches.
+## Read another query in run
 
-That makes dependent queries, where one request needs what another
-returned. Here the todos load once the session says whose they are:
+Here the todos load after the session says whose they are:
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -37,7 +34,7 @@ export const myTodos = Query.make({
   key: ["todos", "mine"],
   run: (ctx) =>
     Effect.gen(function* () {
-      // Waits for the session, and refetches when it changes.
+      // Waits for the session, and runs again when its result changes.
       const { userId } = yield* ctx.result(session());
       return yield* ApiClient.use((client) =>
         client.get("/todos", {
@@ -49,21 +46,60 @@ export const myTodos = Query.make({
 });
 ```
 
-A few things follow from the dependency:
+`Query.make` can take `run` as a function of a `Query.RunContext`, as
+here, and `Query.family` passes one as the second argument of its `run`.
+`ctx.result(query)` returns the other query's value, and makes this query
+depend on it:
 
-- **It keeps the other query in use.** While something uses `myTodos`,
-  `session()` counts as in use too, so focus and invalidation refetch it
-  as they would a query on screen. A dependent query that nothing uses
-  doesn't count.
-- **Clearing one clears its readers.** `Query.clear` on `session()`
-  clears `myTodos` too, since its value came from it. When `myTodos` is
-  asked for again, it asks for the session
-  ([Sign out and switch accounts](/docs/cache/accounts)).
-- **It waits for real values.** A placeholder isn't a value: a query
-  reading one through `ctx.result` waits for the fetch
-  ([Show a placeholder](/docs/queries/placeholders)).
+- it waits while the other query has no value yet;
+- it fails as the other query does, with its typed error;
+- it re-runs whenever the other query's result changes.
 
 Endpoint queries have no `run` to write, so a query that reads one is a
-`Query.make` or `Query.family` of your own, as here. To derive a value in
-one component without a query of its own, use `select`
-([Select part of a value](/docs/react/select)).
+`Query.make` or `Query.family` of your own, as `myTodos` is.
+
+## When it runs again
+
+A dependent query re-runs on every change to the other query's result,
+not only to its value. A refetch of `session()` changes its result twice:
+when the refetch starts, the result is marked as waiting, and when it
+settles, it holds the new value. So each refetch of `session()` runs
+`myTodos` twice, and sends `GET /todos?owner=…` twice, even when the
+session didn't change.
+
+While the other query refetches, `ctx.result` returns the value it still
+shows. If that refetch fails, the dependent query fails too, with the
+same error.
+
+To keep the extra requests down, give the query you read a longer
+`staleTime`, so fewer events refetch it. See
+[Freshness and refetching](/docs/queries/freshness).
+
+## What the dependency changes
+
+A few more things follow from the dependency:
+
+- **It keeps the other query in use.** While something uses `myTodos`,
+  `session()` counts as [in use](/docs/queries/freshness#queries-in-use)
+  too, so focus and invalidation refetch it as they would a query on
+  screen. A dependent query that's only cached doesn't count.
+- **Clearing one clears its readers.** `Query.clear` on `session()`
+  clears `myTodos` too, since its value came from it. When `myTodos` is
+  read again, it reads the session again, as
+  [Sign out and switch accounts](/docs/cache/accounts) shows.
+- **It waits for real values.** A placeholder isn't a value: a query
+  reading one through `ctx.result` waits for the fetch. See
+  [Show a placeholder](/docs/queries/placeholders).
+
+To derive a value in one component without a query of its own, pass
+`useQuery` a `select`, as
+[Select part of a value](/docs/react#select-part-of-a-value) shows.
+
+## What's next
+
+- [Freshness and refetching](/docs/queries/freshness): when the query you
+  read refetches, and so when yours runs again.
+- [Sign out and switch accounts](/docs/cache/accounts): clear the session
+  and every query that read it.
+- [Select part of a value](/docs/react#select-part-of-a-value): derive a
+  value in a component instead.

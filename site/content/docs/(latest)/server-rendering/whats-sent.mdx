@@ -1,0 +1,278 @@
+---
+title: What's sent
+description: Which queries QueryClient.dehydrate sends to the browser, and what it leaves out.
+---
+
+When you [send the cache](/docs/server-rendering), `QueryClient.dehydrate`
+encodes each cached query as JSON. Most queries cross without any work.
+When one doesn't, the browser fetches a query the server already had, or
+`dehydrate` throws. This page shows what decides it: schemas, keys and
+failures, and the options `dehydrate` takes.
+
+The examples import `todos.ts` from
+[Getting started](/docs/getting-started).
+
+## Queries with a schema
+
+Each query with a schema is sent, encoded with it. An Effetch endpoint's
+`output` is its schema; an endpoint without an `output` isn't sent. A
+query of your own needs a `schema`, as
+[Queries from any Effect](/docs/queries/without-effetch) shows.
+
+Some queries are left out, with no error, and the browser fetches them
+itself:
+
+- a query with no schema;
+- a value its schema can't encode, such as a schema that transforms one
+  way only, as [Schemas that transform](#schemas-that-transform) shows;
+- a value whose schema needs a service to encode, which an Effetch
+  endpoint's `output` may: `dehydrate` runs outside any Effect, so it has
+  no services to give;
+- a [placeholder](/docs/queries/placeholders), which is never cached;
+- a query still loading with nothing to show yet, unless you
+  [stream the cache](/docs/server-rendering/streaming);
+- a failed query, unless you [send failures](#send-failures).
+
+A stale query that's refetching is sent with the value it has. On the
+server, `Query.prefetch` runs a [stream query](/docs/queries/streams) to
+its first element, which `dehydrate` sends when the query has a `schema`.
+
+## Schemas that transform
+
+A value crosses to the browser in its wire shape. `dehydrate` encodes it
+with the query's schema, from the decoded value back to what the server
+sent, and the browser decodes it with the same schema. For a plain
+`Schema.Struct` that takes no thought. Effect's date schemas, such as
+`Schema.Date` and `Schema.DateFromString`, encode too: a date goes as an
+ISO string.
+
+A schema you write with `Schema.decodeTo` is different. It maps a response
+to your own type, as
+[Responses in other shapes](/docs/cache/entities#responses-in-other-shapes)
+does, and its transformation must encode as well as decode. One that
+can't, such as one whose `encode` is `SchemaGetter.forbidden`, makes
+`dehydrate` leave the query out, with no error. The page still renders on
+the server, but the browser has no value for that query:
+
+- the browser fetches it again, a second request for data the server
+  already had;
+- `useSuspenseQuery` waits for that fetch while React hydrates;
+- a plain `useQuery` starts out pending in the browser, though the server
+  rendered the data, which can show a loading state or a hydration
+  mismatch.
+
+So write `encode` as the mirror of `decode`. It doesn't have to rebuild
+the whole response, only a wire value that `decode` turns back into the
+same value. Declare only the fields you read in the wire schema: a
+response's other fields are ignored when decoding, so `encode` has only
+those to write:
+
+```ts
+import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+
+// The API sends amounts in minor units, under its own names.
+const PaymentWire = Schema.Struct({
+  ref: Schema.String,
+  amount_minor: Schema.Finite,
+});
+
+export const Payment = Schema.Struct({
+  id: Schema.String,
+  amount: Schema.Finite,
+});
+
+export const PaymentFromWire = PaymentWire.pipe(
+  Schema.decodeTo(
+    Payment,
+    SchemaTransformation.transform({
+      decode: (wire) => ({ id: wire.ref, amount: wire.amount_minor / 100 }),
+      encode: (payment) => ({
+        ref: payment.id,
+        amount_minor: Math.round(payment.amount * 100),
+      }),
+    }),
+  ),
+);
+```
+
+The same goes for an entity's copies that a write or a sync put into a
+query: they're sent encoded with that query's own schema.
+
+To check that a query is sent, dehydrate it on its own while you build
+the page:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { todos } from "./todos.js";
+
+declare const client: QueryClient.QueryClient;
+
+// 0 when no todos query is sent: none is cached, it's still loading or
+// failed, its schema can't encode it, or there's no schema.
+export const sent = QueryClient.dehydrate(client, { queries: todos }).length;
+```
+
+## Keys on the server
+
+The browser finds each query by its key, so `dehydrate` turns keys into
+strings. Two errors come from keys. `dehydrate` throws them only for a
+query it would send:
+
+- **`QueryClient.NonJsonKeyError`** when a key holds something JSON can't
+  carry. Its `segment` is the first such value. Keys can't hold:
+  - a `Date` or a class instance;
+  - `undefined` in an array;
+  - `NaN` or `Infinity`;
+  - a function, a `bigint` or a symbol.
+- **`QueryClient.DuplicateQueryKeyError`** when two cached queries have
+  one key, such as two `api.query` of one Effetch endpoint. The browser
+  couldn't tell them apart. Give one of them another key, or a prefix: an
+  Effetch builder takes one with `fromClient(ApiClient, { key: [...] })`.
+
+Both have a `_tag` to match on. An endpoint with a `query` schema encodes
+its query values before they go in the key, so a date there becomes a
+string. See
+[Keys from a query schema](/docs/queries/keys#keys-from-a-query-schema).
+
+## Send failures
+
+By default a failed query is left out, so server errors never reach the
+page, and the browser fetches it again. To send failures, pass
+`failures: "include"`:
+
+```ts
+import { QueryClient } from "@monarcode/effetch-query";
+
+declare const client: QueryClient.QueryClient;
+
+export const state = QueryClient.dehydrate(client, { failures: "include" });
+```
+
+A failed query then goes with its error, encoded with the query's
+`schema.error`, and a defect as `Schema.Defect`. A query of your own with
+no `schema.error` isn't sent when it fails.
+
+In the browser, a component that reads the failure with `useQuery` shows
+it, then retries it as it mounts, unless the query's `retryOnMount` is
+`false`. A `useSuspenseQuery` reader throws it to the nearest error
+boundary, as [Suspense and error boundaries](/docs/react/suspense)
+explains.
+
+An Effetch endpoint's errors go as follows:
+
+- an `HttpError` goes without its headers, but with its request URL and
+  response text, so keep secrets out of the URLs your server calls;
+- a `NetworkError` goes without its `cause`, and a `DecodeError` without
+  its `issue`;
+- the errors of `statusErrors` go as their schemas encode them;
+- a query that failed with a plugin's error isn't sent.
+
+`fromClient` reads the client's `defaultError` and `statusErrors` from a
+`Fetch.Service` class. A client of another kind needs them given, as the
+next section shows.
+
+## A client that isn't a `Fetch.Service` class
+
+This section is for you if you made your Effetch client by hand, with
+`Fetch.make` and a `Context.Service` key, rather than declaring it with
+`Fetch.Service`. It matters when you send failures, or read a family's
+`error` schema.
+
+To send a failure, Effetch Query needs the schemas the client decodes
+errors with: its `defaultError` and its `statusErrors`. The
+`defaultError` is also each family's `error` schema (`todo.error`), for
+endpoints without an `error` schema of their own.
+
+A `Fetch.Service` class carries both, so `fromClient` reads them from it.
+A client made with `Fetch.make` and provided through a `Context.Service`
+key doesn't: its config is there only after its layer is built, which is
+after your queries are defined.
+
+Keep the client's config in one object. Make the client from it, and give
+`fromClient` the same two fields:
+
+```ts
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { fromClient } from "@monarcode/effetch-query/effetch";
+
+class SessionExpired extends Schema.TaggedError<SessionExpired>()(
+  "SessionExpired",
+  { message: Schema.String },
+) {}
+
+const config = {
+  baseUrl: "https://billing.example.com",
+  defaultError: Schema.Struct({ message: Schema.String }),
+  statusErrors: { 401: SessionExpired },
+};
+
+export const makeBillingClient = Fetch.make(config);
+
+export class BillingClient extends Context.Service<
+  BillingClient,
+  Effect.Success<typeof makeBillingClient>
+>()("BillingClient") {}
+
+declare module "@monarcode/effetch-query" {
+  interface Register {
+    readonly services: BillingClient;
+  }
+}
+
+export const billing = fromClient(BillingClient, {
+  key: ["billing"],
+  defaultError: config.defaultError,
+  statusErrors: config.statusErrors,
+});
+
+export const invoices = billing.query(
+  Fetch.endpoint("GET /invoices", { output: Schema.Array(Schema.String) }),
+);
+// invoices() is the query keyed ["billing", "invoices"]
+export const refreshBilling = Query.refetch(["billing"]);
+```
+
+The sample also uses `key: ["billing"]`, so its queries can't clash with
+another backend's, and `Query.refetch(["billing"])` reaches all of them.
+
+If you leave the two fields out, the client still decodes your errors,
+and they're still typed. With `failures: "include"`, two things change:
+
+- **Without `statusErrors`,** a query that failed with one of those errors
+  isn't sent, so the browser fetches it again.
+- **Without `defaultError`,** an `HttpError`'s body goes as plain JSON, so
+  a query whose error body isn't JSON isn't sent. A family's `error` is
+  the endpoint's own `error` schema, or nothing.
+
+On a `Fetch.Service` class, the same two options override what the class
+was declared with. You need that only when the class's `layer` builds its
+client from a different config.
+
+## dehydrate options
+
+`QueryClient.dehydrate` takes the following options as its second
+argument:
+
+| Option     | What it does                                                                                                                                                                                                   | Default     |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `queries`  | A target: only the queries it matches are sent, as `Query.invalidate` matches them. `queries: ["todos"]` sends those under `["todos"]`.                                                                        | Every query |
+| `pending`  | A query still loading, with nothing to show yet. `"promise"` sends a promise of its result, as [Stream the cache](/docs/server-rendering/streaming) shows; `"omit"` leaves it out, and the browser fetches it. | `"omit"`    |
+| `failures` | A failed query. `"include"` sends it with its error; `"omit"` leaves it out, and the browser fetches it.                                                                                                       | `"omit"`    |
+
+## What's next
+
+- [Stream the cache](/docs/server-rendering/streaming): send queries
+  still loading as promises.
+- [Query keys](/docs/queries/keys): how keys are built, and how a target
+  matches them.
+- [Query errors](/docs/queries/errors): what a failure holds, and how to
+  turn a status into an error of your own.
+- [Frameworks](/docs/frameworks): send the cache in TanStack Start,
+  Next.js and React Router.

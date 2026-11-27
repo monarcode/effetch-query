@@ -3,14 +3,19 @@ title: Show activity
 description: Show a global indicator while queries or mutations run.
 ---
 
-A mutation's state belongs to the component that runs it. To show what's
-saving anywhere in the app, read the client's activity instead.
+A mutation's state belongs to the component that runs it, but a saving
+notice or a progress bar often sits somewhere else in the app. To show
+what's saving anywhere, read the client's activity instead. This page
+shows how to list one mutation's runs, and how to count everything in
+progress.
 
-The examples import `toggle-todo.ts` from [Getting started](/docs/getting-started).
+The examples import `toggle-todo.ts` from
+[Getting started](/docs/getting-started).
 
-**Runs of one mutation.** `useMutationState` lists a mutation's runs in
-progress, oldest first, with their variables, whichever component or
-Effect started them:
+## List the runs of one mutation
+
+`useMutationState` lists a mutation's runs in progress, oldest first,
+with their variables, whichever component or Effect started them:
 
 ```tsx
 import { useMutationState } from "@monarcode/effetch-query/react";
@@ -30,12 +35,18 @@ export function SavingNotice() {
 
 Each entry is a `UseMutationStateRun`, with the `variables` the run was
 started with and its `result`, a waiting `Initial`. A run is listed from
-when it starts until it settles, however it ends. A run `"queue"` holds
-back is listed while it waits.
+when it starts until it settles, however it ends. Two kinds of run wait
+before they start, and are listed differently:
 
-**Counts.** `useIsFetching` counts the queries fetching on the provider's
-client, and `useIsMutating` the mutation runs in progress. Together they
-drive an app-wide progress bar:
+- A run `concurrent: "queue"` holds back is listed while it waits.
+- A run that `concurrent: false` makes wait for the run it replaces to
+  roll back is listed after that's done.
+
+## Count fetches and runs
+
+`useIsFetching` counts the queries fetching on the provider's client, and
+`useIsMutating` the mutation runs in progress. Together they drive an
+app-wide progress bar:
 
 ```tsx
 import { useIsFetching, useIsMutating } from "@monarcode/effetch-query/react";
@@ -56,3 +67,12 @@ A server render counts nothing in progress, and so does the first render
 as the page hydrates, so the markup matches; the counts show right after.
 All three hooks throw a `MissingQueryProviderError` outside a
 `QueryProvider`.
+
+## What's next
+
+- [Optimistic updates](/docs/mutations/optimistic): show the change
+  itself, not only that something is saving.
+- [When runs overlap](/docs/mutations/run#when-runs-overlap): how
+  `"queue"` and `false` decide when a run starts.
+- [Mutation options](/docs/mutations/options): every option a mutation
+  takes.

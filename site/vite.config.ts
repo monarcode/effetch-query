@@ -7,8 +7,9 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { getSlugs } from "fumadocs-core/source";
 import { fumadocsMdx } from "fumadocs-mdx/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
+import { landingData } from "./src/lib/landing-data.ts";
 import { mdxOptions } from "./src/lib/mdx-options.ts";
 
 // Every docs page, so the prerender doesn't depend on the sidebar linking to
@@ -34,6 +35,26 @@ const preview =
 	process.env.CF_PAGES_BRANCH && process.env.CF_PAGES_BRANCH !== "site";
 const siteUrl = (preview && process.env.CF_PAGES_URL) || PRODUCTION;
 
+/**
+ * The landing page's code and the scene's labels, read from the docs'
+ * examples as `virtual:landing`. Computed once per build or dev server.
+ */
+function landing(build: boolean): Plugin {
+	const id = "virtual:landing";
+	let module: Promise<string> | undefined;
+	return {
+		name: "effetch-query-landing",
+		resolveId: (source) => (source === id ? `\0${id}` : undefined),
+		load(resolved) {
+			if (resolved !== `\0${id}`) return;
+			module ??= landingData(build).then(
+				(data) => `export default ${JSON.stringify(data)};`,
+			);
+			return module;
+		},
+	};
+}
+
 export default defineConfig(({ command }) => ({
 	define: {
 		__PACKAGE_VERSION__: JSON.stringify(version),
@@ -45,6 +66,7 @@ export default defineConfig(({ command }) => ({
 		fumadocsMdx({
 			globalOptions: { mdxOptions: mdxOptions(command === "build") },
 		}),
+		landing(command === "build"),
 		tailwindcss(),
 		tanstackStart({
 			// Static files only: every page is prerendered to HTML at build time,

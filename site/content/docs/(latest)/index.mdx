@@ -19,9 +19,10 @@ works with any Effect too.
 
 <Callout title="Release candidate">
   The API is frozen for `0.1.0`: the `0.1.0-rc.N` releases fix bugs and only
-  ever add to it. Each needs the matching Effetch release candidate, so upgrade
-  the two together. See the [release
-  notes](https://github.com/monarcode/effetch-query/blob/main/CHANGELOG.md).
+  ever add to it. With Effetch, it needs Effetch `0.1.0-rc.4` or later in 0.1.
+  The [release
+  notes](https://github.com/monarcode/effetch-query/blob/main/CHANGELOG.md) say
+  when a release raises that.
 </Callout>
 
 ## Why Effetch Query
@@ -34,7 +35,8 @@ a promise, hand the promise to TanStack Query, and turn its errors back
 into something the UI could match on.
 
 That bridge was where the trouble lived. Past the promise, errors lost
-their Effect types, a query couldn't use the app's layers, and stopping an
+their Effect types, a query couldn't use the app's layers (the values that
+build its services), and stopping an
 Effect that was no longer needed took wiring of its own. Effetch had made
 each call effectful; what was still missing was a cache built on Effect.
 
@@ -58,27 +60,35 @@ our next project.
 
 ## How it works
 
-Six ideas carry the whole library:
+Seven ideas carry the whole library.
 
-**A query is an Effect with a key.** You describe how to load something,
+### A query is an Effect with a key
+
+You describe how to load something,
 such as `GET /todos/1`, and give it a key, such as `["todos", 1]`. The key
 is how the cache finds the value again, and how you refer to it later,
 say to refetch every query under `["todos"]`. With Effetch, an endpoint's
 route gives you the key, so you rarely write one.
 
-**The query client holds the cache.** Queries hold no data themselves.
+### The query client holds the cache
+
+Queries hold no data themselves.
 Values live in a query client, which runs queries with your app's
 services and keeps what they return. A browser app has one client; a
 server makes one per request.
 
-**Values are fresh, then stale.** A value counts as fresh for the query's
+### Values are fresh, then stale
+
+A value counts as fresh for the query's
 `staleTime` after it's fetched, and stale after that. A stale value is
 still shown, and refetched in the background when a component starts
-using the query, when the app comes back into focus, or when you say it's
-out of date. A query that nothing uses keeps its value for its `gcTime`,
+using the query, when the app comes back into focus or back online, or
+when you say it's out of date. A query that nothing uses keeps its value for its `gcTime`,
 then lets it go.
 
-**A result says where a query is.** Reading a query gives an
+### A result says where a query is
+
+Reading a query gives an
 `AsyncResult` from Effect:
 
 - `Initial`, before there's a value;
@@ -90,16 +100,22 @@ Each also has a `waiting` flag, true while a fetch is in progress. A
 background refetch shows the old value with `waiting: true`, so a
 component can keep showing it and add a spinner.
 
-**A mutation changes data, and says what's out of date.** A mutation runs
+### A mutation changes data, and says what's out of date
+
+A mutation runs
 an Effect that changes something on the server, such as toggling a todo.
 When it succeeds, it invalidates the queries it names, and the ones on
 screen refetch. It can also write to the cache straight away, an
 optimistic update, and that write is undone if the mutation fails.
 
-**Your services are typed.** You tell Effetch Query once which services
+### Your services are typed
+
+You tell Effetch Query once which services
 your app provides, such as your API client. Queries and mutations can use
 them, a query that needs anything else doesn't compile, and a client made
 without a layer that provides them doesn't compile either.
+
+### One cache, everywhere
 
 React only subscribes to all of this: the cache is built on Effect's own
 reactivity (`effect/reactivity` atoms), so the same queries work in
@@ -182,16 +198,17 @@ function Todos() {
     onSuccess: ({ value }) => (
       <ul>
         {value.map((todo) => (
-          <li
-            key={todo.id}
-            onClick={() =>
-              void toggle.run({
-                params: { id: todo.id },
-                body: { done: !todo.done },
-              })
-            }
-          >
-            {todo.done ? "✓" : "○"} {todo.title}
+          <li key={todo.id}>
+            <button
+              onClick={() =>
+                void toggle.run({
+                  params: { id: todo.id },
+                  body: { done: !todo.done },
+                })
+              }
+            >
+              {todo.done ? "✓" : "○"} {todo.title}
+            </button>
           </li>
         ))}
       </ul>
@@ -202,8 +219,8 @@ function Todos() {
 
 ## What's next
 
-- [Install Effetch Query](/docs/installation).
-- Build the same app one piece at a time in [Getting
-  started](/docs/getting-started).
-- Already know TanStack Query? See [Coming from TanStack
-  Query](/docs/coming-from-tanstack-query).
+- [Installation](/docs/installation): add the package and its peers.
+- [Getting started](/docs/getting-started): build a todo app like this one,
+  a file at a time.
+- [Coming from TanStack Query](/docs/coming-from-tanstack-query): if you
+  know TanStack Query, the same ideas under their names here.

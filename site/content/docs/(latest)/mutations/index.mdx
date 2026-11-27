@@ -3,30 +3,84 @@ title: Define a mutation
 description: Define a mutation from an Effetch endpoint or an Effect.
 ---
 
-A query reads data; a mutation changes it. This page shows how to define
-a mutation. The other pages in Mutations cover running one, keeping the
-cache in step with what it changes, showing a change before the server
-confirms it and showing what's saving anywhere in your app.
+Your app changes data on the server: it toggles a todo, adds one, uploads
+a file. A mutation describes one such change, and what the cache should
+do when it succeeds. This page shows how to define one from an Effetch
+endpoint or from an Effect you write, and the order a run calls its
+options in.
 
-The examples import `todos.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-There are two ways to define a mutation, both from
-[5. Change data](/docs/getting-started#5-change-data).
+## Define one from an endpoint
 
-**From an endpoint.** `api.mutation(endpoint, options)` calls an Effetch
-endpoint, whatever its method. Its variables are the call's options
-(`params`, `query`, `body`, `headers`, `plugins`), typed as
-`EndpointVariables`, or nothing when none are required. Its value and
-errors are those the endpoint's query would have. Its options,
-`EndpointMutationOptions`, are a mutation's options without `run`, since
-the endpoint is the run, plus the `headers` and `plugins` that
-`client.bind` takes.
+`api.mutation` takes an endpoint and a mutation's options, as `api.query`
+does. Any method works. This one adds a todo, then marks every todo list
+out of date:
 
-**From an Effect.** `Mutation.make({ run, ...options })` defines a
-mutation from an Effect you write. Its types come from `run`, so annotate
-`run`'s parameter to type the variables. If you give type arguments
-instead, give all three, since the value and error types you leave out
-are `never`. Its options are a `Mutation.MakeOptions`.
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+export const createTodo = api.mutation(
+  Fetch.endpoint("POST /todos", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  { invalidates: [todos] },
+);
+// run({ body: { title: "Buy milk" } })
+```
+
+The endpoint fills in what a mutation needs:
+
+- **Its variables are the call's options:** `params`, `query`, `body`,
+  `headers` and `plugins`, typed as `EndpointVariables`. A run of an
+  endpoint that requires none of them takes no variables.
+- **Its value and errors are typed from the endpoint and the client, as a
+  query's are:** here a `Todo`, with the errors
+  [Queries from endpoints](/docs/queries#what-a-query-takes-from-its-endpoint)
+  describes.
+- **Its options are a mutation's options without `run`,** since the
+  endpoint is the run, plus the `headers` and `plugins` that Effetch's
+  `client.bind` takes. They're an `EndpointMutationOptions`, and
+  [Mutation options](/docs/mutations/options) lists them.
+
+## Define one from an Effect
+
+When there's no endpoint, `Mutation.make` defines a mutation from an
+Effect you write. Here is Getting started's `toggleTodo`, written by hand,
+with the todo to toggle as its variables:
+
+```ts
+import { Mutation } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+
+export const toggleTodo = Mutation.make({
+  run: (todo: Todo) =>
+    ApiClient.use((client) =>
+      client.patch("/todos/:id", {
+        params: { id: todo.id },
+        body: { done: !todo.done },
+        output: Todo,
+      }),
+    ),
+  // A key reaches every query under it, endpoint or not.
+  invalidates: [["todos"]],
+});
+// useMutation(toggleTodo).run(todo)
+```
+
+Its types come from `run`, so annotate `run`'s parameter to type the
+variables. If you give type arguments instead, give all three, since the
+value and error types you leave out are `never`. Its options are a
+`Mutation.MakeOptions`: `run`, and the options an endpoint mutation takes
+except `headers` and `plugins`.
 
 Either way, a definition holds no state, and nothing runs until it's used.
 Each use keeps its own state, so two components that run `toggleTodo`
@@ -34,11 +88,12 @@ never share a waiting or failed state. Define mutations at module level,
 as you do queries: a definition made on each render starts a new state
 each time.
 
-**Upload files.** An endpoint whose `input` is wrapped in Effetch's
-`Fetch.multipart` sends its body as `multipart/form-data`, and its
-mutation's `body` is typed by the schema. `Fetch.UploadFile` is a file
-field: a `File` or `Blob`, or in React Native the `{ uri, name, type }` a
-picker gives:
+## Upload files
+
+An endpoint whose `input` is wrapped in Effetch's `Fetch.multipart` sends
+its body as `multipart/form-data`, and its mutation's `body` is typed by
+the schema. `Fetch.UploadFile` is a file field: a `File` or `Blob`, or in
+React Native the `{ uri, name, type }` a picker gives:
 
 ```tsx
 import * as Schema from "effect/Schema";
@@ -78,7 +133,10 @@ export function UploadPassport() {
 }
 ```
 
-**What a run does.** A run calls its options in this order:
+## What a run does
+
+Every run, from a component or from Effect, calls the mutation's options
+and the client's `mutations` hooks in this order:
 
 1. `optimistic`, whose cache writes are recorded;
 2. the client's `mutations.onMutate`;
@@ -89,13 +147,34 @@ export function UploadPassport() {
    then the client's `mutations.onFailure`;
 6. `onSettled`, then the client's `mutations.onSettled`.
 
-The callbacks given to one `run` from a component come after all of these
-([Run a mutation](/docs/mutations/run)). The client's `mutations` hooks run on
-every run of every mutation, as [Defaults and app-wide hooks](/docs/client/defaults) shows.
+The callbacks you give to one `run` in a component come after all of
+these, as [Run a mutation](/docs/mutations/run) shows. The client's hooks
+run on every run of every mutation, as
+[Defaults and app-wide hooks](/docs/client/defaults) shows.
 
-If one of these callbacks dies, the run dies with its defect and the
-steps after it don't happen, except that a run whose `optimistic` dies
-still has its writes rolled back. An interrupted run calls nothing after
-the interruption. If its `run` hadn't succeeded yet, its optimistic writes
-are rolled back, unless the client is being disposed: then there's no
-cache left to put back.
+A step can go wrong in two ways, and they end differently:
+
+- **The mutation's own callback dies.** If `optimistic`, `onSuccess`,
+  `onFailure` or `onSettled` dies, the run dies with that defect, and the
+  steps after it don't happen. A run whose `optimistic` dies still has its
+  writes rolled back.
+- **A client hook or a per-run callback fails.** A client hook that dies
+  is logged, and the run carries on. A per-run callback that throws is
+  logged too, since the run has already settled.
+
+A run can also be interrupted: replaced by a newer one under
+`concurrent: false`, as [When runs overlap](/docs/mutations/run#when-runs-overlap)
+describes, or stopped when its client is disposed, which also interrupts
+the runs `concurrent: "queue"` holds back. An interrupted run calls
+nothing after the interruption. If its `run` hadn't succeeded yet, its
+optimistic writes are rolled back, unless the client is being disposed:
+then there's no cache left to put back.
+
+## What's next
+
+- [Run a mutation](/docs/mutations/run): run it from a component or from
+  Effect, and choose what happens when runs overlap.
+- [Invalidate after a mutation](/docs/mutations/invalidate): refetch the
+  queries a change makes out of date.
+- [Mutation options](/docs/mutations/options): every option, with its
+  default.

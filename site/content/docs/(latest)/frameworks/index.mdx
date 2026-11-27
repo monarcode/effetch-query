@@ -1,21 +1,88 @@
 ---
 title: Frameworks
-description: Use Effetch Query with TanStack Router and Start, Next.js or React Router.
+description: Use Effetch Query with TanStack Router and Start, Next.js or React Router, and the rules all three share.
 ---
 
-Each framework page builds on [Server rendering](/docs/server-rendering):
-the examples use `todos` from [Getting started](/docs/getting-started) and
-`TodoList` from [Send the cache](/docs/server-rendering). Pick yours:
+Your app renders on the server through a framework, and you want its
+loaders or server components to fill the cache that its pages read. Each
+framework needs the same round trip as
+[Send the cache](/docs/server-rendering): a client per request on the
+server, the cache sent with the page, and one client in the browser. What
+differs is where your framework lets you make and dispose that client.
+This page compares the three, and gives the rules every recipe shares.
 
-- [TanStack Router and Start](/docs/frameworks/tanstack-start): the
-  `@monarcode/effetch-query/react/tanstack-router` integration,
-  `connectQueryClient`, sends the cache with the page and loads it before
-  React hydrates.
-- [Next.js](/docs/frameworks/nextjs): the App Router, with the core and
-  `./react` only.
-- [React Router](/docs/frameworks/react-router): framework mode, with the
-  core and `./react` only.
+## Compare the frameworks
 
-Without a framework, [Send the cache](/docs/server-rendering) and [Load the
-cache in the browser](/docs/server-rendering/hydrate) show the whole
-round trip with any React server renderer.
+Read [Send the cache](/docs/server-rendering) first. Each framework's page
+then shows its own wiring:
+
+| Framework                                                      | What you install                                                        | Where the request's client is made                                       | How it's disposed                                             | Streaming                                        |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------ |
+| [TanStack Router and Start](/docs/frameworks/tanstack-start)   | `@tanstack/react-router`, for the `./react/tanstack-router` integration | In `getRouter`, which Start calls once per request                       | The integration disposes it when the request ends             | Every query, as it starts                        |
+| [Next.js](/docs/frameworks/nextjs) (App Router)                | Nothing beyond the core and `./react`                                   | In a function wrapped in React's `cache()`, which server components call | Next.js's `after()`, after the response is sent               | Queries still loading, with `pending: "promise"` |
+| [React Router](/docs/frameworks/react-router) (framework mode) | Nothing beyond the core and `./react`                                   | In a middleware that `app/root.tsx` exports                              | `QueryClient.disposeAfter`, after the response's body is sent | Queries still loading, in loader data            |
+
+## Give your queries a staleTime
+
+Every recipe makes the browser's client with a `staleTime`, as the
+example apps do. This one imports `api.ts` from
+[Getting started](/docs/getting-started):
+
+```ts
+import * as ManagedRuntime from "effect/ManagedRuntime";
+
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+const appRuntime = ManagedRuntime.make(ApiClientLive);
+
+export const browserClient = QueryClient.make({
+  runtime: appRuntime,
+  queries: { defaults: { staleTime: "30 seconds" } },
+});
+```
+
+The default `staleTime` is zero, so nothing is ever fresh. Without one,
+the browser refetches what the server sent, and every loader run fetches
+again, though the cache has the value. A query a layout's guard waits for
+needs one most: while it's fresh, `client.fetch` answers from the cache at
+once. See [Freshness and refetching](/docs/queries/freshness).
+
+## Stream with an unawaited prefetch
+
+A loader or server component can start a prefetch without awaiting it,
+`void client.prefetch(query)`, and dehydrate with `pending: "promise"`.
+The page renders at once, and the value streams in when it's ready.
+`prefetch` never rejects, so a prefetch cut short when the client is
+disposed isn't an unhandled rejection.
+[Stream the cache](/docs/server-rendering/streaming) has the details.
+
+## Redirect from a query
+
+A query can send the user elsewhere, such as to a sign-in page when the
+API answers 401. All three frameworks follow a redirect that a loader or
+server component throws, and a query can throw one through
+`client.fetch`. Three rules make that work:
+
+1. **Make the redirect inside the Effect**, so each run makes its own.
+2. **Make it a defect**, so it stays out of the query's error type: wrap
+   the redirect in `Effect.die`. Next.js's `redirect()` throws instead of
+   returning a value, so call it inside `Effect.sync`, where a throw is a
+   defect.
+3. **Load the query with `client.fetch`.** It rejects with the redirect,
+   and the framework follows it. `client.prefetch` never rejects, so the
+   framework doesn't get the redirect: the components that read the query
+   show it as a failure.
+
+Each framework's page shows the query with its own `redirect()`.
+
+## What's next
+
+- [TanStack Router and Start](/docs/frameworks/tanstack-start): connect a
+  client to the router, with no `HydrationBoundary`.
+- [Next.js](/docs/frameworks/nextjs): load in server components, read in
+  client components.
+- [React Router](/docs/frameworks/react-router): a client per request in a
+  middleware, and one in the browser for client loaders.
+- [Examples](/docs/examples): run the TanStack Start and React Router apps.

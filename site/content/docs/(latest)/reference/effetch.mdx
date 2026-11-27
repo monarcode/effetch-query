@@ -14,9 +14,9 @@ import {
 } from "@monarcode/effetch-query/effetch";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## Queries from endpoints [#queries-from-endpoints]
 
@@ -26,7 +26,7 @@ Guide: [Queries from endpoints](/docs/queries).
 
 Turns `Fetch.endpoint` definitions into queries and mutations that call them through your Effetch client: give it the client's service, a `Fetch.Service` class or a `Context.Service` key. Use it at module level, next to the definitions: the client is only reached when a query fetches or a mutation runs, from your services (so the service must be in `Register["services"]`). Returns an [`Endpoints`](#endpoints-type), whose `query`, `infiniteQuery` and `mutation` make them.
 
-The adapter adds no behaviour of its own: a query is a [`Query.family`](/docs/reference/query#family) member keyed by its route, and a mutation is a [`Mutation.make`](/docs/reference/mutation#make) whose `run` calls the endpoint, and that invalidates its route with `EndpointsOptions.invalidates`. From a `Fetch.Service` class it reads the `defaultError` and `statusErrors` the client is made with, to send errors to the browser; from a `Context.Service` key, give them in the options ([`EndpointsOptions`](#endpointsoptions)). The definitions of a `Fetch.Endpoints` class (`TodoApi.definitions`) work as any other. It needs `@monarcode/effetch` 0.1, from `0.1.0-rc.4`.
+The adapter adds no behavior of its own: a query is a [`Query.family`](/docs/reference/query#family) member keyed by its route, and a mutation is a [`Mutation.make`](/docs/reference/mutation#make) whose `run` calls the endpoint, and that invalidates its route with `EndpointsOptions.invalidates`. From a `Fetch.Service` class it reads the `defaultError` and `statusErrors` the client is made with, to send errors to the browser; from a `Context.Service` key, give them in the options ([`EndpointsOptions`](#endpointsoptions)). The definitions of a `Fetch.Endpoints` class (`TodoApi.definitions`) work as any other. It needs `@monarcode/effetch` 0.1, from `0.1.0-rc.4`.
 
 ### endpoints [#endpoints]
 
@@ -37,6 +37,19 @@ The former name of [`fromClient`](#fromclient), which works the same: it takes t
 ### EndpointQuery [#endpointquery]
 
 A family of queries, one per call of an Effetch endpoint, made by `Endpoints.query`. Call it with the endpoint's `params` and `query` to get the query for that call. Its key is the route's path with the params filled in, then the query object: `GET /todos/:id` called with `{ params: { id: 1 } }` is `["todos", 1]`.
+
+Calls that send the same request share a query: what isn't sent doesn't count (`params` the path doesn't name, `null` and `undefined` query values and array items, and arrays left empty). Without a `query` schema, values are otherwise compared as given, so `{ page: 1 }` and `{ page: "1" }` are two queries.
+
+The key has no method, scheme or host, so give a backend of its own a prefix (`EndpointsOptions.key`), and make one `EndpointQuery` per endpoint: two would share keys but not their cache.
+
+As a target of [`Query.invalidate`](/docs/reference/query#invalidate), [`Query.refetch`](/docs/reference/query#refetch) or a mutation's `invalidates`, it matches exactly its own queries, not other routes under the same path.
+
+With a `query` schema on the endpoint (`QS`), `query` is typed by the schema, and the key holds the query as the schema encodes it, as it's sent: each value a string (a `Date` as its ISO string, `2` as `"2"`) and each field by its sent name. Equal requests share a query, and keys stay JSON for server rendering. The query a member was first called with is the one it sends, and the `args` [`Query.update`](/docs/reference/query#update) gives. A call throws an [`EndpointQueryError`](#endpointqueryerror) when its query doesn't match the schema, a field encodes to an object, or a field is `Redacted`: a key would hold the secret and send it to the browser, so send it in a header.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointQuery"
+/>
 
 ### EndpointQueryArgs [#endpointqueryargs]
 
@@ -69,6 +82,11 @@ The value of a query `Endpoints.query` makes from an endpoint, from its `output`
 ### Endpoints [#endpoints-type]
 
 Queries and mutations for one Effetch client, made by [`fromClient`](#fromclient).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="Endpoints"
+/>
 
 ### EndpointsOptions [#endpointsoptions]
 
@@ -105,7 +123,7 @@ The error schema a bound endpoint decodes error bodies with: its own, or the cli
 
 ## Errors by status [#errors-by-status]
 
-Guide: [Errors by status](/docs/queries/status-errors).
+Guide: [Query errors](/docs/queries/errors).
 
 ### RegisteredStatusErrors [#registeredstatuserrors]
 
@@ -131,6 +149,11 @@ Guide: [Infinite queries](/docs/queries/infinite).
 ### EndpointInfiniteQuery [#endpointinfinitequery]
 
 A family of infinite queries, one per call of an Effetch endpoint, made by `Endpoints.infiniteQuery`. Call it with the endpoint's `params` and `query` to get the [`InfiniteQuery.InfiniteQuery`](/docs/reference/infinite-query#infinitequery) for that call; a page field given there is ignored. Keys and matching are as for [`EndpointQuery`](#endpointquery).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/effetch/index.d.ts"
+  name="EndpointInfiniteQuery"
+/>
 
 ### EndpointInfiniteQueryOptions [#endpointinfinitequeryoptions]
 
@@ -162,16 +185,4 @@ Options for `Endpoints.mutation`: a mutation's options ([`Mutation.MakeOptions`]
 
 What a mutation from route `R` takes when run: the endpoint's call options (`params`, `query`, `body`, `headers`, `plugins`), or nothing when none are required. The variables of `Endpoints.mutation`.
 
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
-- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
-- [`Mutation`](/docs/reference/mutation): defining and running mutations.
-- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
-- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
+Without a `query` schema (`QS`), its `query` is a `Fetch.QueryInput`, which has an index signature: type a query object you pass with a `type` alias rather than an `interface`. With one, it's the schema's type.

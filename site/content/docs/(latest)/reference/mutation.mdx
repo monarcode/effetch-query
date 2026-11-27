@@ -11,9 +11,9 @@ description: "Every member of the Mutation namespace: defining and running mutat
 import { Mutation } from "@monarcode/effetch-query";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## Define a mutation [#define-a-mutation]
 
@@ -35,6 +35,13 @@ The property that marks a [`Mutation`](#mutation).
 
 A mutation's definition: what a run does with its `Variables`, succeeding with `A` or failing with `E`. Create one with [`make`](#make), and run it with [`run`](#run) or `useMutation`.
 
+A definition holds no state. Each use (each component's `useMutation`) keeps its own, so components never share a waiting or failed state.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/Mutation.d.ts"
+  name="Mutation"
+/>
+
 ## Mutation options [#mutation-options]
 
 Guide: [Mutation options](/docs/mutations/options).
@@ -50,6 +57,10 @@ Options for [`make`](#make). A run calls them in this order:
 5. on failure: the optimistic writes are rolled back, then `onFailure`, then the client's `mutations.onFailure`;
 6. `onSettled`, then the client's `mutations.onSettled`.
 
+The run completes after all of them. If one of the callbacks here dies, the run dies with its defect and the steps after it don't happen, except that a run whose `optimistic` dies still has its writes rolled back.
+
+An interrupted run (with `concurrent: false`, replaced by a newer one; or its client disposed, which also interrupts runs `concurrent: "queue"` holds back) calls nothing after the interruption. If `run` hadn't succeeded yet, its optimistic writes are rolled back, unless the client is being disposed: then there's no cache left to put back.
+
 <auto-type-table
   path="node_modules/@monarcode/effetch-query/dist/Mutation.d.ts"
   name="MakeOptions"
@@ -61,18 +72,4 @@ Guide: [Run a mutation](/docs/mutations/run).
 
 ### Mutation.run [#run]
 
-Runs a mutation from Effect code, with the steps [`MakeOptions`](#makeoptions) lists, and succeeds or fails as its `run` did. A mutation whose `run` takes no variables runs without them. Each call is a run of its own: `concurrent` applies to one use's runs, such as a component's `useMutation`, so calls never interrupt each other.
-
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
-- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
-- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
-- [`QueryClient`](/docs/reference/query-client): the client, its options and hooks, and server rendering.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
-- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
+Runs a mutation from Effect code, with the steps [`MakeOptions`](#makeoptions) lists, and succeeds or fails as its `run` did. A mutation whose `run` takes no variables runs without them. Each call is a run of its own: `concurrent` applies to one use's runs, such as a component's `useMutation`, so calls never interrupt each other. It dies with a `Query.KeyHoldsTargetError` before it starts if a key in `invalidates` holds a query, a family or a group.

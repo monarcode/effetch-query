@@ -16,18 +16,18 @@ import { servicesLayer } from "./services.js";
 const appRuntime = ManagedRuntime.make(servicesLayer("hello"));
 
 // `null` where the middleware didn't run: React Router runs none for a URL
-// no route matches.
+// no route matches. In the browser, `entry.client.tsx` sets the page's client.
 export const queryClientContext = createContext<QueryClient.QueryClient | null>(
 	null,
 );
 
-/** The request's client, in a loader or action. */
+/** The request's client in a loader, or the page's in a client loader. */
 export const getQueryClient = (
 	context: Readonly<RouterContextProvider>,
 ): QueryClient.QueryClient => {
 	const client = context.get(queryClientContext);
 	if (client === null) {
-		throw data("app/root.tsx doesn't export queryClientMiddleware", {
+		throw data("No query client: see app/root.tsx and entry.client.tsx", {
 			status: 500,
 		});
 	}

@@ -9,6 +9,9 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@fontsource-variable/geist": "5.3.0",
+		"@fontsource-variable/geist-mono": "5.3.0",
+		"@icons-pack/react-simple-icons": "13.15.1",
 		"@monarcode/effetch-query": "workspace:*",
 		"@tanstack/react-router": "1.170.46",
 		"@tanstack/react-start": "1.169.7",
@@ -19,9 +22,11 @@
 		"fumadocs-twoslash": "4.0.4",
 		"fumadocs-typescript": "5.6.0",
 		"fumadocs-ui": "npm:@fumadocs/base-ui@16.19.0",
+		"hast-util-to-jsx-runtime": "2.3.7",
 		"lucide-react": "1.72.0",
 		"react": "19.3.1",
-		"react-dom": "19.3.1"
+		"react-dom": "19.3.1",
+		"three": "0.187.0"
 	},
 	"devDependencies": {
 		"@tailwindcss/vite": "4.3.5",
@@ -29,6 +34,7 @@
 		"@types/node": "26.6.6",
 		"@types/react": "19.3.0",
 		"@types/react-dom": "19.3.0",
+		"@types/three": "0.187.0",
 		"@vitejs/plugin-react": "6.3.0",
 		"tailwindcss": "4.3.5",
 		"typescript": "6.0.3",

@@ -15,12 +15,41 @@ All notable changes to `@monarcode/effetch-query`, newest first.
   also served as Markdown, `llms.txt` and `llms-full.txt` list them for
   LLMs and agents, and older release lines will stay readable from a
   version dropdown. Each release moves the live docs to its commit.
+- The site's home page runs the docs' own code: a query and three of the
+  docs' components reading it, against a simulated cache. Toggle a todo,
+  mount, unmount or pause a component, change `staleTime` or invalidate
+  the query, and the components and a status bar answer, with WebGL light
+  along the line that runs. Below it, `Effect<A, E, R>` traces a query's
+  value, typed errors and services through the docs' code, an entity
+  writes one todo into three cached queries (and undoes it when the
+  request fails), and a socket pushes changes into a live query. The docs
+  pages share its look: the same type, colours and greyscale code. The
+  site is dark only.
 
 ### Changed
 
 - The README is now an overview: the pitch, install, a quick start and
   links to the site's guides. `homepage` in `package.json` points to the
   site.
+- The docs site is regrouped and rewritten. The sidebar has four parts
+  (Get started, Guides, Going further, Resources), ten thin pages are
+  merged into their neighbors, and entities and entity sync move to The
+  cache. Every old URL redirects to its new place. Each fact on the pages
+  was checked against the source, and the API reference shows each
+  export's full docs, and a table of properties for each interface that
+  doesn't extend Effect's or Effetch's types, `QueryClient`'s methods and
+  the hooks' results included.
+
+### Fixed
+
+- Editor hovers that said something the code doesn't do: a dependent
+  query (`RunContext.result`) refetches when the other query's result
+  changes, which a refetch of it does twice, not only when its value
+  changes; `connectQueryClient`'s `queries` fails each server render
+  rather than throwing when called; `gcTime` isn't the only option
+  without a client-wide default. Others now name every error they throw:
+  `QueryClient.dehydrate`, `useIsFetching` and `Mutation.run` with a key
+  that holds a query, and `optimistic` records `Entity` writes too.
 
 ## 0.1.0-rc.5
 

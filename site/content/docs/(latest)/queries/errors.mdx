@@ -1,38 +1,178 @@
 ---
 title: Query errors
-description: How a query's errors stay typed, from the call to the component.
+description: What a failed query holds, how to turn a status into your own error, how to handle each one, and how to retry.
 ---
 
+A request fails: the server answers a missing todo with a 404, the network
+drops, or a response doesn't match its schema. Effetch Query keeps the
+error typed from the query to the component, so you can show "This todo
+was deleted" for one and "Couldn't load it" for the rest. This page shows
+what a failure holds, how to turn a status into an error of your own, how
+to handle each error, and how to retry.
+
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
+
+## What a failure holds
+
 A query's error type is part of its type: `Query<A, E>`. A failed query's
-result is a `Failure` with the full `Cause`, so you can tell three things
-apart:
+result is a `Failure` with the full `Cause`, Effect's record of why an
+Effect ended. The `Cause` tells three things apart:
 
-The examples import `todos.ts` from [Getting started](/docs/getting-started).
+- **the query's errors,** typed as `E`;
+- **defects,** unexpected throws, such as a bug;
+- **interruptions,** when the query's own Effect is interrupted. A fetch
+  that a refetch replaces isn't one, and never shows as a failure.
 
-- **the query's errors,** typed as `E`: an Effetch `HttpError` or
-  `NetworkError`, your own errors by status or the errors your Effect
-  fails with;
-- **defects,** such as a bug that throws;
-- **interruptions,** such as a fetch replaced by a refetch.
+A query from any Effect fails with whatever its Effect fails with. An
+endpoint query's `E` is a union of these:
 
-In a component, match on the typed errors by their `_tag` with
-`AsyncResult.builder`'s `onErrorTag`, or by kind with
-`AsyncResult.matchWithError` ([Read a query](/docs/react)). In Effect,
-`Query.fetch` fails with the query's error, so `Effect.catchTag` handles
-it ([Use the cache from Effect](/docs/cache)).
+| Error                 | When it happens                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `NetworkError`        | The request never got a response: the device is offline, or the connection was refused.      |
+| `HttpError`           | The server answered with a status other than 2xx, and no error by status matched it.         |
+| `DecodeError`         | The response didn't match the endpoint's `output`. Only an endpoint with an `output` has it. |
+| Your plugins' errors  | An Effetch plugin the client uses failed the call.                                           |
+| Your errors by status | A status mapped to an error of your own, as [Errors by status](#errors-by-status) shows.     |
 
-**The client's `defaultError` types the body of an `HttpError`.** In
-[1. Describe your API](/docs/getting-started#1-describe-your-api), `ApiClient` declares
-`ApiError`, so every endpoint's `HttpError` is
-`HttpError.With<{ message: string }>`. An endpoint with an `error` schema
-of its own uses that one instead (`ErrorSchema` is that choice, as a
-type), and `todo.error` holds the schema an endpoint query decodes its
-error bodies with.
+**The body of an `HttpError` is typed by the client.** `ApiClient` in
+`api.ts` declares `defaultError: ApiError`, so every endpoint's
+`HttpError` is `HttpError.With<{ message: string }>`. An endpoint with an
+`error` schema of its own uses that one instead. `todo.error` holds
+whichever schema applies, and `ErrorSchema` is that choice as a type.
 
-**Retry with a `Schedule`.** A query doesn't retry by default, where
-TanStack Query retries three times: Effetch has a retry plugin, and a
-query shouldn't retry what the client already retried. To retry at the
-query, give it a `retry` schedule:
+## Errors by status
+
+An `HttpError` with a 404 status says less than a `TodoNotFound`. Effetch's
+`statusErrors` maps a status to the schema of the error it means, or to a
+list of schemas tried in order, where a literal field picks one. Queries
+and mutations made from such an endpoint fail with those errors, typed, so you handle
+them by their tag.
+
+Here is `todo` from `todos.ts` with a map on its endpoint. In your app, it
+replaces the `todo` that `todos.ts` defines:
+
+```tsx
+import * as Effect from "effect/Effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { Todo } from "./api.js";
+import { api } from "./todos.js";
+
+class TodoNotFound extends Schema.TaggedError<TodoNotFound>()("TodoNotFound", {
+  message: Schema.String,
+}) {}
+
+class NotYourTodo extends Schema.TaggedError<NotYourTodo>()("NotYourTodo", {
+  code: Schema.Literal("NOT_OWNER"), // only a 403 with this code
+  message: Schema.String,
+}) {}
+
+// `todo` from todos.ts, with its errors by status on the endpoint.
+const todo = api.query(
+  Fetch.endpoint("GET /todos/:id", {
+    output: Todo,
+    statusErrors: { 404: TodoNotFound, 403: [NotYourTodo] },
+  }),
+  { staleTime: "1 minute" },
+);
+
+// In a loader: a missing todo is no todo.
+export const loadTodo = (id: number) =>
+  Query.fetch(todo({ params: { id } })).pipe(
+    Effect.catchTag("TodoNotFound", () => Effect.succeed(undefined)),
+  );
+
+export function TodoTitle({ id }: { readonly id: number }) {
+  return AsyncResult.builder(useQuery(todo({ params: { id } })))
+    .onInitial(() => <p>Loading…</p>)
+    .onErrorTag("TodoNotFound", () => <p>This todo was deleted.</p>)
+    .onErrorTag("NotYourTodo", (error) => <p>{error.message}</p>)
+    .onError(() => <p>Couldn't load it.</p>)
+    .onSuccess((todo) => <h1>{todo.title}</h1>)
+    .orNull();
+}
+```
+
+`todo` fails with `TodoNotFound` on a 404, and with `NotYourTodo` on a 403
+whose body has the code `NOT_OWNER`. A few rules decide the rest:
+
+- **A response no schema decodes falls through.** Another 403, or a body
+  that isn't JSON, fails with the `HttpError` it would without a map, so
+  `HttpError` stays in the error type.
+- **The client can have a map too.** Declared with the client, as in
+  `Fetch.Service<ApiClient>()("ApiClient", { statusErrors })`, it applies
+  to every endpoint, typed from the client's service. For a given status,
+  the endpoint's schemas are tried before the client's.
+- **`fromClient` reads the client's map from its `Fetch.Service` class,**
+  so server rendering sends those errors too. For a client behind a
+  `Context.Service` key, give the map to `fromClient`, as
+  [A client that isn't a `Fetch.Service` class](/docs/server-rendering/whats-sent#a-client-that-isnt-a-fetchservice-class)
+  shows.
+- **A status error's schema, like `output`, can use only your registered
+  services.** `RegisteredStatusErrors` is the type of such a map: check
+  one you define on its own with `satisfies RegisteredStatusErrors`.
+- **Server rendering sends them as themselves** with
+  `failures: "include"`: a `TodoNotFound` on the server is a
+  `TodoNotFound` in the browser. The first component that reads it retries
+  it, as [the mount policy](/docs/queries/freshness#the-mount-policy)
+  says, unless `retryOnMount` is `false`.
+
+## Handle an error
+
+In Effect code, `Query.fetch` fails with the query's error, so
+`Effect.catchTag` handles one error by its tag and lets the others
+through. In the sample, `loadTodo` turns a `TodoNotFound` into no todo,
+which suits a route loader. [Read and write the cache](/docs/cache) shows
+`Query.fetch` and the other cache functions.
+
+In a component, `AsyncResult.builder` matches the typed errors by their
+`_tag`: `onErrorTag` for each error you handle, then `onError` for the
+rest, as `TodoTitle` does. To match by kind instead (typed error, defect),
+use `AsyncResult.matchWithError`. [Read a query](/docs/react) shows both.
+
+## Show a missing record as no value
+
+Sometimes a missing todo isn't an error: a page shows "No todo" and moves
+on. Write the query yourself with Effetch's `Fetch.optional`, which turns
+a `404` into `Option.none()` and a success into `Option.some`:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient, Todo } from "./api.js";
+import { getTodo } from "./todos.js";
+
+export const maybeTodo = Query.family({
+  key: ["todos", "maybe"],
+  run: (id: number) =>
+    ApiClient.use((client) =>
+      Fetch.optional(client.bind(getTodo)({ params: { id } })),
+    ),
+  // How the value crosses to the browser: an Option of a todo.
+  schema: { success: Schema.Option(Todo) },
+});
+// maybeTodo(1): Query<Option<Todo>, …>
+```
+
+Other errors still fail the query. A `404` that `statusErrors` maps fails
+with the mapped error, and doesn't give `Option.none()`: use an endpoint
+without a 404 in its map, as `getTodo` is.
+
+## Retry a failed fetch
+
+A query doesn't retry by default, where TanStack Query retries three
+times. Effetch has a retry plugin, and a query shouldn't retry what the
+client already retried. To retry at the query, give it a `retry`
+schedule:
 
 ```ts
 import * as Schedule from "effect/Schedule";
@@ -52,6 +192,17 @@ export const stats = api.query(
 ```
 
 The schedule gets each failure, and defects aren't retried. The client's
-`queries.defaults.retry` sets one for every query
-([Defaults and app-wide hooks](/docs/client/defaults)), and the client's `onFailure` hook runs once
-per fetch, after `retry`.
+`queries.defaults.retry` sets a schedule for every query, and the client's
+`onFailure` hook runs once per fetch, after `retry`. See
+[Defaults and app-wide hooks](/docs/client/defaults).
+
+## What's next
+
+- [Read a query](/docs/react): show each state of a query, errors
+  included, in a component.
+- [Suspense and error boundaries](/docs/react/suspense): let an error
+  boundary show a failure.
+- [Defaults and app-wide hooks](/docs/client/defaults): retry every query,
+  and report every failure from one place.
+- [Send the cache](/docs/server-rendering): send failures from the server
+  with `failures: "include"`.

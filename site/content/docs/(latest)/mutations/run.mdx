@@ -1,12 +1,20 @@
 ---
 title: Run a mutation
-description: Run a mutation from a component, and react to its result.
+description: Run a mutation from a component or from Effect, and choose what happens when runs overlap.
 ---
 
-`useMutation` gives each component its own state for a mutation. This
-checkbox toggles a todo, and clears a failure after three seconds:
+A user clicks a checkbox, and the todo should be saved. `useMutation`
+runs a mutation from a component and gives that component its own state
+for it: whether it's saving, and whether it failed. This page shows how to
+run one, react to one run's result, choose what a second click does while
+the first is saving, and run a mutation from Effect.
 
-The examples import `api.ts`, `client.ts` and `toggle-todo.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts`, `client.ts`, `todos.ts` and `toggle-todo.ts`
+from [Getting started](/docs/getting-started).
+
+## Run from a component
+
+This checkbox toggles a todo, and clears a failure after three seconds:
 
 ```tsx
 import * as Exit from "effect/Exit";
@@ -45,21 +53,28 @@ export function DoneCheckbox({ todo }: { readonly todo: Todo }) {
 - `variables`, the variables of the run `result` shows, or `undefined`
   before the first run and after `reset`;
 - `run(variables, options?)`, which starts a run and returns a `Promise` of
-  its `Exit`;
+  its `Exit`, Effect's value for a success or a failure with its `Cause`;
 - `reset()`, which puts `result` back to `Initial`. Runs in progress carry
   on.
 
 `run` never rejects: check the `Exit` it resolves with. A run carries on if
 the component unmounts, so the mutation's `onSuccess` and `invalidates`
-still happen. The mutation's `concurrent` decides how the component's runs
-overlap ([Run modes](/docs/mutations/run-modes)): with `false`, a run that a newer one
-replaces resolves with an interrupted `Exit`. On a disposed client, the run
-never starts and resolves with a died `Exit`. Outside a `QueryProvider`,
-`useMutation` throws a `MissingQueryProviderError`.
+still happen. A few runs end without running at all, or are cut short:
 
-**Callbacks for one run.** `run` also takes callbacks for one run, a
-`UseMutationRunOptions`, as TanStack's `mutate(variables, { onSuccess })`
-does:
+- With `concurrent: false`, a run that a newer one replaces resolves with
+  an interrupted `Exit`.
+- With `concurrent: "drop"`, a run started while the one `result` shows
+  is saving resolves at once with an interrupted `Exit`.
+- On a disposed client, the run never starts and resolves with a died
+  `Exit`.
+
+[When runs overlap](#when-runs-overlap) explains `concurrent`. Outside a
+`QueryProvider`, `useMutation` throws a `MissingQueryProviderError`.
+
+## Add callbacks for one run
+
+`run` also takes callbacks for one run, a `UseMutationRunOptions`, as
+TanStack Query's `mutate(variables, { onSuccess })` does:
 
 ```tsx
 import { useMutation } from "@monarcode/effetch-query/react";
@@ -95,24 +110,86 @@ export function MarkDone({
 
 `onSuccess`, `onFailure` and `onSettled` run after the mutation's own
 callbacks, its `invalidates` and the client's hooks, before code awaiting
-`run` carries on. They belong to this screen, so they're dropped if,
-before the run settles, `reset` is called, a newer run starts or the
-component unmounts. They're dropped for a run that was interrupted or
-never started, too. The run completes all the same. A callback that throws
-is logged with `console.error`; the ones after it still run, and `run`
-still resolves.
+`run` carries on. They belong to this screen, so they're dropped if any of
+these happens before the run settles:
+
+- `reset` is called;
+- a newer run starts;
+- the component unmounts.
+
+They're dropped for a run that was interrupted or never started, too. The
+run completes all the same. A callback that throws is logged with
+`console.error`; the ones after it still run, and `run` still resolves.
+
+Because a newer run drops them, two quick clicks call only the second
+click's callbacks, even though both runs complete.
 
 So use them for what matters only to this screen, such as filling in a
 form field or navigating, and the mutation's own `onSuccess` for what must
-always happen. A lookup that you `reset` when its input changes never
-fills in the answer for the old input. A lookup that only reads can also
-be a query keyed by its input, read with
+always happen. A form that calls `reset` when its input changes never
+fills in an answer for the old input. If the lookup only reads, make it a
+query keyed by its input instead, read with
 `useQuery(input === "" ? null : lookup(input))`.
 
-**From Effect.** `Mutation.run(mutation, variables)` runs a mutation from
-Effect code, with the same steps, and succeeds or fails as its `run` did.
-A mutation whose `run` takes no variables runs without them. Here a bulk
-action marks several todos done, one after another:
+## When runs overlap
+
+A component can start a run while its previous run is still saving, such
+as on a second click of a button. The mutation's `concurrent` option
+decides what happens. It applies to the runs of one use, such as one
+component's `useMutation`: separate uses, and `Mutation.run` calls, never
+affect each other.
+
+`concurrent` takes one of four values:
+
+- **`true`, the default: runs overlap, and each completes.** Use it when
+  each run is a change of its own. `result` and `variables` follow the
+  latest run started.
+- **`false`: a new run replaces the one in progress.** Use it when only
+  the last value matters, such as a setting saved on each change. The run
+  in progress is interrupted, and its optimistic writes are rolled back,
+  before the new one starts. Interrupting it doesn't undo a request the
+  server already received. A new run replaces the last one started even
+  after `reset`.
+- **`"queue"`: runs go one at a time, in order.** Use it when every change
+  must reach the server in the order it was made, such as reordering a
+  list. A queued run counts as in progress, so `result` stays waiting
+  until the last one settles. Its `optimistic` runs when it starts, so a
+  run that fails undoes only its own writes.
+- **`"drop"`: a run started while the one `result` shows is in progress is
+  ignored.** Use it for a submit button, where a second click shouldn't
+  send the form twice. A dropped run never starts or calls anything. After
+  `reset`, a new run starts.
+
+Here a second click on "Add" while the first is saving does nothing:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Fetch } from "@monarcode/effetch";
+
+import { Todo } from "./api.js";
+import { api, todos } from "./todos.js";
+
+export const createTodo = api.mutation(
+  Fetch.endpoint("POST /todos", {
+    input: Schema.Struct({ title: Schema.String }),
+    output: Todo,
+  }),
+  // A click while the first run is saving does nothing.
+  { concurrent: "drop", invalidates: [todos] },
+);
+```
+
+To pick a mode for every mutation, set it on the client:
+`mutations: { defaults: { concurrent: false } }`. A mutation's own
+`concurrent` overrides it.
+
+## Run from Effect
+
+`Mutation.run(mutation, variables)` runs a mutation from Effect code, with
+[the same steps](/docs/mutations#what-a-run-does), and succeeds or fails
+as its `run` did. A mutation whose `run` takes no variables runs without
+them. Here a bulk action marks several todos done, one after another:
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -134,6 +211,16 @@ export const onMarkAllDone = (ids: ReadonlyArray<number>) =>
   queryClient.runPromise(markAllDone(ids));
 ```
 
-Each `Mutation.run` is a run of its own: `concurrent` applies to one use's
-runs, so calls never interrupt each other. Runs started this way count in
-`useIsMutating` and `useMutationState` ([Show activity](/docs/mutations/activity)).
+Each `Mutation.run` is a run of its own, so `concurrent` doesn't apply:
+calls never interrupt each other. Runs started this way count in
+`useIsMutating` and `useMutationState`, as
+[Show activity](/docs/mutations/activity) describes.
+
+## What's next
+
+- [Invalidate after a mutation](/docs/mutations/invalidate): refetch what
+  a run changed.
+- [Optimistic updates](/docs/mutations/optimistic): show the change before
+  the server confirms it.
+- [Show activity](/docs/mutations/activity): show what's saving anywhere
+  in the app.

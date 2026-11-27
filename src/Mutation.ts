@@ -141,8 +141,9 @@ export interface MakeOptions<
 		variables: Variables,
 	) => Effect.Effect<A, E, QueryClient.Requirements>;
 	/**
-	 * Updates the cache before `run`, so the change shows at once. Its
-	 * {@link Query.set} and {@link Query.update} calls are recorded, and if
+	 * Updates the cache before `run`, so the change shows at once. Its cache
+	 * writes ({@link Query.set}, {@link Query.update}, and `Entity.update`,
+	 * `set` and `remove`) are recorded, and if
 	 * the run fails, the queries they wrote are put back, newest write first.
 	 * A query written again in the meantime, even by a fetch, is put back all
 	 * the same. Only writes made while it runs count: not those of a fiber it
@@ -239,7 +240,9 @@ export const make = <Variables = void, A = never, E = never>(
  * lists, and succeeds or fails as its `run` did. A mutation whose `run`
  * takes no variables runs without them. Each call is a run of its own:
  * `concurrent` applies to one use's runs, such as a component's
- * `useMutation`, so calls never interrupt each other.
+ * `useMutation`, so calls never interrupt each other. It dies with a
+ * `Query.KeyHoldsTargetError` before it starts if a key in `invalidates`
+ * holds a query, a family or a group.
  *
  * @example
  * ```ts

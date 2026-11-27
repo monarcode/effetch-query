@@ -3,32 +3,26 @@ title: Entry points
 description: What each entry point exports, and the reference page that lists it.
 ---
 
-Effetch Query is one package with five entry points, each a subpath you
-import from. Import only the ones you use: the core has no framework in
-it, and each framework entry needs only its own peer dependencies.
+Effetch Query is one package with five entry points: the package root
+and four subpaths. Import only the ones you use: the core has no framework
+in it, and each framework entry needs only its own peer dependencies.
 
 Each reference page lists every export of its entry point or namespace,
-grouped by the guide that covers it, with the first paragraph of its docs.
-Each export's type declarations carry its full documentation, with an
-example, so your editor's hover and "Go to Definition" show it too.
+grouped by the guide that covers it, with its docs. Your editor's hover and
+"Go to Definition" show the same docs, with an example.
 
-| Entry point                                      | What it exports                                                                              | Reference                                                     |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `@monarcode/effetch-query`                       | The core, with no framework in it: six namespaces, `Register` and `QueryFailure`.            | [`@monarcode/effetch-query`](/docs/reference/core)            |
-| `@monarcode/effetch-query/react`                 | The provider, the hooks and the boundaries.                                                  | [`@monarcode/effetch-query/react`](/docs/reference/react)     |
-| `@monarcode/effetch-query/effetch`               | `fromClient`, which turns Effetch endpoints into queries and mutations, and its types.       | [`@monarcode/effetch-query/effetch`](/docs/reference/effetch) |
-| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`, which builds a client's signals from React Native modules you pass in. | [`…/react-native`](/docs/reference/react-native)              |
-| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`, which connects a client to TanStack Router and TanStack Start.         | [`…/react/tanstack-router`](/docs/reference/tanstack-router)  |
+The package has the following entry points:
 
-The core entry point's namespaces each have a page:
+| Entry point                                      | What it exports                                                                                              | Reference                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `@monarcode/effetch-query`                       | The core, with no framework in it: six namespaces, `Register` and `QueryFailure`.                            | [`@monarcode/effetch-query`](/docs/reference/core)            |
+| `@monarcode/effetch-query/react`                 | The provider, the hooks and the boundaries.                                                                  | [`@monarcode/effetch-query/react`](/docs/reference/react)     |
+| `@monarcode/effetch-query/effetch`               | `fromClient`, which turns Effetch endpoints into queries and mutations, its types, and `EndpointQueryError`. | [`@monarcode/effetch-query/effetch`](/docs/reference/effetch) |
+| `@monarcode/effetch-query/react-native`          | `reactNativeSignals`, which builds a client's signals from React Native modules you pass in.                 | [`…/react-native`](/docs/reference/react-native)              |
+| `@monarcode/effetch-query/react/tanstack-router` | `connectQueryClient`, which connects a client to TanStack Router and TanStack Start.                         | [`…/react/tanstack-router`](/docs/reference/tanstack-router)  |
 
-| Namespace       | What it has                                                                              |
-| --------------- | ---------------------------------------------------------------------------------------- |
-| `Query`         | [Defining queries, keys and targets, and the cache from Effect](/docs/reference/query).  |
-| `InfiniteQuery` | [Queries that load a list one page at a time](/docs/reference/infinite-query).           |
-| `Mutation`      | [Defining and running mutations](/docs/reference/mutation).                              |
-| `Entity`        | [Records whose every cached copy a write updates](/docs/reference/entity).               |
-| `QueryClient`   | [The client, its options and hooks, and server rendering](/docs/reference/query-client). |
-| `Signals`       | [Where a client hears about focus and reconnects](/docs/reference/signals).              |
+The core entry point's six namespaces, `Query`, `InfiniteQuery`, `Mutation`,
+`Entity`, `QueryClient` and `Signals`, each have a page, listed on
+[`@monarcode/effetch-query`](/docs/reference/core).
 
-For the limits of 0.1, see [Limitations](/docs/reference/limitations).
+For what 0.1 doesn't do, see [Limitations](/docs/reference/limitations).

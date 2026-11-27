@@ -2,17 +2,15 @@
 	"title": "Queries",
 	"pages": [
 		"index",
+		"without-effetch",
 		"keys",
-		"dependent",
-		"errors",
-		"status-errors",
 		"freshness",
+		"errors",
 		"placeholders",
-		"options",
-		"from-client-options",
+		"dependent",
 		"infinite",
 		"streams",
 		"pushes",
-		"without-effetch"
+		"options"
 	]
 }

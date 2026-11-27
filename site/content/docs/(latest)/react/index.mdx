@@ -3,21 +3,48 @@ title: Read a query
 description: Show a query's result in a component with useQuery.
 ---
 
-This page shows how to read a query in a component with `useQuery`. The
-other pages in React cover reading it as an object of fields, through
-Suspense, a part of it or several at once, pausing screens you can't see,
-refetching on demand and using the cache with your own atoms.
+You've defined a query and want a component to show it. `useQuery` reads
+the query and returns its `AsyncResult`: loading, the value, or an error
+typed as the query defines it. This page shows how to render each state,
+when the hook fetches, and how to read part of a value or several queries
+at once.
 
-The examples import `todos.ts` from [Getting started](/docs/getting-started).
+The examples import `client.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-Every hook here comes from `@monarcode/effetch-query/react`, and reads the
-client of the nearest `QueryProvider`
-([4. Show a query](/docs/getting-started#4-show-a-query)). Outside one, they throw a
-`MissingQueryProviderError`. To use the client itself in a component, such
-as to run an Effect from an event handler, `useQueryClient()` returns it.
+## Provide the client
 
-`useQuery` returns the query's `AsyncResult`. Match on it to show each
-state, with the error typed as the query defines it:
+Every hook and component from `@monarcode/effetch-query/react` reads the
+query client of the nearest `QueryProvider`, so put one above them:
+
+```tsx
+import type { ReactNode } from "react";
+
+import { QueryProvider } from "@monarcode/effetch-query/react";
+
+import { queryClient } from "./client.js";
+
+export function Providers({ children }: { readonly children: ReactNode }) {
+  return <QueryProvider client={queryClient}>{children}</QueryProvider>;
+}
+```
+
+The provider never disposes a client you pass it. It also shares the
+client's registry, the store that holds the cache, with
+`@effect/atom-react`, so atom-react's own hooks read the same cache: see
+[Atoms](/docs/react/atoms). Outside a provider, the hooks throw a
+`MissingQueryProviderError`.
+
+To use the client itself in a component, such as to run an Effect from an
+event handler with `client.runPromise`, call `useQueryClient()`: see
+[Read and write outside Effect](/docs/cache#read-and-write-outside-effect).
+For a
+client the provider makes, and makes again when the signed-in account
+changes, see [Sign out and switch accounts](/docs/cache/accounts).
+
+## Render each state
+
+Match on the result to show each state:
 
 ```tsx
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -26,12 +53,8 @@ import { useQuery } from "@monarcode/effetch-query/react";
 
 import { todo } from "./todos.js";
 
-export function TodoTitle({ id }: { readonly id: number | null }) {
-  // null reads nothing and fetches nothing (TanStack's `enabled: false`).
-  const result = useQuery(id === null ? null : todo({ params: { id } }), {
-    // Keep showing the last todo while the next one loads.
-    keepPrevious: true,
-  });
+export function TodoTitle({ id }: { readonly id: number }) {
+  const result = useQuery(todo({ params: { id } }));
 
   return AsyncResult.matchWithError(result, {
     onInitial: () => <p>Loading…</p>,
@@ -49,33 +72,241 @@ export function TodoTitle({ id }: { readonly id: number | null }) {
 }
 ```
 
-When the component mounts, and when its query changes, `useQuery`
-refetches the query if it's stale (`refetchOnMount`) or failed
-(`retryOnMount`). While the component is mounted, the query refetches on
-focus, reconnect and `refetchInterval` as its options say
-([Freshness and refetching](/docs/queries/freshness)).
+An `AsyncResult` is `Initial` before there's a value, `Success` with the
+value, or `Failure` with the full `Cause`. `matchWithError` splits a
+failure in two: `onError` gets the typed error, here `todo`'s
+`NetworkError | DecodeError | HttpError`, and `onDefect` gets a defect,
+an unexpected error such as a bug, which the query's type doesn't list.
 
-**A first load and a refetch look different.** `waiting` is true while
-the query fetches. A first load shows as a waiting `Initial`, and a
-background refetch as a `Success` or `Failure` that keeps showing what it
-had, so `AsyncResult.isInitial(result)` tells them apart. To handle a
-load and a refetch alike, use `AsyncResult.matchWithWaiting` or the
-builder's `onInitialOrWaiting`.
+Rather than checking a status in every component, an endpoint can turn a
+404 into an error of your own, such as `TodoNotFound`: see
+[Query errors](/docs/queries/errors).
 
-**`keepPrevious` shows the last value while the next loads.** When the
-query changes to one with no value yet, such as the next todo, the hook
-shows the last success it showed, as a waiting `Success`, instead of
-`Initial`: TanStack's `placeholderData: keepPreviousData`. A failure
-shows as it is. `useQueryState`'s `isPlaceholder` is true for that value
-([Read a query as an object](/docs/react/as-object)).
+## When it fetches
 
-**`null` reads nothing.** `useQuery(null)` returns an `Initial` that isn't
-waiting, and fetches nothing: TanStack's `enabled: false`. Pass `null`
-until you have what the query needs, as the example does with `id`.
+Every component that reads the same query shares one fetch. When the
+component mounts, and when its query changes, `useQuery` refetches the
+query if it's stale (`refetchOnMount`) or failed (`retryOnMount`): see
+[The mount policy](/docs/queries/freshness#the-mount-policy). Both are on
+by default. While the component is mounted, the query also
+refetches on focus, on reconnect and on its `refetchInterval`, as its
+options say: see [Freshness and refetching](/docs/queries/freshness).
 
-In a server render, `useQuery` reads only the cache and never starts a
-fetch; `useSuspenseQuery` does fetch there
-([Suspense and error boundaries](/docs/react/suspense)).
+In a server render, `useQuery` reads only the cache. It never starts a
+fetch there, and the mount refetch doesn't run. These readers do fetch in
+a server render: `useSuspenseQuery` and `useSuspenseInfiniteQuery`, for
+streaming, as
+[Suspense and error boundaries](/docs/react/suspense) shows, and an atom
+derived from a query, unless you give it a server value, as
+[Atoms](/docs/react/atoms#derived-atoms-in-a-server-render) shows.
 
-Rather than checking statuses, an endpoint can turn them into errors of
-your own ([Errors by status](/docs/queries/status-errors)).
+## Tell a first load from a refetch
+
+`waiting` is true while the query fetches, and what it's attached to tells
+you which fetch it is:
+
+- A first load is a waiting `Initial`.
+- A refetch shows what the query had, a `Success` or a `Failure`, with
+  `waiting` true.
+
+So `AsyncResult.isInitial(result)` tells a first load from a refetch. To
+handle the two alike, use `AsyncResult.matchWithWaiting`, or
+`onInitialOrWaiting` on `AsyncResult.builder(result)`, which builds a match
+one case at a time.
+
+A refetch that fails after a success gives a `Failure` whose
+`previousSuccess` holds the last value. `matchWithError` sends it to
+`onError`, so the example above replaces the title with the error. To keep
+showing the title, read `previousSuccess` from `onError`'s second argument,
+or read the query with `useQueryState`, whose `data` keeps the last value:
+see [Read a query as an object](/docs/react/as-object).
+
+## Keep the last value while the next loads
+
+When a component switches to a query that has no value yet, such as the
+next todo, it shows `Initial`. Pass `keepPrevious` to show the last value
+instead:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoHeading({ id }: { readonly id: number }) {
+  const result = useQuery(todo({ params: { id } }), { keepPrevious: true });
+  const title = AsyncResult.getOrElse(
+    AsyncResult.map(result, (found) => found.title),
+    () => "Loading…",
+  );
+  return <h1 style={{ opacity: result.waiting ? 0.5 : 1 }}>{title}</h1>;
+}
+```
+
+The hook shows the last success it showed, as a waiting `Success`, until
+the next query's value or failure arrives: TanStack Query's
+`placeholderData: keepPreviousData`. Only a query's own value is kept, not
+a placeholder. A failure shows as it is, and a `null` query still reads
+`Initial`. `useQueryState`'s `isPlaceholder` is true for the kept value:
+see [Read a query as an object](/docs/react/as-object#tell-a-placeholder-from-the-real-value).
+
+## Read nothing until you're ready
+
+When a query needs a value you don't have yet, such as the selected todo's
+ID, pass `null` until you have it:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function TodoPreview({ id }: { readonly id: number | null }) {
+  const result = useQuery(id === null ? null : todo({ params: { id } }));
+
+  if (id === null) {
+    return <p>Pick a todo.</p>;
+  }
+  return AsyncResult.builder(result)
+    .onSuccess((found) => <p>{found.title}</p>)
+    .onFailure(() => <p>Couldn't load the todo.</p>)
+    .orElse(() => <p>Loading…</p>);
+}
+```
+
+`useQuery(null)` fetches nothing and returns an `Initial` that isn't
+waiting: TanStack Query's `enabled: false`. Check for `null` after the
+hook, since a component can't skip a hook. Matched on its own, that
+`Initial` would show "Loading…" forever.
+
+## Select part of a value
+
+A component that shows only how many todos are open shouldn't re-render
+when a title changes. `select` derives what the component shows from the
+query's value, and the component re-renders only when that changes:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+
+export function OpenCount() {
+  const count = useQuery(todos(), {
+    select: (list) => list.filter((todo) => !todo.done).length,
+  });
+  return <p>{AsyncResult.getOrElse(count, () => 0)} open</p>;
+}
+```
+
+The component re-renders when the selection changes, or when a fetch
+starts or ends. Other changes to the value don't re-render it.
+Selections are compared by content (`Equal.equals`), so a new array with
+the same items counts as unchanged, and the hook keeps the result it
+showed. An inline function runs on every render; for a costly selection,
+define it outside the component or with `useCallback`. When several
+components need the same derived value, share one atom instead: see
+[Atoms](/docs/react/atoms).
+
+The cache keeps the whole value, so other components that read the query
+see it unchanged, and the query refetches on mount, focus and its interval
+as it does without `select`. A failure's previous success is selected too,
+and with `keepPrevious`, the last selection shown is kept.
+
+`useQuery`, `useQueryState` and `useSuspenseQuery` take `select`;
+`useQueries` and `useInfiniteQuery` don't. Their options' types are
+`UseQuerySelectOptions`, for the first two, and `UseSuspenseQueryOptions`.
+
+<Accordions type="multiple">
+  <Accordion title="Details: a select that throws">
+    With `useQuery` and `useQueryState`, a `select` that throws shows as a
+    failure whose cause is the defect, with no earlier value. If it throws on a
+    failure's previous success, the failure shows without one.
+    `useSuspenseQuery` throws it to the error boundary as a `QueryFailure`, even
+    after an earlier selection was shown.
+  </Accordion>
+</Accordions>
+
+## Read several queries
+
+When a component reads a list of queries whose length changes, such as one
+per selected todo, use `useQueries`. It returns their results in the same
+order, and `AsyncResult.all` combines them into one:
+
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { useQueries } from "@monarcode/effetch-query/react";
+
+import { todo } from "./todos.js";
+
+export function SelectedTitles({
+  ids,
+}: {
+  readonly ids: ReadonlyArray<number>;
+}) {
+  const all = AsyncResult.all(
+    useQueries(ids.map((id) => todo({ params: { id } }))),
+  );
+
+  return AsyncResult.builder(all)
+    .onSuccess((todos) => (
+      <ul>
+        {todos.map((item) => (
+          <li key={item.id}>{item.title}</li>
+        ))}
+      </ul>
+    ))
+    .onFailure(() => <p>Couldn't load them</p>)
+    .orElse(() => <p>Loading…</p>);
+}
+```
+
+`AsyncResult.all` returns the first result, in list order, that isn't a
+success. So one failed query fails the list, and one still loading shows
+"Loading…". When every result is a success, it returns a `Success` of all
+the values, waiting while any of them refetches.
+
+A few details:
+
+- Each query is refetched when it joins the list if it's stale or failed,
+  as `useQuery` does on mount: the
+  [mount policy](/docs/queries/freshness#the-mount-policy).
+- A `null` entry reads `Initial`.
+- A query listed twice is read once, and shows in both places.
+- A tuple of queries gives a tuple of results, each typed by its query.
+- The array keeps its identity while every result in it does, so it can be
+  a dependency of `useMemo`.
+
+Its options (`UseQueriesOptions`) take only `paused`: see
+[Pause screens you can't see](/docs/react/pause). As with `useQuery`, a
+server render reads only the cache.
+
+## Other hooks and components
+
+The rest of `@monarcode/effetch-query/react` is covered with the task it's
+for:
+
+- `useMutation` and `useMutationState`: [Run a mutation](/docs/mutations/run).
+- `useIsFetching` and `useIsMutating`: [Show activity](/docs/mutations/activity).
+- `useInfiniteQuery` and `useSuspenseInfiniteQuery`:
+  [Infinite queries](/docs/queries/infinite).
+- `HydrationBoundary`:
+  [Send the cache](/docs/server-rendering#3-load-the-cache-in-the-browser).
+- `QueryProvider`'s `make` and `resetKey`:
+  [Sign out and switch accounts](/docs/cache/accounts).
+
+## What's next
+
+- [Read a query as an object](/docs/react/as-object): `status`, `data` and
+  `error` as fields, as TanStack Query's `useQuery` returns them.
+- [Suspense and error boundaries](/docs/react/suspense): let a `Suspense`
+  boundary show loading and an error boundary show failures.
+- [Freshness and refetching](/docs/queries/freshness): when a value goes
+  stale, and what refetches it.
+- [Query errors](/docs/queries/errors): handle each error by its tag.
+- [Atoms](/docs/react/atoms): share a value derived from a query between
+  components.

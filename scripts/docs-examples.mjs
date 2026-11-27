@@ -35,6 +35,10 @@ export const markdownFiles = () => [
 export const shims = {
 	"react-native": path.join(root, "test/types/react-native-modules.d.ts"),
 	"next/server": path.join(root, "scripts/docs-types/next-server.d.ts"),
+	"next/navigation": path.join(
+		root,
+		"scripts/docs-types/next-navigation.d.ts",
+	),
 };
 
 // A fence can name its block, as in "```ts todos.ts": the block is then that

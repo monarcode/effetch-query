@@ -1,17 +1,61 @@
 ---
-title: Queries without Effetch
-description: Define queries and mutations from any Effect, without Effetch.
+title: Queries from any Effect
+description: Define queries with Query.make and Query.family, from any Effect you write.
 ---
 
-Any Effect can be a query, so Effetch Query works without Effetch: with
-Effect's own `HttpClient`, a database or local storage. `Query.make`
-defines one query, `Query.family` one per argument, and `Mutation.make` a
-mutation, each with an Effect you write. Register the services they use,
-as in [1. Describe your API](/docs/getting-started#1-describe-your-api), and give the client a
-layer that provides them.
+Not every query is an Effetch endpoint. You might call your Effetch client
+yourself, use Effect's own `HttpClient`, or read a database or local
+storage. Any Effect can be a query: `Query.make` defines one query, and
+`Query.family` one query per argument. This page shows both, and what you
+write yourself that an endpoint would give you.
 
-**With Effect's `HttpClient`.** Register `HttpClient` as your service, and
-call it from `run`:
+Two things stay the same as with endpoints. Name the services your
+queries use in `Register`, as
+[1. Describe your API](/docs/getting-started#1-describe-your-api) does,
+and give the client a layer that provides them. The
+[Use Effect's HttpClient](#use-effects-httpclient) sample shows both.
+
+## Call your Effetch client yourself
+
+`Query.make` takes a key and a `run` Effect. `Query.family` takes a key
+and a `run` function of one argument, and returns a family: a function
+that gives you the query for each argument. This file calls `ApiClient`
+from [Getting started](/docs/getting-started) directly:
+
+```ts
+import * as Schema from "effect/Schema";
+
+import { Query } from "@monarcode/effetch-query";
+
+import { ApiClient } from "./api.js";
+
+const User = Schema.Struct({ id: Schema.Finite, name: Schema.String });
+
+export const me = Query.make({
+  key: ["users", "me"],
+  run: ApiClient.use((client) => client.get("/users/me", { output: User })),
+});
+// me is the query keyed ["users", "me"]
+
+export const user = Query.family({
+  key: ["users", "detail"],
+  run: (id: number) =>
+    ApiClient.use((client) =>
+      client.get("/users/:id", { params: { id }, output: User }),
+    ),
+  staleTime: "1 minute",
+});
+// user(1) is the query keyed ["users", "detail", 1]
+```
+
+These work the same as endpoint queries, with the same typed errors from
+Effetch. Each takes the same options too, such as `staleTime`, which
+[Query options](/docs/queries/options) lists.
+
+## Use Effect's HttpClient
+
+Without Effetch, register Effect's `HttpClient` as your service, and call
+it from `run`:
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -43,7 +87,8 @@ export const todo = Query.family({
     ),
   schema: { success: Todo },
 });
-// todo(1): Query<Todo, HttpClientError | SchemaError>
+// todo(1): Query<Todo, HttpClientError | SchemaError>,
+// keyed ["todos", "detail", 1]
 
 // Sends requests with the browser's `fetch`.
 export const queryClient = QueryClient.make({ layer: FetchHttpClient.layer });
@@ -52,9 +97,11 @@ export const queryClient = QueryClient.make({ layer: FetchHttpClient.layer });
 The query's error is whatever its Effect fails with, here Effect's
 `HttpClientError` and `SchemaError`, typed all the way to the component.
 
-**With a service of your own.** A query can use any service you register,
-such as a store that wraps your API. This file defines queries, a query
-that reads another and a mutation with an optimistic update:
+## Use a service of your own
+
+A query can use any service you register, such as a store that wraps your
+API. This file defines a list, a detail family, and a query that reads the
+list:
 
 ```ts
 import * as Context from "effect/Context";
@@ -62,7 +109,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { Mutation, Query } from "@monarcode/effetch-query";
+import { Query } from "@monarcode/effetch-query";
 
 const Todo = Schema.Struct({
   id: Schema.Finite,
@@ -81,10 +128,6 @@ class TodoStore extends Context.Service<
   {
     readonly list: Effect.Effect<ReadonlyArray<Todo>>;
     readonly get: (id: number) => Effect.Effect<Todo, TodoNotFound>;
-    readonly setDone: (
-      id: number,
-      done: boolean,
-    ) => Effect.Effect<Todo, TodoNotFound>;
   }
 >()("TodoStore") {}
 
@@ -97,7 +140,7 @@ declare module "@monarcode/effetch-query" {
 export const todos = Query.make({
   key: ["todos", "list"],
   run: TodoStore.use((store) => store.list),
-  // Only for server rendering: how the value crosses to the browser.
+  // How the value crosses to the browser, and how entities find todos in it.
   schema: { success: Schema.Array(Todo) },
 });
 
@@ -108,7 +151,7 @@ export const todo = Query.family({
 });
 // todo(1): Query<Todo, TodoNotFound>, keyed ["todos", "detail", 1]
 
-// A query can read another one, and refetches when it changes.
+// Reads the list, and runs again when the list's result changes.
 export const openCount = Query.make({
   key: ["todos", "open-count"],
   run: (ctx) =>
@@ -117,29 +160,43 @@ export const openCount = Query.make({
       (list) => list.filter((item) => !item.done).length,
     ),
 });
-
-export const setDone = Mutation.make({
-  run: ({ id, done }: { readonly id: number; readonly done: boolean }) =>
-    TodoStore.use((store) => store.setDone(id, done)),
-  optimistic: ({ id, done }) =>
-    Query.update(todo(id), (current) => ({ ...current, done })),
-  invalidates: [todos],
-});
 ```
 
-The difference from endpoint queries is what you write yourself:
+A mutation from your own Effect works the same way, with `Mutation.make`,
+as [Define a mutation](/docs/mutations) shows.
 
-- **Keys are yours to write.** A family's key is its `key` followed by the
-  argument: `todo(1)` is `["todos", "detail", 1]`. Arguments are compared
-  by value, so `todo(1) === todo(1)`.
-- **`run` can read other queries** through `ctx.result`, as `openCount`
-  does ([Queries that read other queries](/docs/queries/dependent)).
-- **To render on the server**, give the query a `schema`. Effetch's
-  endpoints don't need one, since their `output` is it.
-- **`InfiniteQuery.make` and `InfiniteQuery.family`** take a `run` from the
-  page's param, `(args, pageParam) => Effect` for a family, with the
-  [paging options](/docs/queries/infinite). `Query.stream` and
-  `Query.streamFamily` take a `Stream` ([Queries from a stream](/docs/queries/streams)).
+## What you write yourself
 
-Everything else in these docs, hooks, mutations, the cache and server
-rendering, works the same.
+An endpoint gives a query its key and its schema. Without one, you write
+them:
+
+- **The key.** A family's key is its `key` followed by the argument:
+  `todo(1)` is `["todos", "detail", 1]`. Arguments are compared by value,
+  so `todo(1) === todo(1)`. [Query keys](/docs/queries/keys) explains how
+  keys match.
+- **The schema.** Give a query a `schema` to render it on the server and
+  to let [entities](/docs/cache/entities) find records in it. An endpoint
+  takes it from its `output`. In
+  [Use a service of your own](#use-a-service-of-your-own), `todos` has
+  one and `todo` doesn't, so `todo` is fetched in the browser.
+- **What it reads.** `run` can read other queries through `ctx.result`,
+  as `openCount` does. See
+  [Queries that read other queries](/docs/queries/dependent).
+
+Hooks, mutations, the cache and server rendering work the same as with
+endpoints. The parts of these docs about `fromClient` don't apply: keys
+from a route and `fromClient`'s options. A call you make with your Effetch
+client still fails with the errors its `statusErrors` declare, as
+[Errors by status](/docs/queries/errors#errors-by-status) shows for
+endpoints.
+
+## What's next
+
+- [Query keys](/docs/queries/keys): how keys are built, and how a target
+  matches them.
+- [Infinite queries](/docs/queries/infinite): page through a list with
+  `InfiniteQuery.make` and `InfiniteQuery.family`.
+- [Queries from a stream](/docs/queries/streams): make a query from a
+  `Stream` with `Query.stream` and `Query.streamFamily`.
+- [Query options](/docs/queries/options): every option `Query.make` and
+  `Query.family` take.

@@ -1,16 +1,15 @@
 ---
 title: The query client
-description: Create the query client, and give it the services your queries use.
+description: Create the query client, give it your services, and dispose it when you're done.
 ---
 
-The query client holds the cache and runs your queries and mutations with
-your services. This page covers what a client takes: its
-options, the layer or runtime that provides your services, and how those
-services are typed. [Defaults and app-wide hooks](/docs/client/defaults),
-[Focus and online signals](/docs/client/signals) and [Client
-members](/docs/client/members) cover the rest.
+Getting started gave you a client with a layer and one default. This page
+is for when that isn't enough: your app already has a `ManagedRuntime`, a
+server needs a client per request, the app runs where there's no browser
+focus, or you need to release a client when you're done with it.
 
-The examples import `api.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
 A client is cheap to create. A browser app makes one with
 `QueryClient.make`. A server makes one per request, from the process's
@@ -18,40 +17,78 @@ runtime, and disposes it when the response is done. In an Effect program
 or a test, `QueryClient.layer` makes one as a layer, disposed when the
 layer's scope closes.
 
+## Typed services
+
+A service is a value your Effects ask for by name, such as your API client,
+and a layer is what builds it. You declare once, for the whole app, which
+services your queries and mutations run with, in `Register`. The
+`declare module` block at the end of `api.ts`, in
+[Describe your API](/docs/getting-started#1-describe-your-api), registers
+`ApiClient` as `readonly services: ApiClient`. With several services, use a
+union: `ApiClient | Analytics`.
+
+When `Register` declares services, a query that uses any other service
+doesn't compile, and neither does a client that isn't given a layer or a
+runtime that provides them. An app that declares none can call
+`QueryClient.make()` with no options at all.
+
+Two types read `Register` back, for typing Effects of your own:
+
+- `QueryClient.Services` is the services declared in `Register`, or
+  `never` without the declaration.
+- `QueryClient.Requirements` is what queries, mutations and the client's
+  hooks run with: `Services | QueryClient`.
+
+An Effect that needs only `QueryClient.Requirements` can be a query's
+`run` or what a mutation's `run` returns, and `queryClient.runPromise`
+runs it.
+
 ## Options
 
 `QueryClient.make` and `QueryClient.layer` take the following options:
 
-| Option      | What it does                                                                                                               | Default                                                                          |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `layer`     | Provides your registered services. Built the first time it's needed and kept until `dispose()`.                            | Required, unless you give `runtime` or `Register` declares no services           |
-| `memoMap`   | The `Layer.MemoMap` to build `layer` with, so layers built with it before are shared rather than built twice.              | The client's own; for `QueryClient.layer`, that of the layer graph it's built in |
-| `runtime`   | Instead of `layer`: a `ManagedRuntime` that provides your services. The client uses it and doesn't dispose it.             | None                                                                             |
-| `signals`   | Where the client hears that the app regained focus or the device came back online.                                         | `Signals.browser`                                                                |
-| `queries`   | `defaults` for every query, and the `onSuccess`, `onFailure` and `onSettled` hooks.                                        | No defaults, no hooks                                                            |
-| `mutations` | `defaults` (`retry`, `concurrent`) for every mutation, and the `onMutate`, `onSuccess`, `onFailure` and `onSettled` hooks. | No defaults, no hooks                                                            |
-| `entities`  | `sync`: the entities whose cached copies a fetch keeps in sync ([Keep copies in sync](/docs/mutations/entity-sync)).       | None                                                                             |
+| Option      | What it does                                                                                                                                                           | Default                                                                          |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `layer`     | Provides your registered services. Built the first time it's needed and kept until `dispose()`. If it fails to build, everything that needs it dies with that failure. | Required, unless you give `runtime` or `Register` declares no services           |
+| `memoMap`   | The `Layer.MemoMap` to build `layer` with: Effect's record of the layers already built, so a layer built with it before is shared rather than built twice.             | The client's own; for `QueryClient.layer`, that of the layer graph it's built in |
+| `runtime`   | Instead of `layer`: a `ManagedRuntime` that provides your services. The client uses it and doesn't dispose it.                                                         | None                                                                             |
+| `signals`   | Where the client hears that the app regained focus or the device came back online.                                                                                     | `Signals.browser`                                                                |
+| `queries`   | `defaults` for every query, and the `onSuccess`, `onFailure` and `onSettled` hooks.                                                                                    | No defaults, no hooks                                                            |
+| `mutations` | `defaults` (`retry`, `concurrent`) for every mutation, and the `onMutate`, `onSuccess`, `onFailure` and `onSettled` hooks.                                             | No defaults, no hooks                                                            |
+| `entities`  | `sync`: the entities whose cached copies a fetch keeps in sync.                                                                                                        | None                                                                             |
 
-If `layer` fails to build, everything that needs it dies with that
-failure.
+[Defaults and app-wide hooks](/docs/client/defaults) covers `queries` and
+`mutations`, [Keep copies in sync](/docs/cache/entity-sync) covers
+`entities`, and [Focus and online signals](#focus-and-online-signals)
+covers `signals`.
 
-In types, `QueryClient.Options` is one of two shapes. `LayerOptions` gives
-the client a `layer` (and optionally a `memoMap`), which it builds itself.
-`RuntimeOptions` gives it a `runtime` instead. Both extend
-`CommonOptions`: `signals`, `queries`, `mutations` and `entities`.
+<Accordions type="multiple">
+  <Accordion title="Details: the option types">
+    In types, `QueryClient.Options` is one of two shapes. `LayerOptions`
+    gives the client a `layer`, and optionally a `memoMap`, which it builds
+    itself. `RuntimeOptions` gives it a `runtime` instead. Both extend
+    `CommonOptions`: `signals`, `queries`, `mutations` and `entities`.
 
-`QueryClient.OptionalOptions` is the parameter list of `make` and
-`layer`. An app that declares no services in `Register` can leave out
-`layer` and `runtime`, or every option: `QueryClient.make()`. Once
-`Register` declares services, a client must be given them.
+    `QueryClient.OptionalOptions` is the parameter list of `make` and
+    `layer`. With no services declared in `Register`, it lets you leave out
+    `layer` and `runtime`, or every option. The
+    [`QueryClient` reference](/docs/reference/query-client#options) has
+    each type.
+
+  </Accordion>
+</Accordions>
 
 ## Layer or runtime
 
 Given a `layer`, the client builds your services itself, once, the first
 time it needs them. That's the setup in
-[Getting started](/docs/getting-started#2-create-the-query-client).
+[Create the query client](/docs/getting-started#2-create-the-query-client).
+Three other setups cover the rest.
 
-**Sharing your runtime.** If your app already has a `ManagedRuntime` that
+### Share your runtime
+
+A `ManagedRuntime` is Effect's long-lived runtime: your layer, built once,
+with `runPromise` to run Effects with it. If your app already has one that
 provides your services, give the client that instead of a layer. It uses
 the runtime's services rather than building its own, and leaves the
 runtime running when it's disposed:
@@ -73,26 +110,195 @@ request that reuses its services rather than building them again. If the
 runtime fails to build, or has been disposed, everything that needs it
 dies.
 
-Clients of one runtime share its `Reactivity`, so an invalidation by any
-of them, or by a service the runtime built (an SQL client, say),
-refetches the matching queries of all of them. No cached values cross
-between clients.
+Clients of one runtime share its `Reactivity`, Effect's service for
+invalidating by key. A `Reactivity.invalidate` run in any of them, or by a
+service the runtime built (an SQL client, say), refetches the matching
+queries of all of them: those that declare those keys in
+`reactivityKeys`, as
+[Freshness and refetching](/docs/queries/freshness) shows.
+`Query.invalidate` and `queryClient.invalidate` act on one client only, so
+one request's invalidation never refetches another request's queries. No
+cached values cross between clients.
 
-**Services on top of a runtime's.** When a client needs services of its
-own on top of the runtime's, give it a `layer` with the runtime's
-`memoMap` instead. What the runtime has built is shared, not built again,
-and so is its `Reactivity`.
+### Add services to a runtime's
 
-## Typed services
+When a client needs services of its own on top of the runtime's, give it a
+`layer` with the runtime's `memoMap` instead. What the runtime has built is
+shared, not built again, and so is its `Reactivity`. Here the runtime
+builds the HTTP client, and `ApiClientLive`, which uses the same
+`FetchHttpClient.layer`, shares it:
 
-`Register` declares the services your queries and mutations run with, once
-for the whole app ([1. Describe your API](/docs/getting-started#1-describe-your-api)). Two types
-read it back, for typing Effects of your own:
+```ts
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 
-- `QueryClient.Services` is the services declared in `Register`, or
-  `never` without the declaration.
-- `QueryClient.Requirements` is what queries, mutations and the client's
-  hooks run with: `Services | QueryClient`.
+import { QueryClient } from "@monarcode/effetch-query";
 
-An Effect that needs only `QueryClient.Requirements` can be a query's
-`run` or what a mutation's `run` returns, and `client.runPromise` runs it.
+import { ApiClientLive } from "./api.js";
+
+const appRuntime = ManagedRuntime.make(FetchHttpClient.layer);
+
+export const queryClient = QueryClient.make({
+  layer: ApiClientLive,
+  memoMap: appRuntime.memoMap,
+});
+```
+
+### Make a client in an Effect program
+
+`QueryClient.layer` takes the same options and gives an Effect program a
+client, disposed when the program ends:
+
+```ts
+import * as Effect from "effect/Effect";
+
+import { Query, QueryClient } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+import { todos } from "./todos.js";
+
+export const program = Query.fetch(todos()).pipe(
+  Effect.provide(QueryClient.layer({ layer: ApiClientLive })),
+);
+```
+
+Unless you set `memoMap`, the client builds its layer with the memo map of
+the layer graph it's built in, so services that graph also builds are built
+once. [Testing](/docs/testing) uses this setup.
+
+## Focus and online signals
+
+Queries in use refetch when the app regains focus or the device comes back
+online, if they're stale. A query is in use while something subscribes to
+it, such as a mounted component that reads it. The `signals` option tells
+the client when focus and reconnects happen. There are three choices:
+
+- `Signals.browser`, the default: focus is the page becoming visible
+  again, and online follows `navigator.onLine`. Without a DOM, such as on
+  a server or in React Native, it never changes.
+- `Signals.none`: never changes, so no query refetches on focus or
+  reconnect. Use it for a script or a test with no focus or network
+  events.
+- `reactNativeSignals` from `@monarcode/effetch-query/react-native`, built
+  from React Native's `AppState` and NetInfo, as
+  [React Native](/docs/react/react-native) shows.
+
+The `refetchOnFocus` and `refetchOnReconnect` options turn each refetch off,
+for every query or for one, as
+[Freshness and refetching](/docs/queries/freshness) shows.
+
+A reconnect is all `online` is for. Being offline doesn't pause or queue
+fetches or mutation runs: one that runs offline fails as its Effect fails,
+and `retry` applies.
+
+For another platform, write your own `Signals.Signals` from two atoms.
+`focus` is a number that changes each time the app regains focus: only the
+change counts, not the value. `online` is a boolean, where going from
+`false` to `true` is a reconnect. Build each from your platform's events, so
+that every client that uses them starts its own listener:
+
+```ts
+import * as Atom from "effect/reactivity/Atom";
+
+import { QueryClient, type Signals } from "@monarcode/effetch-query";
+
+import { ApiClientLive } from "./api.js";
+
+// Your platform's events, such as a desktop shell's.
+declare const shell: {
+  readonly onFocus: (listener: () => void) => () => void;
+  readonly isOnline: () => boolean;
+  readonly onOnlineChange: (listener: (online: boolean) => void) => () => void;
+};
+
+const signals: Signals.Signals = {
+  focus: Atom.readable((get) => {
+    let count = 0;
+    get.addFinalizer(shell.onFocus(() => get.setSelf(++count)));
+    return count;
+  }),
+  online: Atom.readable((get) => {
+    get.addFinalizer(shell.onOnlineChange((online) => get.setSelf(online)));
+    return shell.isOnline();
+  }),
+};
+
+export const queryClient = QueryClient.make({ layer: ApiClientLive, signals });
+```
+
+## What a client has
+
+A client's methods run Effects and reach the cache from code outside
+Effect: `runPromise` and `runPromiseExit`, then `fetch`, `prefetch`,
+`invalidate`, `refetch`, `reset` and `clear`, then `dispose`. The
+[`QueryClient` reference](/docs/reference/query-client#queryclient) lists
+each one, and [The cache](/docs/cache) shows them in event handlers and
+loaders.
+
+Four `QueryClient` functions take a client as their first argument:
+
+- `QueryClient.get` reads a cached value without fetching, for code that
+  can't wait for a promise.
+- `QueryClient.dehydrate` and `QueryClient.hydrate` send the cache from a
+  server and load it in the browser, as
+  [Server rendering](/docs/server-rendering) shows.
+- `QueryClient.disposeAfter` disposes a client after a streamed
+  response, as [Dispose a client](#dispose-a-client) shows.
+
+`queryClient.registry` is the `AtomRegistry` that holds the cache, for
+`@effect/atom-react` and your own [atoms](/docs/react/atoms). It's yours to
+read and to add atoms to, but don't `reset` or `dispose` it: use
+`queryClient.dispose()`. Its `onNodeAdded` and `onNodeRemoved` hooks are
+the client's, and replacing them breaks invalidation.
+
+Inside Effect, the client is the `QueryClient.QueryClient` service.
+Queries, mutations and the client's hooks already run with it. Elsewhere,
+run the Effect with `queryClient.runPromise` or provide `QueryClient.layer`.
+In a React component, `useQueryClient()` returns the client of the nearest
+`QueryProvider`, for running Effects from event handlers.
+
+## Dispose a client
+
+A client made per request on a server must be released when the request is
+done, or its cache and its services stay in memory. `dispose()` releases
+everything the client owns, in this order:
+
+1. It drops the cache and clears its timers.
+2. It interrupts what's in progress: fetches, mutation runs and the Effects
+   `runPromise` started. An interrupted mutation run doesn't roll back its
+   optimistic writes, since the cache is already gone.
+3. It closes the scope of the layer the client built. A client given a
+   `runtime` leaves the runtime running.
+
+The promise resolves when everything it interrupted and the layer's
+finalizers have run. A layer build in progress is waited for, not cut
+short, because a memo map shared with your app's runtime would keep the
+interruption. If a finalizer throws, the layer is still released and the
+promise rejects. Don't use the client afterwards: on a disposed client,
+`invalidate`, `refetch`, `reset` and `clear` do nothing.
+
+You rarely call `dispose()` in a browser app, whose one client lives as
+long as the page. A client from `QueryClient.layer` is disposed when its
+scope closes. One a `QueryProvider` makes with `make` is disposed when the
+provider unmounts or its `resetKey` changes.
+
+### Dispose after a streamed response
+
+A server that streams its response returns from the handler before the
+streamed results are sent, so it can't dispose the client there.
+`QueryClient.disposeAfter(client, response)` disposes it when the response's
+body ends instead. See
+[Dispose the client after the response](/docs/server-rendering/streaming#dispose-the-client-after-the-response)
+for a handler that uses it, and what it does with a body that fails or is
+cancelled.
+
+## What's next
+
+- [Defaults and app-wide hooks](/docs/client/defaults): set options for
+  every query and mutation, and log or report every failure.
+- [Send the cache](/docs/server-rendering): make a client per request on a
+  server, and send what it fetched to the browser.
+- [The cache](/docs/cache): read and write cached values from event
+  handlers, loaders and Effect.
+- [Testing](/docs/testing): run queries and components against a fresh
+  client.

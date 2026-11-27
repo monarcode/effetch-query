@@ -3,20 +3,34 @@ title: Getting started
 description: "Build a small todo app: an Effetch client, a query client, two queries, a component and a mutation."
 ---
 
-This tutorial walks you through a small todo app: an Effetch client, a
-query client, two queries, a component that shows them, and a mutation
-that changes them. The other pages build on the same files, so each
-example names the file it lives in.
+You have a React app and an API that serves todos. In this tutorial, you
+build a page that lists the open todos and marks one done with a click. On
+the way, you write an Effetch client, a query client, two queries, a
+component that shows them and a mutation that changes them. The other
+pages of these docs build on the same files, so each example names the
+file it lives in.
 
 ## Before you begin
 
-[Install Effetch Query](/docs/installation) with Effetch, Effect and
-React.
+You need:
+
+- Effetch Query, Effetch, Effect and React, added as
+  [Installation](/docs/installation) shows;
+- a React 19 app written in TypeScript, such as one made from Vite's
+  `react-ts` template, that renders an element with the ID `root`;
+- an HTTP API that serves todos as `{ id, title, done }`: a list at
+  `GET /todos`, filtered by `?done=false`, one todo at `GET /todos/:id`,
+  and `PATCH /todos/:id` to change one.
+
+Steps 1 and 3 use [Effetch](https://effetch.pages.dev), the typed HTTP
+client for Effect: `Fetch.Service` declares a client for one API, and
+`Fetch.endpoint` describes one of its routes.
 
 ## 1. Describe your API
 
 Start with an Effetch client for your API, declared as a service with
-`Fetch.Service`. If you already use Effetch, you have this file:
+`Fetch.Service`. A service is a value your Effects ask for by name, and a
+layer is what builds it. If you already use Effetch, you have this file:
 
 ```ts api.ts
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
@@ -53,6 +67,8 @@ declare module "@monarcode/effetch-query" {
 }
 ```
 
+Replace `https://api.example.com` with your API's address.
+
 The `declare module` block at the end is the one piece of setup that's
 specific to Effetch Query. It tells the library which services your
 queries run with. Write it once, anywhere in your app. From then on:
@@ -65,8 +81,10 @@ With several services, use a union: `ApiClient | Analytics`.
 
 ## 2. Create the query client
 
-The query client holds the cache. Give it the layer that provides your
-services, and it builds the layer the first time a query needs it:
+The query client holds the cache: queries hold no data themselves, and the
+client runs them with your services and keeps what they return. Give it
+the layer that provides your services, and it builds the layer the first
+time a query needs it:
 
 ```ts client.ts
 import { QueryClient } from "@monarcode/effetch-query";
@@ -83,8 +101,8 @@ export const queryClient = QueryClient.make({
 ```
 
 One client is enough for a browser app. On a server, you make one per
-request, as [Server rendering](/docs/server-rendering) shows. Every option the
-client takes is listed in [The client](/docs/client).
+request, as [Server rendering](/docs/server-rendering) shows.
+[The query client](/docs/client) explains every option the client takes.
 
 ## 3. Define your queries
 
@@ -116,45 +134,16 @@ export const todo = api.query(getTodo, { staleTime: "1 minute" });
 // todo({ params: { id: 1 } }) is the query keyed ["todos", 1]
 ```
 
+`todos` and `todo` are families: each is a function that returns the query
+for one call. `todos` lists todos, and `todo` loads one. This tutorial
+shows the list, and the other guides use `todo` for a todo's own page.
+
 Define queries at module level, as you do your schemas. A query is only a
 description: nothing is fetched until something reads it, and the data
 lives in the client.
 
-**Without endpoints.** You can also call your Effetch client yourself.
-`Query.make` defines one query, and `Query.family` defines one query per
-argument, each from an Effect you write:
-
-```ts
-import * as Schema from "effect/Schema";
-
-import { Query } from "@monarcode/effetch-query";
-
-import { ApiClient, Todo } from "./api.js";
-
-export const todos = Query.family({
-  key: ["todos", "list"],
-  run: (filter: { readonly done: boolean }) =>
-    ApiClient.use((client) =>
-      client.get("/todos", { query: filter, output: Schema.Array(Todo) }),
-    ),
-});
-// todos({ done: false }) is the query keyed ["todos", "list", { done: false }]
-
-export const todo = Query.family({
-  key: ["todos", "detail"],
-  run: (id: number) =>
-    ApiClient.use((client) =>
-      client.get("/todos/:id", { params: { id }, output: Todo }),
-    ),
-  staleTime: "1 minute",
-});
-// todo(1) is the query keyed ["todos", "detail", 1]
-```
-
-These work the same as endpoint queries, with the same typed errors. The
-difference is what you write yourself: the key, which an endpoint takes
-from its route, and a `schema` for [server rendering](/docs/server-rendering),
-which an endpoint takes from its `output`.
+To call your API without endpoints, see
+[Queries from any Effect](/docs/queries/without-effetch).
 
 ## 4. Show a query
 
@@ -187,7 +176,9 @@ export function OpenTodos() {
 ```
 
 `AsyncResult.match` gives you one branch per state: `Initial` while the
-first fetch is in progress, then `Success` or `Failure`.
+first fetch is in progress, then `Success` or `Failure`. A failure holds
+the typed error, so you can show a 404 differently from a network error,
+as [Query errors](/docs/queries/errors) shows.
 
 To give your components the client, wrap your app in `QueryProvider`:
 
@@ -206,13 +197,24 @@ export function App() {
 }
 ```
 
-Two components that show `todos({ query: { done: false } })` share one
-fetch and one cached value.
+Then render `App` into the page, from your app's entry point:
+
+```tsx main.tsx
+import { createRoot } from "react-dom/client";
+
+import { App } from "./App.js";
+
+createRoot(document.getElementById("root")!).render(<App />);
+```
+
+Start your app and open it. The page shows "Loading…", then the titles of
+your open todos. Two components that show
+`todos({ query: { done: false } })` share one fetch and one cached value.
 
 ## 5. Change data
 
 A mutation changes data on the server. Its `invalidates` option names the
-queries that are out of date once it succeeds, and the ones on screen
+queries that are out of date after it succeeds, and the ones on screen
 refetch:
 
 ```ts toggle-todo.ts
@@ -232,10 +234,15 @@ export const toggleTodo = api.mutation(
 );
 ```
 
+`[todos]` reaches every todo list, whatever its filter, but not `todo`'s
+queries: a family matches only its own calls.
+[Invalidate after a mutation](/docs/mutations/invalidate) shows how to
+reach both.
+
 `useMutation` runs it from a component. For an endpoint mutation, the
 variables you pass to `run` are the endpoint's call options:
 
-```tsx
+```tsx toggle-button.tsx
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { useMutation } from "@monarcode/effetch-query/react";
@@ -263,29 +270,43 @@ export function ToggleButton({ todo }: { readonly todo: Todo }) {
 }
 ```
 
-**Without endpoints.** `Mutation.make` defines a mutation from an Effect
-you write. Its variables are whatever its `run` takes, here the todo to
-toggle:
+`result.waiting` is true while the request is in progress, so the button
+can't be clicked twice. If the request fails, the button offers to try
+again.
 
-```ts
-import { Mutation } from "@monarcode/effetch-query";
+Last, render the button in each row of the list. Here's `open-todos.tsx`
+with it:
 
-import { ApiClient, Todo } from "./api.js";
+```tsx
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 
-export const toggleTodo = Mutation.make({
-  run: (todo: Todo) =>
-    ApiClient.use((client) =>
-      client.patch("/todos/:id", {
-        params: { id: todo.id },
-        body: { done: !todo.done },
-        output: Todo,
-      }),
+import { useQuery } from "@monarcode/effetch-query/react";
+
+import { todos } from "./todos.js";
+import { ToggleButton } from "./toggle-button.js";
+
+export function OpenTodos() {
+  const result = useQuery(todos({ query: { done: false } }));
+
+  return AsyncResult.match(result, {
+    onInitial: () => <p>Loading…</p>,
+    onFailure: () => <p>Couldn't load your todos.</p>,
+    onSuccess: ({ value }) => (
+      <ul>
+        {value.map((todo) => (
+          <li key={todo.id}>
+            {todo.title} <ToggleButton todo={todo} />
+          </li>
+        ))}
+      </ul>
     ),
-  // A key reaches every query under it, endpoint or not.
-  invalidates: [["todos"]],
-});
-// useMutation(toggleTodo).run(todo)
+  });
+}
 ```
+
+Click **Done** beside a todo. The button is disabled while the request
+runs. When the server answers, the list refetches in the background and
+the todo leaves it, since it's no longer open.
 
 ## Where to go next
 
@@ -293,16 +314,18 @@ That's the whole loop: define a query, show it, change the data, and let
 the cache refetch. The other pages go deeper, in the same order:
 
 - [Queries](/docs/queries): keys, errors, freshness and placeholders.
-- [Showing data in React](/docs/react): every way to read a
-  query in a component, with Suspense, selections and paused screens.
-- [Mutations](/docs/mutations): invalidation, optimistic updates, entities and
+- [Read a query](/docs/react): every way to read a query in a component,
+  with Suspense, selections and paused screens.
+- [Mutations](/docs/mutations): invalidation, optimistic updates and
   activity.
-- [Working with the cache](/docs/cache): reading and writing
-  the cache from Effect and from plain code, and signing out.
+- [The cache](/docs/cache): read and write the cache from Effect and from
+  plain code, keep copies of a record in sync, and sign out.
 - [Infinite queries](/docs/queries/infinite) and
-  [Queries from a stream](/docs/queries/streams), for lists that load in pages and values
-  a server pushes.
-- [React Native](/docs/react/react-native), [Server rendering](/docs/server-rendering)
-  and [Frameworks](/docs/frameworks), for your platform.
-- [The client](/docs/client), [Testing](/docs/testing) and the
+  [Queries from a stream](/docs/queries/streams), for lists that load in
+  pages and values a server pushes.
+- [React Native](/docs/react/react-native),
+  [Server rendering](/docs/server-rendering) and
+  [Frameworks](/docs/frameworks), for your platform.
+- [Examples](/docs/examples): complete apps to read and run.
+- [The query client](/docs/client), [Testing](/docs/testing) and the
   [API reference](/docs/reference), for everything else.

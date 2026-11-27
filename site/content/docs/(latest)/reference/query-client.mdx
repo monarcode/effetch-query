@@ -11,13 +11,13 @@ description: "Every member of the QueryClient namespace: the client, its options
 import { QueryClient } from "@monarcode/effetch-query";
 ```
 
-Its exports follow, grouped by the guide that covers them. Each one has
-the first paragraph of its docs, and what it needs and how it fails; your
-editor shows the rest, with an example, when you hover the name.
+Its exports follow, grouped by the guide that covers them, each with its
+docs. Your editor shows the same docs, with an example, when you hover the
+name.
 
 ## The client [#the-client]
 
-Guide: [The client](/docs/client).
+Guide: [The query client](/docs/client).
 
 ### QueryClient.make [#make]
 
@@ -25,7 +25,22 @@ Creates a [`QueryClient`](#queryclient). Nothing is built until the client is fi
 
 ### QueryClient.QueryClient [#queryclient]
 
+A query cache with its own `AtomRegistry.AtomRegistry`, and your services from its own build of your layer or from your runtime. Create one with [`make`](#make) (or [`layer`](#layer) in Effect programs). Every query, mutation and Effect-side cache function runs with it, as the [`QueryClient`](#queryclient) service.
+
+A client is cheap to create. On a server, create one per request from your process's runtime ([`RuntimeOptions`](#runtimeoptions)) and `QueryClient.dispose` it when the response is done.
+
 The service every Effect-side cache function needs. Queries, mutations and the client's hooks already run with it; elsewhere, run the Effect with `QueryClient.runPromise` or provide [`layer`](#layer).
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="QueryClient"
+/>
+
+### QueryClient.layer [#layer]
+
+Creates a [`QueryClient`](#queryclient) as a layer, for Effect programs and tests without React. The client is disposed when the layer's scope closes.
+
+Unless `options.memoMap` is set, the client builds `options.layer` with the memo map of the layer graph it's built in, so services that graph also builds are built once. A client given `options.runtime` uses the runtime's services instead. With no services declared in [`Register`](#register), the options can be left out ([`OptionalOptions`](#optionaloptions)).
 
 ### QueryClient.CommonOptions [#commonoptions]
 
@@ -60,6 +75,8 @@ Declares the services your queries and mutations run with. Augment it once, next
 - [`make`](#make) requires a layer or a runtime that provides these services.
 - An Effect that needs a service outside them doesn't compile.
 
+Without the augmentation, [`Services`](#services) is `never`, so anything that needs a service fails to compile.
+
 ### QueryClient.Requirements [#requirements]
 
 What queries, mutations and the client's hooks run with: your [`Services`](#services) and the [`QueryClient`](#queryclient).
@@ -67,6 +84,10 @@ What queries, mutations and the client's hooks run with: your [`Services`](#serv
 ### QueryClient.RuntimeOptions [#runtimeoptions]
 
 [`Options`](#options) that give the client a `ManagedRuntime` providing your services, built once for every client that uses it. Share one runtime per process: on a server, each request's client then reuses its services rather than building them again.
+
+The client doesn't own the runtime: `QueryClient.dispose` leaves it running. The runtime builds its layer the first time any client needs it; if that fails, or the runtime has been disposed, everything that needs it dies.
+
+The client builds its own parts with the runtime's `memoMap`, so it shares the runtime's `Reactivity` with the services the runtime built (an SQL client publishes on it) and with the runtime's other clients: a `Reactivity.invalidate` in any of them refetches the matching queries of all. No cached values cross between clients.
 
 <auto-type-table
   path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
@@ -76,14 +97,6 @@ What queries, mutations and the client's hooks run with: your [`Services`](#serv
 ### QueryClient.Services [#services]
 
 The services declared in [`Register`](#register), or `never` without the augmentation.
-
-## Testing [#testing]
-
-Guide: [Testing](/docs/testing).
-
-### QueryClient.layer [#layer]
-
-Creates a [`QueryClient`](#queryclient) as a layer, for Effect programs and tests without React. The client is disposed when the layer's scope closes.
 
 ## Defaults and app-wide hooks [#defaults-and-app-wide-hooks]
 
@@ -97,13 +110,28 @@ An app-wide hook in [`QueriesOptions`](#queriesoptions) or [`MutationsOptions`](
 
 Options every mutation takes, set for all of them in `MutationsOptions.defaults`. A mutation's own options (`Mutation.MakeOptions`) extend these, with `E` its error type.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="MutationDefaults"
+/>
+
 ### QueryClient.MutationFailed [#mutationfailed]
 
 What `MutationsOptions.onFailure` receives.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="MutationFailed"
+/>
+
 ### QueryClient.MutationSettled [#mutationsettled]
 
 What `MutationsOptions.onSettled` receives.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="MutationSettled"
+/>
 
 ### QueryClient.MutationsOptions [#mutationsoptions]
 
@@ -118,9 +146,19 @@ The `mutations` group of [`Options`](#options): defaults for every mutation, and
 
 What `MutationsOptions.onMutate` receives.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="MutationStarted"
+/>
+
 ### QueryClient.MutationSucceeded [#mutationsucceeded]
 
 What `MutationsOptions.onSuccess` receives.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="MutationSucceeded"
+/>
 
 ### QueryClient.QueriesOptions [#queriesoptions]
 
@@ -135,21 +173,41 @@ The `queries` group of [`Options`](#options): defaults for every query, and hook
 
 Options every query takes, set for all of them in `QueriesOptions.defaults`. A query's own options ([`Query.Options`](/docs/reference/query#options)) extend these, with `E` its error type.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="QueryDefaults"
+/>
+
 ### QueryClient.QueryFailed [#queryfailed]
 
 What `QueriesOptions.onFailure` receives.
+
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="QueryFailed"
+/>
 
 ### QueryClient.QuerySettled [#querysettled]
 
 What `QueriesOptions.onSettled` receives.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="QuerySettled"
+/>
+
 ### QueryClient.QuerySucceeded [#querysucceeded]
 
 What `QueriesOptions.onSuccess` receives.
 
+<auto-type-table
+  path="node_modules/@monarcode/effetch-query/dist/QueryClient.d.ts"
+  name="QuerySucceeded"
+/>
+
 ## Keep copies in sync [#keep-copies-in-sync]
 
-Guide: [Keep copies in sync](/docs/mutations/entity-sync).
+Guide: [Keep copies in sync](/docs/cache/entity-sync).
 
 ### QueryClient.EntitiesOptions [#entitiesoptions]
 
@@ -162,7 +220,7 @@ The `entities` group of [`Options`](#options): entities whose copies a fetch kee
 
 ## Use the cache outside Effect [#use-the-cache-outside-effect]
 
-Guide: [Use the cache outside Effect](/docs/cache/outside-effect).
+Guide: [Read and write outside Effect](/docs/cache#read-and-write-outside-effect).
 
 ### QueryClient.get [#get]
 
@@ -176,7 +234,9 @@ Guide: [Send the cache](/docs/server-rendering).
 
 Reads a client's cache to send to the browser, for server rendering, as TanStack's `dehydrate`. Load what the page needs first ([`Query.prefetch`](/docs/reference/query#prefetch) through `QueryClient.runPromise`), then send the result with the page and load it with [`hydrate`](#hydrate) (or `HydrationBoundary` from `@monarcode/effetch-query/react`).
 
-Throws a `NonJsonKeyError` for a key that isn't JSON, and a `DuplicateQueryKeyError` when two queries it sends have one key.
+Only queries with a `schema` are sent, encoded with it, timestamp included, so a query stays fresh in the browser as long as it would on the server. It reads without fetching: a stale query is sent as it is. Values a schema can't encode are left out.
+
+Throws a `NonJsonKeyError` for a key that isn't JSON, a `DuplicateQueryKeyError` when two queries it sends have one key, and a `Query.KeyHoldsTargetError` when `queries` is a key that holds a query, a family or a group.
 
 ### QueryClient.DuplicateQueryKeyError [#duplicatequerykeyerror]
 
@@ -201,15 +261,17 @@ Options for [`dehydrate`](#dehydrate).
 
 ## Load the cache in the browser [#load-the-cache-in-the-browser]
 
-Guide: [Load the cache in the browser](/docs/server-rendering/hydrate).
+Guide: [3. Load the cache in the browser](/docs/server-rendering#3-load-the-cache-in-the-browser).
 
 ### QueryClient.hydrate [#hydrate]
 
 Loads a cache [`dehydrate`](#dehydrate) sent into a client, as TanStack's `hydrate`. A query that isn't cached shows its value the first time it's read, without fetching, and refetches once it's stale. A cached query takes it only if it's newer than the last data it has. A query the server was still loading waits for its result instead of fetching.
 
+Values its schema can't decode are dropped, and the query fetches. State from Effect's own `Hydration.dehydrate`, for other atoms, is loaded too.
+
 ## Client members [#client-members]
 
-Guide: [Client members](/docs/client/members).
+Guide: [Dispose a client](/docs/client#dispose-a-client).
 
 ### QueryClient.disposeAfter [#disposeafter]
 
@@ -217,16 +279,4 @@ Returns `response` with its body wrapped so that `client` is disposed once the b
 
 Send the response it returns: one that's discarded is never read, so the client is never disposed. Only the status, status text and headers are kept, not a runtime's own options (Cloudflare's `encodeBody`, say), and the body goes out as a stream, so a fixed body loses the length the runtime would have sent. A body already read or locked throws, and the client is disposed all the same. A failed `QueryClient.dispose` is logged with `console.error`, not thrown.
 
-## Related pages
-
-- [Entry points](/docs/reference): what each entry point exports.
-- [`@monarcode/effetch-query`](/docs/reference/core): the core entry point's namespaces and top-level names.
-- [`Query`](/docs/reference/query): defining queries, keys and targets, and the cache from Effect.
-- [`InfiniteQuery`](/docs/reference/infinite-query): queries that load a list one page at a time.
-- [`Mutation`](/docs/reference/mutation): defining and running mutations.
-- [`Entity`](/docs/reference/entity): records whose every cached copy a write updates.
-- [`Signals`](/docs/reference/signals): where a client hears about focus and reconnects.
-- [`@monarcode/effetch-query/react`](/docs/reference/react): the provider, the hooks and the boundaries.
-- [`@monarcode/effetch-query/effetch`](/docs/reference/effetch): queries and mutations from Effetch endpoints.
-- [`@monarcode/effetch-query/react-native`](/docs/reference/react-native): focus and online signals for React Native.
-- [`@monarcode/effetch-query/react/tanstack-router`](/docs/reference/tanstack-router): connecting a client to TanStack Router and Start.
+The core uses `ReadableStream` and `Response` only when this is called, so it still loads where they don't exist, such as React Native.

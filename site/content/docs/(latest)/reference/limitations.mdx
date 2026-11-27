@@ -1,16 +1,59 @@
 ---
 title: Limitations
-description: Known limits of Effetch Query 0.1.
+description: What Effetch Query 0.1 doesn't do, so you can plan around it.
 ---
 
-Effetch Query 0.1 has the following limitations:
+Before you build on Effetch Query, check that nothing here is something your
+app needs. Each limit says what to do instead, where there's a way.
 
-- `effect/reactivity` is marked unstable in Effect 4, so Effetch Query
-  follows its changes. It's tested against Effect 4.1 and the newest 4.x.
-- No `cancelQueries` and no devtools in 0.1.
-- `gcTime` is per query, not per client: a query's atom is shared by every
-  client.
+## Platforms and versions
 
-Every export is documented in its type declarations (`.d.ts`), with a
-description and an example. Hover over a name in your editor, or use "Go
-to Definition", to read it.
+- **Effect's reactivity is unstable.** `effect/reactivity` is marked
+  unstable in Effect 4, so Effetch Query follows its changes. It's tested
+  against Effect 4.1 and the newest 4.x.
+- **React 19 only.** The React bindings need React 19. There are no Solid,
+  Vue or Preact bindings.
+- **Hermes without `FinalizationRegistry`.** Where the runtime has no
+  `FinalizationRegistry`, as on a Hermes older than 260318099.0.0, each
+  distinct argument of a family keeps its query definition (about 2 KB,
+  measured on V8) in memory for the app's lifetime. Cached values are
+  still dropped after `gcTime`, so this matters only for families with
+  many thousands of arguments in a session.
+
+## Fetching
+
+- **A fetch in progress can't be cancelled.** There's no `cancelQueries`,
+  so a fetch that started before an optimistic write settles over it. See
+  [Optimistic updates](/docs/mutations/optimistic).
+- **Offline pauses nothing.** There's no `networkMode`: a query that
+  fetches while the device is offline fails. When the device reconnects,
+  the queries in use that are stale refetch, unless `refetchOnReconnect`
+  is off.
+- **Infinite queries take no `live` and no `placeholder`.**
+- **No persistence.** The cache lives in memory, with no storage adapter
+  and no queue for mutations made offline.
+- **No devtools.**
+
+## The cache
+
+- **`gcTime` has no client-wide default.** Set it on each query (default:
+  5 minutes). A query's definition is shared by every client, so one
+  client can't keep a query longer than another.
+- **Entities aren't found everywhere.** An entity isn't found inside an
+  `Option` or a `Map`, after a tuple's rest element, or inside another copy
+  of itself, and a value loaded from the server's cache isn't reached until
+  a query reads it. See [Entities](/docs/cache/entities).
+
+## Server rendering
+
+- **Only queries with a schema are sent.** A query of your own needs a
+  `schema`, and an Effetch endpoint an `output`; the rest fetch in the
+  browser. Endpoints with `responseMode` make no queries. See
+  [What's sent](/docs/server-rendering/whats-sent).
+- **Freshness compares two clocks.** A value sent from the server keeps the
+  server's timestamp, and the browser compares it with its own clock, so a
+  browser whose clock is behind the server's sees values fresh for longer.
+- **A server render's client needs disposing.** A client made for a request
+  and never disposed keeps its cache and its services in memory. Each
+  framework guide shows where to dispose it, starting from
+  [Frameworks](/docs/frameworks).

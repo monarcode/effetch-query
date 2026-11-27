@@ -1,21 +1,94 @@
 ---
-title: Use the cache from Effect
-description: Read, write and invalidate cached values from Effect code.
+title: Read and write the cache
+description: Read, write and invalidate cached values from plain code and from Effect.
 ---
 
-Components aren't the only code that needs the cache: a router loader
-fetches before a screen shows, a mutation writes what it changed and a
-sign-out drops everything. This page shows how to read and write the
-cache from Effect. [Use the cache outside Effect](/docs/cache/outside-effect)
-covers plain code, and [Sign out and switch
-accounts](/docs/cache/accounts) covers dropping it when the account changes.
+Components aren't the only code that needs the cache. A router loader
+fetches before a screen shows, a pull-to-refresh handler refetches, and a
+socket message writes what changed. This page shows how to reach the
+cache from plain code, such as loaders and event handlers, and from
+Effect, and what each cache function does.
 
-The examples import `client.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts`, `client.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-Everything the cache does is an Effect. Inside queries and mutations the
-client is already there; elsewhere, such as a router loader or an event
-handler, run the Effect with `queryClient.runPromise`, or call the
-client's own method for it ([Use the cache outside Effect](/docs/cache/outside-effect)):
+## Read and write outside Effect
+
+Code outside Effect can't `yield*` a cache function, so the client has a
+method for six of them. Each returns a `Promise` and does what its
+`Query` function does:
+
+| Method                      | Returns                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `client.fetch(query)`       | `Promise<A>`, rejected as the query fails, so a router's redirect gets through. |
+| `client.prefetch(query)`    | `Promise<void>`, resolved when the fetch settles. Never rejects.                |
+| `client.invalidate(target)` | `Promise<void>`, resolved at once.                                              |
+| `client.refetch(target)`    | `Promise<void>`, resolved when the queries in use have settled.                 |
+| `client.reset(target)`      | `Promise<void>`, resolved at once.                                              |
+| `client.clear(target)`      | `Promise<void>`, resolved at once.                                              |
+
+Here they are in a loader and two event handlers:
+
+```ts
+import { queryClient } from "./client.js";
+import { todo, todos } from "./todos.js";
+
+// A router loader. It rejects as the query fails, and stops waiting when
+// the navigation is cancelled.
+export const loader = (id: number, signal: AbortSignal) =>
+  queryClient.fetch(todo({ params: { id } }), { signal });
+
+// Hovering a link starts the next screen's fetch. It never rejects.
+export const onHoverOpenTodos = () => {
+  void queryClient.prefetch(todos({ query: { done: false } }));
+};
+
+// Pull to refresh: the spinner stops after the lists in use have settled.
+export const onRefresh = () => queryClient.refetch(todos);
+```
+
+A few rules hold for every method:
+
+- Without a target, `invalidate`, `reset` and `clear` act on every query,
+  and `refetch` on every query in use.
+- `invalidate`, `refetch`, `reset` and `clear` reject only with a defect,
+  such as a `Query.KeyHoldsTargetError` for a key that holds queries.
+- On a disposed client, `invalidate`, `refetch`, `reset` and `clear` do
+  nothing.
+- `fetch` and `prefetch` take `{ signal }` to stop waiting when it aborts.
+
+The client has no `get`, `set` or `update` method. To read the cache,
+use `QueryClient.get`, as the next section shows. To write it, run
+`Query.set` or `Query.update` with `queryClient.runPromise`, as
+[Write to the cache](#write-to-the-cache) shows.
+
+## Read without waiting
+
+To read the cache where you can't wait for a promise, such as a form
+listener, `QueryClient.get(queryClient, query)` returns the cached value
+as an `Option`, as `Query.get` does. It never fetches:
+
+```ts
+import * as Option from "effect/Option";
+
+import { QueryClient } from "@monarcode/effetch-query";
+
+import { queryClient } from "./client.js";
+import { todo } from "./todos.js";
+
+export const cachedTitle = (id: number): string =>
+  Option.match(QueryClient.get(queryClient, todo({ params: { id } })), {
+    onNone: () => "",
+    onSome: (cached) => cached.title,
+  });
+```
+
+## Read and write from Effect
+
+Each cache function is an Effect that needs the client. Inside queries,
+mutations and the client's hooks, the client is already there, so
+`yield*` them. Elsewhere, run the Effect with `queryClient.runPromise`.
+This loader opens a todo and warms the cache for the next screen:
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -36,33 +109,73 @@ const openTodo = (id: number) =>
   });
 
 export const loadTodo = (id: number) => queryClient.runPromise(openTodo(id));
-
-export const refreshEverything = () => queryClient.invalidate(["todos"]);
 ```
 
 `Query.fetch` fails as the query does, with its typed error, so
 `loadTodo` rejects when the todo can't load. `Query.prefetch` never fails:
 a failure shows in the query's result instead.
 
-**Targets.** The functions that act on many queries at once take a
-target: a query, a family, a key or a group of them, as
-[Targets](/docs/queries/keys#targets) explains.
+`queryClient.runPromise(effect)` runs any Effect with your services and
+the client, and rejects with its error if it fails.
+`queryClient.runPromiseExit(effect)` resolves with the `Exit`, Effect's
+value for a success or a failure with its `Cause`, so it never rejects.
+Both take `{ signal }` to interrupt the Effect when the signal aborts. In
+a component, `useQueryClient()` returns the client.
 
-The following table lists the cache functions:
+## The cache functions
 
-| Function                   | What it does                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------------ |
-| `Query.fetch(query)`       | The value if fresh, otherwise a fetch. Joins a fetch in progress. Fails as the query does. |
-| `Query.prefetch(query)`    | Fetches if not fresh, and ignores the result. Never fails.                                 |
-| `Query.get(query)`         | The cached value as an `Option`. Never fetches.                                            |
-| `Query.set(query, value)`  | Writes a value, which counts as freshly fetched.                                           |
-| `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                           |
-| `Query.update(family, f)`  | Writes `f(value, args)` to every cached query of a family, such as `todos`.                |
-| `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                |
-| `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                          |
-| `Query.reset(target)`      | Drops the values; queries in use fetch again.                                              |
-| `Query.clear(target)`      | Drops the values without fetching; queries in use show `Initial` until something asks.     |
-| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.       |
+The functions that act on many queries at once take a target: a query, a
+family, a key or a group of them, as [Targets](/docs/queries/keys#targets)
+explains. A key that holds a query, a family or a group matches nothing,
+and the function dies with a `Query.KeyHoldsTargetError`.
+
+The following table lists the cache functions. Each returns an Effect,
+except `Query.group`, which makes a target:
+
+| Function                   | What it does                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| `Query.fetch(query)`       | The value if fresh, otherwise a fetch. Joins a fetch in progress. Fails as the query does.    |
+| `Query.prefetch(query)`    | Fetches if not fresh, and ignores the result. Never fails.                                    |
+| `Query.get(query)`         | The cached value as an `Option`. Never fetches.                                               |
+| `Query.set(query, value)`  | Writes a value. It counts as fetched at the time of the write, so it's fresh for `staleTime`. |
+| `Query.update(query, f)`   | Writes `f(value)`; does nothing without a value.                                              |
+| `Query.update(family, f)`  | Writes `f(value, args)` to every cached query of a family, such as `todos`.                   |
+| `Query.invalidate(target)` | Marks queries stale: those in use refetch at once, the rest when next used.                   |
+| `Query.refetch(target)`    | Refetches the queries in use, and completes when they've settled.                             |
+| `Query.reset(target)`      | Drops the values; queries in use fetch again.                                                 |
+| `Query.clear(target)`      | Drops the values without fetching; queries in use show `Initial` until something asks.        |
+| `Query.group(...targets)`  | One target for several: queries, families, keys or groups. Each matching query once.          |
+
+No function cancels a fetch in progress and keeps the query's value, as
+TanStack Query's `cancelQueries` does.
+[What a rollback doesn't cover](/docs/mutations/optimistic#what-a-rollback-doesnt-cover)
+describes the race that leaves.
+
+## Write to the cache
+
+A write is for a change that reached you without a fetch, such as a
+socket message saying a todo was saved. This handler writes the todo
+into its own query and into every cached list:
+
+```ts
+import * as Effect from "effect/Effect";
+
+import { Query } from "@monarcode/effetch-query";
+
+import type { Todo } from "./api.js";
+import { queryClient } from "./client.js";
+import { todo, todos } from "./todos.js";
+
+export const onTodoSaved = (saved: Todo) =>
+  queryClient.runPromise(
+    Effect.andThen(
+      Query.set(todo({ params: { id: saved.id } }), saved),
+      Query.update(todos, (list) =>
+        list.map((item) => (item.id === saved.id ? saved : item)),
+      ),
+    ),
+  );
+```
 
 A few details matter when you write to the cache:
 
@@ -77,9 +190,24 @@ A few details matter when you write to the cache:
   still returns the value it had before.
 - **In use means subscribed.** A query is in use while something
   subscribes to it, or to an atom or query that depends on it: a component
-  that shows it, or a query in use that reads it through `ctx.result`
-  ([Queries that read other queries](/docs/queries/dependent)).
-  A dependent that's only cached doesn't count.
+  that shows it, or a query in use that reads it through `ctx.result`, as
+  [Queries that read other queries](/docs/queries/dependent) shows. A
+  dependent that's only cached doesn't count.
 
 In a mutation's `optimistic`, `Query.set` and `Query.update` writes are
-undone if the run fails ([Optimistic updates](/docs/mutations/optimistic)).
+undone if the run fails, as [Optimistic updates](/docs/mutations/optimistic)
+shows. A record held in many queries is easier to write through an
+entity.
+
+When you're done with a client, such as one made per request on a server,
+`queryClient.dispose()` releases everything it owns, as
+[The query client](/docs/client) describes.
+
+## What's next
+
+- [Entities](/docs/cache/entities): write every cached copy of a record
+  with one call.
+- [Sign out and switch accounts](/docs/cache/accounts): drop one user's
+  cache when the session ends.
+- [Invalidate after a mutation](/docs/mutations/invalidate): mark what a
+  mutation changed as out of date.

@@ -3,16 +3,19 @@ title: Infinite queries
 description: Page through a list, and load more pages on demand.
 ---
 
-An infinite query loads a list one page at a time, for "load more" buttons
-and infinite scroll. Its value is every page loaded so far, with the param
-each was fetched with, as an `InfiniteQuery.InfiniteData`:
-`{ pages, pageParams }`. After this page, you can page through an
-endpoint or any Effect, and show the pages in a component.
+A feed or a long list loads one page at a time, with a "Load more" button
+or infinite scroll. An infinite query holds every page loaded so far, with
+the param each was fetched with, as an `InfiniteQuery.InfiniteData`:
+`{ pages, pageParams }`. This page shows how to page through an endpoint
+or any Effect, how pages load, and how to show them in a component.
 
-The examples import `api.ts` and `todos.ts` from [Getting started](/docs/getting-started).
+The examples import `api.ts` and `todos.ts` from
+[Getting started](/docs/getting-started).
 
-**From an endpoint.** `api.infiniteQuery` pages through an Effetch endpoint.
-`pageParam` names the query field each page's param is sent in:
+## Page through an endpoint
+
+`api.infiniteQuery` pages through an Effetch endpoint. `pageParam` names
+the query field each page's param is sent in:
 
 ```ts activity.ts
 import * as Schema from "effect/Schema";
@@ -42,13 +45,23 @@ export const activity = api.infiniteQuery(
 // GET /activity?team=web, and the next from ?team=web&cursor=…
 ```
 
-The page field is set on every page's request, over any value the call
-gives for it, and left out of the key, so every page belongs to one query.
-The param must be a value a query field takes, such as a string or a
-number. If the endpoint has a `query` schema, `pageParam` names one of its
-optional fields whose type takes the param, so a call can leave it out.
+Every page of one call belongs to one query, since the page field is left
+out of the key. A few rules follow:
 
-**Without endpoints.** `InfiniteQuery.make` defines one infinite query, and
+- the page field is set on every page's request, over any value the call
+  gives for it;
+- the param must be a value a query field takes, such as a string or a
+  number;
+- if the endpoint has a `query` schema, `pageParam` names one of its
+  optional fields whose type takes the param, so a call can leave it out.
+
+An endpoint with an `output` makes infinite queries that cross to the
+browser in server rendering with no `schema` to write, as `api.query`'s
+do.
+
+## Page through any Effect
+
+`InfiniteQuery.make` defines one infinite query, and
 `InfiniteQuery.family` one per argument. Their `run` fetches one page from
 its param; a family's takes the member's argument first. This one loads
 todos by offset, in both directions:
@@ -81,31 +94,37 @@ export const todoPages = InfiniteQuery.family({
   previousPageParam: (first) =>
     first.skip > 0 ? Math.max(0, first.skip - first.limit) : undefined,
   maxPages: 10,
-  // Only for server rendering: how each page crosses to the browser.
+  // How each page crosses to the browser, and how entities find records in it.
   schema: { page: TodosPage },
 });
 // todoPages(20) is the infinite query keyed ["todos", "pages", 20]
 ```
 
-`nextPageParam` and `previousPageParam` are `InfiniteQuery.PageParamFunction`s:
-they get a page, every page, that page's param and every param, and return
-`undefined` or `null` when there's no page in that direction. An endpoint
-with an `output` makes infinite queries that cross to the browser with no
-`schema` to write, as `api.query`'s do; with `make` and `family`, give `schema` a `page` schema,
-and an `error` schema to send failures too. The page params go as they
-are, so they must be JSON values (strings, numbers, booleans, `null`)
-unless `schema.pageParam` gives their schema.
+Both `nextPageParam` and `previousPageParam` are
+`InfiniteQuery.PageParamFunction` functions. Each gets a page, every page,
+that page's param and every param, and returns `undefined` or `null` when
+there's no page in that direction.
 
-**How pages load.** The first fetch loads one page, from
-`initialPageParam`. `fetchNextPage` (from
-[`useInfiniteQuery`](#load-more), or `InfiniteQuery.fetchNextPage` in
-Effect code) adds the next one, and `fetchPreviousPage` adds the one
-before the first:
+With `make` and `family`, give `schema` a `page` schema to render on the
+server, and an `error` schema to send failures too. The page params go as
+they are, so they must be JSON values (strings, numbers, booleans,
+`null`), unless `schema.pageParam` gives their schema.
 
-- On the last page, it returns the pages without fetching. Without
-  `previousPageParam`, there's never a previous page.
-- A page that fails keeps the loaded pages: the result is a `Failure` whose
-  `previousSuccess` still holds them.
+## How pages load
+
+The first fetch loads one page, from `initialPageParam`. `fetchNextPage`
+adds the page after the last one, and `fetchPreviousPage` the page before
+the first. You call them from [`useInfiniteQuery`](#load-more), or as
+`InfiniteQuery.fetchNextPage` in Effect code:
+
+- When there's no next page, `fetchNextPage` returns the loaded pages
+  without fetching. `fetchPreviousPage` does the same, and without
+  `previousPageParam` there's never a previous page.
+- Called when the query has no data, it's the query's first fetch, and
+  joins that fetch if it's already running. When a write left no pages,
+  it fetches from the first page.
+- A page that fails keeps the loaded pages: the result is a `Failure`
+  whose `previousSuccess` still holds them.
 - Past `maxPages`, a page is dropped from the far end: the first when a
   next page loads, the last when a previous page does.
 - While the next page is loading, another `fetchNextPage` joins that fetch.
@@ -113,10 +132,16 @@ before the first:
   fetches its page.
 - A write made while a page loads stays: the page is added to the data
   shown when it lands.
-- A refetch (after an invalidation, on focus, or when a component starts
-  using the query while it's stale) fetches as many pages as are loaded,
-  one after the other, each from the page before it, so a list that
-  changed underneath doesn't show duplicates or gaps.
+
+A refetch is any other fetch: after an invalidation, on focus, or when a
+component starts using the query while it's stale. It fetches as many
+pages as are loaded, one after the other, so a list that changed
+underneath doesn't show duplicates or gaps. The first page is fetched from
+its stored param, which may not be `initialPageParam` after `maxPages`
+dropped the first page, and each later one from `nextPageParam` of the page
+before. The refetch stops early when there's no next page.
+
+## Fetch a page in Effect code
 
 In Effect code, `InfiniteQuery.fetchNextPage` and
 `InfiniteQuery.fetchPreviousPage` return the updated
@@ -136,27 +161,31 @@ export const loadMore = Effect.map(
 );
 ```
 
-An infinite query **is** a query: invalidation,
-[the cache functions](/docs/cache) and the client's defaults
-work on it as on any other. To change its pages in an
+An infinite query is a query: invalidation,
+[the cache functions](/docs/cache) and the client's defaults work on it
+as on any other. To change its pages in an
 [optimistic update](/docs/mutations/optimistic), `Query.update` the whole
 `{ pages, pageParams }` value; on a family, `Query.update` writes every
-cached member. [Entities](/docs/mutations/entities) find a record in every loaded page.
+cached member. [Entities](/docs/cache/entities) find a record in every
+loaded page.
+
+## Infinite query options
 
 An infinite query takes the following options. The paging ones, from
 `initialPageParam` to `maxPages`, are its `InfiniteQuery.PageOptions`:
 
-| Option              | What it does                                                                                                                         |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `pageParam`         | The query field each page's param is sent in (Effetch only).                                                                         |
-| `initialPageParam`  | The first page's param.                                                                                                              |
-| `nextPageParam`     | `(lastPage, pages, lastPageParam, pageParams) => param`: the next page's param, or `undefined` / `null` for none.                    |
-| `previousPageParam` | The same, from the first page, for `fetchPreviousPage`. Without it, there's no previous page.                                        |
-| `maxPages`          | The most pages to keep. Past it, a page is dropped from the far end; give `previousPageParam` too, so it can load again.             |
-| `schema`            | `{ page, pageParam?, error? }`: how the pages cross to the browser in [server rendering](/docs/server-rendering) (`make`, `family`). |
-| Query options       | As in [Query options](/docs/queries/options), such as `staleTime` and `refetchOnFocus`. `retry` applies to each page.                |
+| Option              | What it does                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pageParam`         | The query field each page's param is sent in. `api.infiniteQuery` only.                                                                                  |
+| `initialPageParam`  | The first page's param.                                                                                                                                  |
+| `nextPageParam`     | `(lastPage, pages, lastPageParam, pageParams) => param`: the next page's param, or `undefined` / `null` for none.                                        |
+| `previousPageParam` | The same, from the first page, for `fetchPreviousPage`. Default: none, so there's no previous page.                                                      |
+| `maxPages`          | The most pages to keep. Past it, a page is dropped from the far end; give `previousPageParam` too, so it can load again. Default: no limit.              |
+| `schema`            | `{ page, pageParam?, error? }`: how the pages cross to the browser in server rendering, and how entities find records in them. `make` and `family` only. |
 
-Infinite queries don't take `placeholder` or `live`.
+It also takes the options in [Query options](/docs/queries/options), such
+as `staleTime` and `refetchOnFocus`, except `placeholder` and `live`.
+`retry` applies to each page.
 
 ## Load more
 
@@ -214,13 +243,26 @@ While a page loads, `result` stays a waiting `Success`, so
 `isFetchingNextPage` is how you tell a page fetch from a background
 refetch of every page.
 
-**Without Suspense.** `useInfiniteQuery`'s `result` is an `AsyncResult`, as
+### Without Suspense
+
+`useInfiniteQuery`'s `result` is an `AsyncResult`, as
 [`useQuery`](/docs/react) returns, and it fetches when `useQuery` does.
 Pass `null` to read nothing. It takes `useQuery`'s `keepPrevious` and
-`paused` options ([Pause screens you can't see](/docs/react/pause));
-a paused reader's page functions still fetch pages when called.
+`paused` options, as [Pause screens you can't see](/docs/react/pause)
+explains. A paused reader's page functions still fetch pages when called.
 
-**With Suspense.** A page that fails after the first isn't thrown, since
-there are pages to show. Only a failure with no pages before it reaches
-the error boundary, as a `QueryFailure`
-([Suspense and error boundaries](/docs/react/suspense)).
+### With Suspense
+
+A page that fails after the first isn't thrown, since there are pages to
+show. Only a failure with no pages before it reaches the error boundary,
+as a `QueryFailure`. See
+[Suspense and error boundaries](/docs/react/suspense).
+
+## What's next
+
+- [Suspense and error boundaries](/docs/react/suspense): show the first
+  page's failure in an error boundary.
+- [Optimistic updates](/docs/mutations/optimistic): change loaded pages
+  before the server answers.
+- [Send the cache](/docs/server-rendering): render the first page on the
+  server.
